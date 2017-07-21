@@ -243,7 +243,7 @@ int DisplayManager::enumDisplays()
         display->setFb(fb);
         display->readType();
         display->readConnection();
-        if (display->connected()) {
+        if (fb == 0 || display->connected()) {
             display->openFb();
         }
     }
