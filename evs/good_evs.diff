@@ -1,0 +1,1180 @@
+diff --git a/car_product/build/car_base.mk b/car_product/build/car_base.mk
+index 511d9ff..a743183 100644
+--- a/car_product/build/car_base.mk
++++ b/car_product/build/car_base.mk
+@@ -85,11 +85,11 @@ PRODUCT_PACKAGES += \
+ 
+ # EVS resources
+ PRODUCT_PACKAGES += android.automotive.evs.manager@1.0
+-PRODUCT_PACKAGES += evs_app
++PRODUCT_PACKAGES += evs_app config.json
+ # The following packages, or their vendor specific equivalents should be include in the device.mk
+-#PRODUCT_PACKAGES += evs_app_default_resources
+-#PRODUCT_PACKAGES += android.hardware.automotive.evs@1.0-service
+-#PRODUCT_PACKAGES += android.hardware.automotive.evs@1.0-sample
++PRODUCT_PACKAGES += evs_app_default_resources
++PRODUCT_PACKAGES += android.hardware.automotive.evs@1.0-service
++PRODUCT_PACKAGES += android.hardware.automotive.evs@1.0-sample
+ 
+ # Device running Android is a car
+ PRODUCT_COPY_FILES += \
+diff --git a/evs/app/Android.mk b/evs/app/Android.mk
+index 2b15865..6bd7bdc 100644
+--- a/evs/app/Android.mk
++++ b/evs/app/Android.mk
+@@ -39,7 +39,7 @@ LOCAL_STATIC_LIBRARIES := \
+ 
+ LOCAL_STRIP_MODULE := keep_symbols
+ 
+-LOCAL_INIT_RC := evs_app.rc
++# LOCAL_INIT_RC := evs_app.rc
+ 
+ LOCAL_MODULE:= evs_app
+ LOCAL_MODULE_TAGS := optional
+@@ -78,4 +78,4 @@ LOCAL_REQUIRED_MODULES := \
+     config.json \
+     CarFromTop.png \
+     LabeledChecker.png
+-include $(BUILD_PHONY_PACKAGE)
+\ No newline at end of file
++include $(BUILD_PHONY_PACKAGE)
+diff --git a/evs/app/EvsStateControl.cpp b/evs/app/EvsStateControl.cpp
+index 1a925e6..bd3ee5d 100644
+--- a/evs/app/EvsStateControl.cpp
++++ b/evs/app/EvsStateControl.cpp
+@@ -182,7 +182,6 @@ void EvsStateControl::updateLoop() {
+                     // If drawing failed, we want to exit quickly so an app restart can happen
+                     run = false;
+                 }
+-
+                 // Send the finished image back for display
+                 mDisplay->returnTargetBufferForDisplay(tgtBuffer);
+             }
+@@ -247,6 +246,7 @@ bool EvsStateControl::selectStateForCurrentConditions() {
+         desiredState = PARKING;
+     }
+ 
++    desiredState = RIGHT;
+     // Apply the desire state
+     return configureEvsPipeline(desiredState);
+ }
+diff --git a/evs/app/RenderBase.cpp b/evs/app/RenderBase.cpp
+index cb6aa93..214e9bd 100644
+--- a/evs/app/RenderBase.cpp
++++ b/evs/app/RenderBase.cpp
+@@ -150,7 +150,7 @@ bool RenderBase::attachRenderTarget(const BufferDesc& tgtBuffer) {
+                                                      GraphicBuffer::CLONE_HANDLE,
+                                                      tgtBuffer.width, tgtBuffer.height,
+                                                      tgtBuffer.format, 1, // layer count
+-                                                     GRALLOC_USAGE_HW_RENDER,
++                                                     GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_SW_READ_OFTEN,
+                                                      tgtBuffer.stride);
+     if (pGfxBuffer.get() == nullptr) {
+         ALOGE("Failed to allocate GraphicBuffer to wrap image handle");
+@@ -214,4 +214,4 @@ void RenderBase::detachRenderTarget() {
+         eglDestroyImageKHR(sDisplay, sKHRimage);
+         sKHRimage = EGL_NO_IMAGE_KHR;
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/evs/app/RenderDirectView.cpp b/evs/app/RenderDirectView.cpp
+index 24eb485..4f3ccd6 100644
+--- a/evs/app/RenderDirectView.cpp
++++ b/evs/app/RenderDirectView.cpp
+@@ -107,7 +107,7 @@ bool RenderDirectView::drawFrame(const BufferDesc& tgtBuffer) {
+     }
+ 
+     // We want our image to show up opaque regardless of alpha values
+-    glDisable(GL_BLEND);
++     glDisable(GL_BLEND);
+ 
+ 
+     // Draw a rectangle on the screen
+diff --git a/evs/app/StreamHandler.cpp b/evs/app/StreamHandler.cpp
+index 28da6df..96d170d 100644
+--- a/evs/app/StreamHandler.cpp
++++ b/evs/app/StreamHandler.cpp
+@@ -95,6 +95,7 @@ bool StreamHandler::newFrameAvailable() {
+ const BufferDesc& StreamHandler::getNewFrame() {
+     std::unique_lock<std::mutex> lock(mLock);
+ 
++        ALOGE("getNewFrame enter.");
+     if (mHeldBuffer >= 0) {
+         ALOGE("Ignored call for new frame while still holding the old one.");
+     } else {
+@@ -108,6 +109,7 @@ const BufferDesc& StreamHandler::getNewFrame() {
+         mReadyBuffer = -1;
+     }
+ 
++        ALOGE("getNewFrame leave.");
+     return mBuffers[mHeldBuffer];
+ }
+ 
+@@ -140,19 +142,23 @@ Return<void> StreamHandler::deliverFrame(const BufferDesc& buffer) {
+             mRunning = false;
+         } else {
+             // Do we already have a "ready" frame?
++    ALOGD("debug crash issue deliverFrame 1 ");
+             if (mReadyBuffer >= 0) {
+                 // Send the previously saved buffer back to the camera unused
+                 mCamera->doneWithFrame(mBuffers[mReadyBuffer]);
+ 
++    ALOGD("debug crash issue deliverFrame 2 ");
+                 // We'll reuse the same ready buffer index
+             } else if (mHeldBuffer >= 0) {
+                 // The client is holding a buffer, so use the other slot for "on deck"
+                 mReadyBuffer = 1 - mHeldBuffer;
++    ALOGD("debug crash issue deliverFrame 3 ");
+             } else {
+                 // This is our first buffer, so just pick a slot
+                 mReadyBuffer = 0;
+             }
+ 
++    ALOGD("debug crash issue deliverFrame 4 mReadyBuffer %d", mReadyBuffer);
+             // Save this frame until our client is interested in it
+             mBuffers[mReadyBuffer] = buffer;
+         }
+@@ -160,6 +166,7 @@ Return<void> StreamHandler::deliverFrame(const BufferDesc& buffer) {
+ 
+     // Notify anybody who cares that things have changed
+     mSignal.notify_all();
++    ALOGD("debug crash issue deliverFrame 5 ");
+ 
+     return Void();
+ }
+diff --git a/evs/app/VideoTex.cpp b/evs/app/VideoTex.cpp
+index 10d54bd..e5c5092 100644
+--- a/evs/app/VideoTex.cpp
++++ b/evs/app/VideoTex.cpp
+@@ -62,6 +62,7 @@ VideoTex::~VideoTex() {
+ 
+ // Return true if the texture contents are changed
+ bool VideoTex::refresh() {
++        ALOGE("refresh enter.");
+     if (!mStreamHandler->newFrameAvailable()) {
+         // No new image has been delivered, so there's nothing to do here
+         return false;
+@@ -122,6 +123,7 @@ bool VideoTex::refresh() {
+         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+     }
++        ALOGE("refresh leave.");
+ 
+     return true;
+ }
+diff --git a/evs/app/evs_app.cpp b/evs/app/evs_app.cpp
+index 618e8cc..adee91b 100644
+--- a/evs/app/evs_app.cpp
++++ b/evs/app/evs_app.cpp
+@@ -95,10 +95,12 @@ int main(int argc, char** argv)
+         printf("  --mock   Connect directly to EvsEnumeratorHw-Mock\n");
+     }
+ 
++        printf(" debug 1 \n");
+     // Load our configuration information
+     ConfigManager config;
+     config.initialize("/system/etc/automotive/evs/config.json");
+ 
++        printf(" debug 2 \n");
+     // Set thread pool size to one to avoid concurrent events from the HAL.
+     // This pool will handle the EvsCameraStream callbacks.
+     // Note:  This _will_ run in parallel with the EvsListener run() loop below which
+@@ -107,6 +109,7 @@ int main(int argc, char** argv)
+ 
+     // Construct our async helper object
+     sp<EvsVehicleListener> pEvsListener = new EvsVehicleListener();
++        printf(" debug 3 \n");
+ 
+     // Get the EVS manager service
+     ALOGI("Acquiring EVS Enumerator");
+@@ -115,6 +118,7 @@ int main(int argc, char** argv)
+         ALOGE("getService(%s) returned NULL.  Exiting.", evsServiceName);
+         return 1;
+     }
++        printf(" debug 4 \n");
+ 
+     // Request exclusive access to the EVS display
+     ALOGI("Acquiring EVS Display");
+@@ -148,6 +152,7 @@ int main(int argc, char** argv)
+         ALOGW("Test mode selected, so not talking to Vehicle HAL");
+     }
+ 
++        printf(" debug 4 \n");
+     // Configure ourselves for the current vehicle state at startup
+     ALOGI("Constructing state controller");
+     EvsStateControl *pStateController = new EvsStateControl(pVnet, pEvs, pDisplay, config);
+diff --git a/evs/app/evs_app.rc b/evs/app/evs_app.rc
+index a61edfe..eb548c4 100644
+--- a/evs/app/evs_app.rc
++++ b/evs/app/evs_app.rc
+@@ -1,5 +1,3 @@
+ service evs_app /system/bin/evs_app
+-    class hal
+-    priority -20
+     user automotive_evs
+     group automotive_evs
+diff --git a/evs/manager/Android.mk b/evs/manager/Android.mk
+index 375a84c..d56b0b8 100644
+--- a/evs/manager/Android.mk
++++ b/evs/manager/Android.mk
+@@ -21,7 +21,7 @@ LOCAL_SHARED_LIBRARIES := \
+     android.hardware.automotive.evs@1.0 \
+ 
+ 
+-LOCAL_INIT_RC := android.automotive.evs.manager@1.0.rc
++# LOCAL_INIT_RC := android.automotive.evs.manager@1.0.rc
+ 
+ LOCAL_MODULE := android.automotive.evs.manager@1.0
+ 
+diff --git a/evs/manager/VirtualCamera.h b/evs/manager/VirtualCamera.h
+index 22da798..f4be221 100644
+--- a/evs/manager/VirtualCamera.h
++++ b/evs/manager/VirtualCamera.h
+@@ -70,7 +70,7 @@ private:
+     sp<IEvsCameraStream>    mStream;
+ 
+     std::deque<BufferDesc>  mFramesHeld;
+-    unsigned                mFramesAllowed  = 1;
++    unsigned                mFramesAllowed  = 0;
+     enum {
+         STOPPED,
+         RUNNING,
+diff --git a/evs/manager/android.automotive.evs.manager@1.0.rc b/evs/manager/android.automotive.evs.manager@1.0.rc
+index 8a53ba7..1db2507 100644
+--- a/evs/manager/android.automotive.evs.manager@1.0.rc
++++ b/evs/manager/android.automotive.evs.manager@1.0.rc
+@@ -1,6 +1,4 @@
+ service evs_manager /system/bin/android.automotive.evs.manager@1.0
+-    class hal
+-    priority -20
+     user automotive_evs
+     group automotive_evs
+     onrestart restart evs_app
+diff --git a/evs/manager/service.cpp b/evs/manager/service.cpp
+index f9e45eb..0a30f3e 100644
+--- a/evs/manager/service.cpp
++++ b/evs/manager/service.cpp
+@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
+ 
+     ALOGI("EVS managed service connecting to hardware service at %s", evsHardwareServiceName);
+     android::sp<Enumerator> service = new Enumerator();
+-    if (!service->init(evsHardwareServiceName)) {
++    if (!service->init(NULL)) {
+         ALOGE("Failed to initialize");
+         return 1;
+     }
+diff --git a/evs/sampleDriver/Android.mk b/evs/sampleDriver/Android.mk
+index c4463a9..730609e 100644
+--- a/evs/sampleDriver/Android.mk
++++ b/evs/sampleDriver/Android.mk
+@@ -28,7 +28,7 @@ LOCAL_SHARED_LIBRARIES := \
+     liblog \
+     libutils \
+ 
+-LOCAL_INIT_RC := android.hardware.automotive.evs@1.0-sample.rc
++# LOCAL_INIT_RC := android.hardware.automotive.evs@1.0-sample.rc
+ 
+ LOCAL_MODULE := android.hardware.automotive.evs@1.0-sample
+ 
+@@ -37,7 +37,7 @@ LOCAL_STRIP_MODULE := keep_symbols
+ 
+ LOCAL_CFLAGS += -DLOG_TAG=\"EvsSampleDriver\"
+ LOCAL_CFLAGS += -DGL_GLEXT_PROTOTYPES -DEGL_EGLEXT_PROTOTYPES
+-LOCAL_CFLAGS += -Wall -Werror -Wunused -Wunreachable-code
++LOCAL_CFLAGS += -Wall -Werror -Wunused -Wunreachable-code -Wempty-body -Wunused-parameter
+ 
+ # NOTE:  It can be helpful, while debugging, to disable optimizations
+ #LOCAL_CFLAGS += -O0 -g
+diff --git a/evs/sampleDriver/EvsEnumerator.cpp b/evs/sampleDriver/EvsEnumerator.cpp
+index d31f672..7326315 100644
+--- a/evs/sampleDriver/EvsEnumerator.cpp
++++ b/evs/sampleDriver/EvsEnumerator.cpp
+@@ -65,6 +65,7 @@ EvsEnumerator::EvsEnumerator() {
+             if (qualifyCaptureDevice(deviceName.c_str())) {
+                 sCameraList.emplace_back(deviceName.c_str());
+                 captureCount++;
++    ALOGI("Found videoCount %d %s\n", videoCount, deviceName.c_str());
+             }
+         }
+     }
+@@ -237,14 +238,14 @@ bool EvsEnumerator::qualifyCaptureDevice(const char* deviceName) {
+     if (result  < 0) {
+         return false;
+     }
+-    if (((caps.capabilities & V4L2_CAP_VIDEO_CAPTURE) == 0) ||
++    if (((caps.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) == 0) ||
+         ((caps.capabilities & V4L2_CAP_STREAMING)     == 0)) {
+         return false;
+     }
+ 
+     // Enumerate the available capture formats (if any)
+     v4l2_fmtdesc formatDescription;
+-    formatDescription.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
++    formatDescription.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+     for (int i=0; true; i++) {
+         formatDescription.index = i;
+         if (ioctl(fd, VIDIOC_ENUM_FMT, &formatDescription) == 0) {
+@@ -259,7 +260,8 @@ bool EvsEnumerator::qualifyCaptureDevice(const char* deviceName) {
+                 case V4L2_PIX_FMT_ARGB32:   return true;
+                 case V4L2_PIX_FMT_XRGB32:   return true;
+ #endif // V4L2_PIX_FMT_ARGB32
+-                default:                    break;
++                default:      
++			break;
+             }
+         } else {
+             // No more formats available
+diff --git a/evs/sampleDriver/EvsGlDisplay.cpp b/evs/sampleDriver/EvsGlDisplay.cpp
+index 26d4c1d..1bb9ab5 100644
+--- a/evs/sampleDriver/EvsGlDisplay.cpp
++++ b/evs/sampleDriver/EvsGlDisplay.cpp
+@@ -151,7 +151,7 @@ Return<DisplayState> EvsGlDisplay::getDisplayState()  {
+  * display is no longer visible.
+  */
+ Return<void> EvsGlDisplay::getTargetBuffer(getTargetBuffer_cb _hidl_cb)  {
+-    ALOGV("getTargetBuffer");
++    ALOGE("getTargetBuffer 1");
+     std::lock_guard<std::mutex> lock(mAccessLock);
+ 
+     if (mRequestedState == DisplayState::DEAD) {
+@@ -161,6 +161,7 @@ Return<void> EvsGlDisplay::getTargetBuffer(getTargetBuffer_cb _hidl_cb)  {
+         return Void();
+     }
+ 
++    ALOGE("getTargetBuffer 2");
+     // If we don't already have a buffer, allocate one now
+     if (!mBuffer.memHandle) {
+         // Initialize our display window
+@@ -175,11 +176,14 @@ Return<void> EvsGlDisplay::getTargetBuffer(getTargetBuffer_cb _hidl_cb)  {
+             return Void();
+         }
+ 
++    ALOGE("getTargetBuffer 3");
+         // Assemble the buffer description we'll use for our render target
+-        mBuffer.width       = mGlWrapper.getWidth();
+-        mBuffer.height      = mGlWrapper.getHeight();
++        //mBuffer.width       = mGlWrapper.getWidth();
++        //mBuffer.height      = mGlWrapper.getHeight();
++        mBuffer.width       = 640;
++        mBuffer.height      = 480;
+         mBuffer.format      = HAL_PIXEL_FORMAT_RGBA_8888;
+-        mBuffer.usage       = GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_COMPOSER;
++        mBuffer.usage       = GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_COMPOSER | GRALLOC_USAGE_SW_READ_OFTEN;
+         mBuffer.bufferId    = 0x3870;  // Arbitrary magic number for self recognition
+         mBuffer.pixelSize   = 4;
+ 
+@@ -199,6 +203,7 @@ Return<void> EvsGlDisplay::getTargetBuffer(getTargetBuffer_cb _hidl_cb)  {
+             mGlWrapper.shutdown();
+             return Void();
+         }
++    ALOGE("getTargetBuffer 4");
+         if (!handle) {
+             ALOGE("We didn't get a buffer handle back from the allocator");
+             BufferDesc nullBuff = {};
+@@ -240,13 +245,11 @@ Return<void> EvsGlDisplay::getTargetBuffer(getTargetBuffer_cb _hidl_cb)  {
+  * This call tells the display that the buffer is ready for display.
+  * The buffer is no longer valid for use by the client after this call.
+  */
+-Return<EvsResult> EvsGlDisplay::returnTargetBufferForDisplay(const BufferDesc& buffer)  {
+-    ALOGV("returnTargetBufferForDisplay %p", buffer.memHandle.getNativeHandle());
++Return<EvsResult> EvsGlDisplay::returnTargetBufferForDisplay(__attribute__((unused))const BufferDesc& buffer)  {
+     std::lock_guard<std::mutex> lock(mAccessLock);
+-
++        ALOGE ("returnTargetBufferForDisplay 1.\n");
+     // Nobody should call us with a null handle
+     if (!buffer.memHandle.getNativeHandle()) {
+-        ALOGE ("returnTargetBufferForDisplay called without a valid buffer handle.\n");
+         return EvsResult::INVALID_ARG;
+     }
+     if (buffer.bufferId != mBuffer.bufferId) {
+@@ -260,6 +263,7 @@ Return<EvsResult> EvsGlDisplay::returnTargetBufferForDisplay(const BufferDesc& b
+ 
+     mFrameBusy = false;
+ 
++        ALOGE ("returnTargetBufferForDisplay 2.\n");
+     // If we've been displaced by another owner of the display, then we can't do anything else
+     if (mRequestedState == DisplayState::DEAD) {
+         return EvsResult::OWNERSHIP_LOST;
+@@ -271,6 +275,7 @@ Return<EvsResult> EvsGlDisplay::returnTargetBufferForDisplay(const BufferDesc& b
+         mGlWrapper.showWindow();
+     }
+ 
++        ALOGE ("returnTargetBufferForDisplay 3.\n");
+     // Validate we're in an expected state
+     if (mRequestedState != DisplayState::VISIBLE) {
+         // Not sure why a client would send frames back when we're not visible.
+diff --git a/evs/sampleDriver/EvsV4lCamera.cpp b/evs/sampleDriver/EvsV4lCamera.cpp
+index f811a1f..8ef4f7a 100644
+--- a/evs/sampleDriver/EvsV4lCamera.cpp
++++ b/evs/sampleDriver/EvsV4lCamera.cpp
+@@ -17,6 +17,7 @@
+ #include "EvsV4lCamera.h"
+ #include "EvsEnumerator.h"
+ #include "bufferCopy.h"
++//#include "Memory.h"
+ 
+ #include <ui/GraphicBufferAllocator.h>
+ #include <ui/GraphicBufferMapper.h>
+@@ -52,12 +53,11 @@ EvsV4lCamera::EvsV4lCamera(const char *deviceName) :
+     // TODO:  Settle on the one official format that works on all platforms
+     // TODO:  Get NV21 working?  It is scrambled somewhere along the way right now.
+ //    mFormat = HAL_PIXEL_FORMAT_YCRCB_420_SP;    // 420SP == NV21
+-//    mFormat = HAL_PIXEL_FORMAT_RGBA_8888;
+-    mFormat = HAL_PIXEL_FORMAT_YCBCR_422_I;
++    mFormat = HAL_PIXEL_FORMAT_RGBA_8888;
++//    mFormat = HAL_PIXEL_FORMAT_YCBCR_422_I;
+ 
+     // How we expect to use the gralloc buffers we'll exchange with our client
+     mUsage  = GRALLOC_USAGE_HW_TEXTURE     |
+-              GRALLOC_USAGE_SW_READ_RARELY |
+               GRALLOC_USAGE_SW_WRITE_OFTEN;
+ }
+ 
+@@ -110,7 +110,7 @@ Return<void> EvsV4lCamera::getCameraInfo(getCameraInfo_cb _hidl_cb) {
+ 
+ 
+ Return<EvsResult> EvsV4lCamera::setMaxFramesInFlight(uint32_t bufferCount) {
+-    ALOGD("setMaxFramesInFlight");
++    ALOGD("setMaxFramesInFlight %d", bufferCount);
+     std::lock_guard<std::mutex> lock(mAccessLock);
+ 
+     // If we've been displaced by another owner of the camera, then we can't do anything else
+@@ -159,7 +159,7 @@ Return<EvsResult> EvsV4lCamera::startVideoStream(const ::android::sp<IEvsCameraS
+     // Choose which image transfer function we need
+     // Map from V4L2 to Android graphic buffer format
+     const uint32_t videoSrcFormat = mVideo.getV4LFormat();
+-    ALOGI("Configuring to accept %4.4s camera data and convert to %4.4s",
++    ALOGE("Configuring to accept %4.4s camera data and convert to %4.4s",
+           (char*)&videoSrcFormat, (char*)&mFormat);
+ 
+     // TODO:  Simplify this by supporting only ONE fixed output format
+@@ -238,6 +238,7 @@ Return<void> EvsV4lCamera::doneWithFrame(const BufferDesc& buffer)  {
+                   buffer.bufferId);
+         } else {
+             // Mark the frame as available
++    ALOGD("debug crash issue 1");
+             mBuffers[buffer.bufferId].inUse = false;
+             mFramesInUse--;
+ 
+@@ -253,6 +254,7 @@ Return<void> EvsV4lCamera::doneWithFrame(const BufferDesc& buffer)  {
+                     }
+                 }
+             }
++    ALOGD("debug crash issue 2");
+         }
+     }
+ 
+@@ -433,10 +435,11 @@ unsigned EvsV4lCamera::decreaseAvailableFrames_Locked(unsigned numToRemove) {
+ 
+ 
+ // This is the async callback from the video camera that tells us a frame is ready
+-void EvsV4lCamera::forwardFrame(imageBuffer* /*pV4lBuff*/, void* pData) {
++void EvsV4lCamera::forwardFrame(imageBuffer* /*pV4lBuff*/, __attribute__((unused))void* pData) {
+     bool readyForFrame = false;
+     size_t idx = 0;
+ 
++                ALOGE("debug crash issue forwardFrame 1\n");
+     // Lock scope for updating shared state
+     {
+         std::lock_guard<std::mutex> lock(mAccessLock);
+@@ -455,6 +458,7 @@ void EvsV4lCamera::forwardFrame(imageBuffer* /*pV4lBuff*/, void* pData) {
+                     }
+                 }
+             }
++                ALOGE("debug crash issue forwardFrame 2\n");
+             if (idx >= mBuffers.size()) {
+                 // This shouldn't happen since we already checked mFramesInUse vs mFramesAllowed
+                 ALOGE("Failed to find an available buffer slot\n");
+@@ -464,12 +468,14 @@ void EvsV4lCamera::forwardFrame(imageBuffer* /*pV4lBuff*/, void* pData) {
+                 mFramesInUse++;
+                 readyForFrame = true;
+             }
++                ALOGE("debug crash issue forwardFrame 3\n");
+         }
+     }
+ 
+     if (!readyForFrame) {
+         // We need to return the vide buffer so it can capture a new frame
+         mVideo.markFrameConsumed();
++                ALOGE("debug crash issue forwardFrame 4\n");
+     } else {
+         // Assemble the buffer description we'll transmit below
+         BufferDesc buff = {};
+@@ -485,28 +491,44 @@ void EvsV4lCamera::forwardFrame(imageBuffer* /*pV4lBuff*/, void* pData) {
+         void *targetPixels = nullptr;
+         GraphicBufferMapper &mapper = GraphicBufferMapper::get();
+         mapper.lock(buff.memHandle,
+-                    GRALLOC_USAGE_SW_WRITE_OFTEN | GRALLOC_USAGE_SW_READ_NEVER,
++                    GRALLOC_USAGE_SW_WRITE_OFTEN,
+                     android::Rect(buff.width, buff.height),
+                     (void **) &targetPixels);
+ 
++
+         // If we failed to lock the pixel buffer, we're about to crash, but log it first
+         if (!targetPixels) {
+             ALOGE("Camera failed to gain access to image buffer for writing");
+         }
+ 
++                ALOGE("debug crash issue forwardFrame 5\n");
+         // Transfer the video image into the output buffer, making any needed
+         // format conversion along the way
+         mFillBufferFromVideo(buff, (uint8_t*)targetPixels, pData, mVideo.getStride());
++                ALOGE("debug crash issue forwardFrame 5.1 \n");
++
++/*
++FILE * framefile;
++size_t write_size;
++if((framefile = fopen("/data/updateimage_forword", "wb")) == NULL) {
++       ALOGE("can't open main frame updateImageTexture  ****** %s ", strerror(errno));
++}
++ fseek(framefile,0,SEEK_SET);
++write_size = fwrite((void *)targetPixels, 1, buff.width * buff.height * 6, framefile);
++fclose(framefile);
++*/
+ 
+         // Unlock the output buffer
+         mapper.unlock(buff.memHandle);
+ 
+ 
++                ALOGE("debug crash issue forwardFrame 5.2\n");
+         // Give the video frame back to the underlying device for reuse
+         // Note that we do this before making the client callback to give the underlying
+         // camera more time to capture the next frame.
+         mVideo.markFrameConsumed();
+ 
++                ALOGE("debug crash issue forwardFrame 6\n");
+         // Issue the (asynchronous) callback to the client -- can't be holding the lock
+         auto result = mStream->deliverFrame(buff);
+         if (result.isOk()) {
+diff --git a/evs/sampleDriver/GlWrapper.cpp b/evs/sampleDriver/GlWrapper.cpp
+index eb45bc9..f4128c8 100644
+--- a/evs/sampleDriver/GlWrapper.cpp
++++ b/evs/sampleDriver/GlWrapper.cpp
+@@ -195,6 +195,7 @@ bool GlWrapper::initialize() {
+     //
+     status_t err;
+ 
++        ALOGE("GlWrapper::initialize debug 1");
+     mFlinger = new SurfaceComposerClient();
+     if (mFlinger == nullptr) {
+         ALOGE("SurfaceComposerClient couldn't be allocated");
+@@ -205,6 +206,7 @@ bool GlWrapper::initialize() {
+         ALOGE("SurfaceComposerClient::initCheck error: %#x", err);
+         return false;
+     }
++        ALOGE("GlWrapper::initialize debug 2");
+ 
+     // Get main display parameters.
+     sp <IBinder> mainDpy = SurfaceComposerClient::getBuiltInDisplay(
+@@ -216,14 +218,15 @@ bool GlWrapper::initialize() {
+         return false;
+     }
+ 
++        ALOGE("GlWrapper::initialize debug 3");
+     if (mainDpyInfo.orientation != DISPLAY_ORIENTATION_0 &&
+         mainDpyInfo.orientation != DISPLAY_ORIENTATION_180) {
+         // rotated
+         mWidth = mainDpyInfo.h;
+-        mHeight = mainDpyInfo.w;
++        mHeight =  mainDpyInfo.w;
+     } else {
+         mWidth = mainDpyInfo.w;
+-        mHeight = mainDpyInfo.h;
++        mHeight =  mainDpyInfo.h;
+     }
+ 
+     mFlingerSurfaceControl = mFlinger->createSurface(
+@@ -235,6 +238,7 @@ bool GlWrapper::initialize() {
+     }
+     mFlingerSurface = mFlingerSurfaceControl->getSurface();
+ 
++        ALOGE("GlWrapper::initialize debug 4");
+ 
+     // Set up our OpenGL ES context associated with the default display
+     mDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+@@ -243,6 +247,7 @@ bool GlWrapper::initialize() {
+         return false;
+     }
+ 
++        ALOGE("GlWrapper::initialize debug 5");
+     EGLint major = 3;
+     EGLint minor = 0;
+     if (!eglInitialize(mDisplay, &major, &minor)) {
+@@ -251,6 +256,7 @@ bool GlWrapper::initialize() {
+     }
+ 
+ 
++        ALOGE("GlWrapper::initialize debug 6");
+     const EGLint config_attribs[] = {
+             // Tag                  Value
+             EGL_RED_SIZE,           8,
+@@ -268,6 +274,7 @@ bool GlWrapper::initialize() {
+         ALOGE("Didn't find a suitable format for our display window");
+         return false;
+     }
++        ALOGE("GlWrapper::initialize debug 7");
+ 
+     // Create the EGL render target surface
+     mSurface = eglCreateWindowSurface(mDisplay, egl_config, mFlingerSurface.get(), nullptr);
+@@ -276,6 +283,7 @@ bool GlWrapper::initialize() {
+         return false;
+     }
+ 
++        ALOGE("GlWrapper::initialize debug 8");
+     // Create the EGL context
+     // NOTE:  Our shader is (currently at least) written to require version 3, so this
+     //        is required.
+@@ -293,6 +301,7 @@ bool GlWrapper::initialize() {
+         return false;
+     }
+ 
++        ALOGE("GlWrapper::initialize debug 9");
+ 
+     // Create the shader program for our simple pipeline
+     mShaderProgram = buildShaderProgram(vertexShaderSource, pixelShaderSource);
+@@ -308,6 +317,7 @@ bool GlWrapper::initialize() {
+         return false;
+     }
+ 
++        ALOGE("GlWrapper::initialize debug 10");
+ 
+     return true;
+ }
+@@ -358,6 +368,7 @@ void GlWrapper::hideWindow() {
+ 
+ bool GlWrapper::updateImageTexture(const BufferDesc& buffer) {
+ 
++            ALOGE("sanshan   :  updateImageTexture 1");
+     // If we haven't done it yet, create an "image" object to wrap the gralloc buffer
+     if (mKHRimage == EGL_NO_IMAGE_KHR) {
+         // create a temporary GraphicBuffer to wrap the provided handle
+@@ -376,7 +387,22 @@ bool GlWrapper::updateImageTexture(const BufferDesc& buffer) {
+             return false;
+         }
+ 
+-
++/*
++FILE * framefile;
++size_t write_size;
++void *targetPixels = nullptr;
++            ALOGE("sanshan   :  updateImageTexture %p", buffer.memHandle.getNativeHandle());
++ pGfxBuffer->lock(GRALLOC_USAGE_SW_READ_OFTEN,
++       (void **) &targetPixels);
++if((framefile = fopen("/data/updateimage", "wb")) == NULL) {
++       ALOGE("can't open main frame updateImageTexture  ****** %s ", strerror(errno));
++}
++ fseek(framefile,0,SEEK_SET);
++write_size = fwrite((void *)targetPixels, 1, buffer.width * buffer.height * 6, framefile);
++       ALOGE("sanshan debug main write samdriver  %zu", write_size);
++fclose(framefile);
++pGfxBuffer->unlock();
++*/
+         // Get a GL compatible reference to the graphics buffer we've been given
+         EGLint eglImageAttributes[] = {EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE};
+         EGLClientBuffer cbuf = static_cast<EGLClientBuffer>(pGfxBuffer->getNativeBuffer());
+@@ -393,14 +419,27 @@ bool GlWrapper::updateImageTexture(const BufferDesc& buffer) {
+         if (mKHRimage == EGL_NO_IMAGE_KHR) {
+             ALOGE("error creating EGLImage: %s", getEGLError());
+             return false;
+-        }
++        } else {
+ 
++            ALOGE("sanshan   :  updateImageTexture 2");
+ 
+         // Update the texture handle we already created to refer to this gralloc buffer
+         glActiveTexture(GL_TEXTURE0);
+         glBindTexture(GL_TEXTURE_2D, mTextureMap);
+         glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, static_cast<GLeglImageOES>(mKHRimage));
+ 
++            ALOGE("sanshan   :  updateImageTexture 3");
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++}
++//glDrawArrays(GL_TRIANGLES, 0, 4);
++//    glFinish();
++
++//    eglSwapBuffers(mDisplay, mSurface);
++
++
+     }
+ 
+     return true;
+@@ -411,6 +450,7 @@ void GlWrapper::renderImageToScreen() {
+     // Set the viewport
+     glViewport(0, 0, mWidth, mHeight);
+ 
++            ALOGE("sanshan   : renderImageToScreen 1");
+     // Clear the color buffer
+     glClearColor(0.1f, 0.5f, 0.1f, 1.0f);
+     glClear(GL_COLOR_BUFFER_BIT);
+@@ -424,6 +464,7 @@ void GlWrapper::renderImageToScreen() {
+     GLint sampler = glGetUniformLocation(mShaderProgram, "tex");
+     glUniform1i(sampler, 0);
+ 
++            ALOGE("sanshan   : renderImageToScreen 2");
+     // We want our image to show up opaque regardless of alpha values
+     glDisable(GL_BLEND);
+ 
+@@ -449,6 +490,7 @@ void GlWrapper::renderImageToScreen() {
+                               0.0f, 1.0f,   // left bottom
+                               1.0f, 1.0f    // right bottom
+     };
++            ALOGE("sanshan   : renderImageToScreen 3");
+     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, vertsCarPos);
+     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, vertsCarTex);
+     glEnableVertexAttribArray(0);
+@@ -456,13 +498,18 @@ void GlWrapper::renderImageToScreen() {
+ 
+     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+ 
++            ALOGE("sanshan   : renderImageToScreen 4");
+ 
+     // Clean up and flip the rendered result to the front so it is visible
+     glDisableVertexAttribArray(0);
+     glDisableVertexAttribArray(1);
+ 
++            ALOGE("sanshan   : renderImageToScreen 5");
+     glFinish();
++//sleep(3);
++            ALOGE("sanshan   : renderImageToScreen 6");
+ 
+     eglSwapBuffers(mDisplay, mSurface);
++            ALOGE("sanshan   : renderImageToScreen 7");
+ }
+ 
+diff --git a/evs/sampleDriver/VideoCapture.cpp b/evs/sampleDriver/VideoCapture.cpp
+index d216b29..b80053e 100644
+--- a/evs/sampleDriver/VideoCapture.cpp
++++ b/evs/sampleDriver/VideoCapture.cpp
+@@ -35,7 +35,7 @@
+ //        experimentation.
+ bool VideoCapture::open(const char* deviceName) {
+     // If we want a polling interface for getting frames, we would use O_NONBLOCK
+-//    int mDeviceFd = open(deviceName, O_RDWR | O_NONBLOCK, 0);
++//    mDeviceFd = ::open(deviceName, O_RDWR | O_NONBLOCK, 0);
+     mDeviceFd = ::open(deviceName, O_RDWR, 0);
+     if (mDeviceFd < 0) {
+         ALOGE("failed to open device %s (%d = %s)", deviceName, errno, strerror(errno));
+@@ -65,7 +65,7 @@ bool VideoCapture::open(const char* deviceName) {
+     // Enumerate the available capture formats (if any)
+     ALOGI("Supported capture formats:");
+     v4l2_fmtdesc formatDescriptions;
+-    formatDescriptions.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
++    formatDescriptions.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+     for (int i=0; true; i++) {
+         formatDescriptions.index = i;
+         if (ioctl(mDeviceFd, VIDIOC_ENUM_FMT, &formatDescriptions) == 0) {
+@@ -81,21 +81,24 @@ bool VideoCapture::open(const char* deviceName) {
+         }
+     }
+ 
++        ALOGE("Streaming capture not supported by d %08x %08x %08x", caps.capabilities, V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE, V4L2_CAP_STREAMING);
+     // Verify we can use this device for video capture
+-    if (!(caps.capabilities & V4L2_CAP_VIDEO_CAPTURE) ||
++    if (!(caps.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) ||
+         !(caps.capabilities & V4L2_CAP_STREAMING)) {
+         // Can't do streaming capture.
+         ALOGE("Streaming capture not supported by %s.", deviceName);
++        ALOGE("Streaming test capture not supported by %s.", deviceName);
+         return false;
+     }
+ 
+     // Set our desired output format
+     v4l2_format format;
+-    format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+-    format.fmt.pix.pixelformat = V4L2_PIX_FMT_UYVY; // Could/should we request V4L2_PIX_FMT_NV21?
+-    format.fmt.pix.width = 720;                     // TODO:  Can we avoid hard coding dimensions?
+-    format.fmt.pix.height = 240;                    // For now, this works with available hardware
+-    format.fmt.pix.field = V4L2_FIELD_ALTERNATE;    // TODO:  Do we need to specify this?
++    format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
++    format.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_YUYV; // Could/should we request V4L2_PIX_FMT_NV21?
++    format.fmt.pix_mp.width = 640;                     // TODO:  Can we avoid hard coding dimensions?
++    format.fmt.pix_mp.height = 480;                    // For now, this works with available hardware
++    format.fmt.pix_mp.field = V4L2_FIELD_ALTERNATE;    // TODO:  Do we need to specify this?
++    format.fmt.pix_mp.num_planes = 1;    // TODO:  Do we need to specify this?
+     ALOGI("Requesting format %c%c%c%c (0x%08X)",
+           ((char*)&format.fmt.pix.pixelformat)[0],
+           ((char*)&format.fmt.pix.pixelformat)[1],
+@@ -107,19 +110,19 @@ bool VideoCapture::open(const char* deviceName) {
+     }
+ 
+     // Report the current output format
+-    format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
++    format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+     if (ioctl(mDeviceFd, VIDIOC_G_FMT, &format) == 0) {
+ 
+-        mFormat = format.fmt.pix.pixelformat;
+-        mWidth  = format.fmt.pix.width;
+-        mHeight = format.fmt.pix.height;
+-        mStride = format.fmt.pix.bytesperline;
++        mFormat = format.fmt.pix_mp.pixelformat;
++        mWidth  = format.fmt.pix_mp.width;
++        mHeight = format.fmt.pix_mp.height;
++        mStride = format.fmt.pix_mp.plane_fmt[0].bytesperline;
+ 
+-        ALOGI("Current output format:  fmt=0x%X, %dx%d, pitch=%d",
+-               format.fmt.pix.pixelformat,
+-               format.fmt.pix.width,
+-               format.fmt.pix.height,
+-               format.fmt.pix.bytesperline
++        ALOGI("Current output format:  fmt=0x%X, %dx%d, %d",
++               format.fmt.pix_mp.pixelformat,
++               format.fmt.pix_mp.width,
++               format.fmt.pix_mp.height,
++		mStride
+         );
+     } else {
+         ALOGE("VIDIOC_G_FMT: %s", strerror(errno));
+@@ -129,6 +132,7 @@ bool VideoCapture::open(const char* deviceName) {
+     // Make sure we're initialized to the STOPPED state
+     mRunMode = STOPPED;
+     mFrameReady = false;
++    mIndex = 0;
+ 
+     // Ready to go!
+     return true;
+@@ -159,52 +163,57 @@ bool VideoCapture::startStream(std::function<void(VideoCapture*, imageBuffer*, v
+ 
+     // Tell the L4V2 driver to prepare our streaming buffers
+     v4l2_requestbuffers bufrequest;
+-    bufrequest.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
++    bufrequest.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+     bufrequest.memory = V4L2_MEMORY_MMAP;
+-    bufrequest.count = 1;
++    bufrequest.count = 2;
+     if (ioctl(mDeviceFd, VIDIOC_REQBUFS, &bufrequest) < 0) {
+         ALOGE("VIDIOC_REQBUFS: %s", strerror(errno));
+         return false;
+     }
+ 
++for (int i = 0; i < 2; i++) {
+     // Get the information on the buffer that was created for us
+-    memset(&mBufferInfo, 0, sizeof(mBufferInfo));
+-    mBufferInfo.type     = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+-    mBufferInfo.memory   = V4L2_MEMORY_MMAP;
+-    mBufferInfo.index    = 0;
+-    if (ioctl(mDeviceFd, VIDIOC_QUERYBUF, &mBufferInfo) < 0) {
++    struct v4l2_plane planes;
++    memset(&mBufferInfo[i], 0, sizeof(mBufferInfo[0]));
++    mBufferInfo[i].type     = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
++    mBufferInfo[i].memory   = V4L2_MEMORY_MMAP;
++    mBufferInfo[i].m.planes = &planes;
++    mBufferInfo[i].length   = 1;
++    mBufferInfo[i].index    = i;
++    if (ioctl(mDeviceFd, VIDIOC_QUERYBUF, &mBufferInfo[i]) < 0) {
+         ALOGE("VIDIOC_QUERYBUF: %s", strerror(errno));
+         return false;
+     }
+ 
+     ALOGI("Buffer description:");
+-    ALOGI("  offset: %d", mBufferInfo.m.offset);
+-    ALOGI("  length: %d", mBufferInfo.length);
++    ALOGI("debug  offset: %d", mBufferInfo[i].m.planes[0].m.mem_offset);
++    ALOGI("debug  length: %d", mBufferInfo[i].m.planes[0].length);
+ 
+     // Get a pointer to the buffer contents by mapping into our address space
+-    mPixelBuffer = mmap(
++    mPixelBuffer[i] = mmap(
+             NULL,
+-            mBufferInfo.length,
++            mBufferInfo[i].m.planes[0].length,
+             PROT_READ | PROT_WRITE,
+             MAP_SHARED,
+             mDeviceFd,
+-            mBufferInfo.m.offset
++            mBufferInfo[i].m.planes[0].m.mem_offset
+     );
+-    if( mPixelBuffer == MAP_FAILED) {
++    if( mPixelBuffer[i] == MAP_FAILED) {
+         ALOGE("mmap: %s", strerror(errno));
+         return false;
+     }
+-    memset(mPixelBuffer, 0, mBufferInfo.length);
+-    ALOGI("Buffer mapped at %p", mPixelBuffer);
+ 
++    memset(mPixelBuffer[i], 0, mBufferInfo[i].length);
++    ALOGI("Buffer mapped at %p", mPixelBuffer[i]);
+     // Queue the first capture buffer
+-    if (ioctl(mDeviceFd, VIDIOC_QBUF, &mBufferInfo) < 0) {
+-        ALOGE("VIDIOC_QBUF: %s", strerror(errno));
+-        return false;
+-    }
+-
++        if (ioctl(mDeviceFd, VIDIOC_QBUF, &mBufferInfo[i]) < 0) {
++            ALOGE("VIDIOC_QBUF: %s", strerror(errno));
++            return false;
++        }
++}
+     // Start the video stream
+-    int type = mBufferInfo.type;
++//mBufferInfo.index = 0;
++    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+     if (ioctl(mDeviceFd, VIDIOC_STREAMON, &type) < 0) {
+         ALOGE("VIDIOC_STREAMON: %s", strerror(errno));
+         return false;
+@@ -212,7 +221,6 @@ bool VideoCapture::startStream(std::function<void(VideoCapture*, imageBuffer*, v
+ 
+     // Remember who to tell about new frames as they arrive
+     mCallback = callback;
+-
+     // Fire up a thread to receive and dispatch the video frames
+     mCaptureThread = std::thread([this](){ collectFrames(); });
+ 
+@@ -223,6 +231,7 @@ bool VideoCapture::startStream(std::function<void(VideoCapture*, imageBuffer*, v
+ 
+ void VideoCapture::stopStream() {
+     // Tell the background thread to stop
++	int i;
+     int prevRunMode = mRunMode.fetch_or(STOPPING);
+     if (prevRunMode == STOPPED) {
+         // The background thread wasn't running, so set the flag back to STOPPED
+@@ -237,7 +246,7 @@ void VideoCapture::stopStream() {
+         }
+ 
+         // Stop the underlying video stream (automatically empties the buffer queue)
+-        int type = mBufferInfo.type;
++        int type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+         if (ioctl(mDeviceFd, VIDIOC_STREAMOFF, &type) < 0) {
+             ALOGE("VIDIOC_STREAMOFF: %s", strerror(errno));
+         }
+@@ -245,12 +254,14 @@ void VideoCapture::stopStream() {
+         ALOGD("Capture thread stopped.");
+     }
+ 
++
+     // Unmap the buffers we allocated
+-    munmap(mPixelBuffer, mBufferInfo.length);
++for (i=0; i<2; i++)
++    munmap(mPixelBuffer[i], mBufferInfo[i].length);
+ 
+     // Tell the L4V2 driver to release our streaming buffers
+     v4l2_requestbuffers bufrequest;
+-    bufrequest.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
++    bufrequest.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+     bufrequest.memory = V4L2_MEMORY_MMAP;
+     bufrequest.count = 0;
+     ioctl(mDeviceFd, VIDIOC_REQBUFS, &bufrequest);
+@@ -267,34 +278,60 @@ void VideoCapture::markFrameReady() {
+ 
+ bool VideoCapture::returnFrame() {
+     // We're giving the frame back to the system, so clear the "ready" flag
++    ALOGE("returnFrame  index %d", currentIndex);
+     mFrameReady = false;
+-
++	struct v4l2_buffer buf;
++	struct v4l2_plane planes;
++	memset(&buf, 0, sizeof(buf));
++	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
++	buf.memory = V4L2_MEMORY_MMAP;
++	buf.m.planes = &planes;
++	buf.index = currentIndex;
++buf.length = 1;
++
++
++buf.m.planes[0].length = mBufferInfo[currentIndex].m.planes[0].length;
++//	mBufferInfo.index = 1 - mBufferInfo.index;
+     // Requeue the buffer to capture the next available frame
+-    if (ioctl(mDeviceFd, VIDIOC_QBUF, &mBufferInfo) < 0) {
++    if (ioctl(mDeviceFd, VIDIOC_QBUF, &buf) < 0) {
+         ALOGE("VIDIOC_QBUF: %s", strerror(errno));
+         return false;
+     }
+-
++    ALOGE("returnFrame  index %d", currentIndex);
+     return true;
+ }
+ 
+ 
+ // This runs on a background thread to receive and dispatch video frames
+ void VideoCapture::collectFrames() {
++    struct v4l2_buffer buf;
++    struct v4l2_plane planes;
++
++    memset(&buf, 0, sizeof(buf));
++    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
++    buf.memory = V4L2_MEMORY_MMAP;
++    buf.m.planes = &planes;
++    buf.length = 1; 
++
+     // Run until our atomic signal is cleared
+     while (mRunMode == RUN) {
+         // Wait for a buffer to be ready
+-        if (ioctl(mDeviceFd, VIDIOC_DQBUF, &mBufferInfo) < 0) {
++
++//usleep(1000000);
++    //ALOGE("collectFrames index %d", mBufferInfo.index);
++        if (ioctl(mDeviceFd, VIDIOC_DQBUF, &buf) < 0) {
+             ALOGE("VIDIOC_DQBUF: %s", strerror(errno));
+             break;
+         }
+-
++    ALOGE("collectFrames  debug hahahah buf.index %d", buf.index);
+         markFrameReady();
+ 
++	currentIndex = buf.index ;
+         // If a callback was requested per frame, do that now
+         if (mCallback) {
+-            mCallback(this, &mBufferInfo, mPixelBuffer);
++            mCallback(this, &mBufferInfo[currentIndex], mPixelBuffer[currentIndex]);
+         }
++//usleep(100000);
+     }
+ 
+     // Mark ourselves stopped
+diff --git a/evs/sampleDriver/VideoCapture.h b/evs/sampleDriver/VideoCapture.h
+index f2d1175..41efefd 100644
+--- a/evs/sampleDriver/VideoCapture.h
++++ b/evs/sampleDriver/VideoCapture.h
+@@ -37,7 +37,7 @@ public:
+     __u32   getV4LFormat()      { return mFormat; };
+ 
+     // NULL until stream is started
+-    void* getLatestData()       { return mPixelBuffer; };
++    //void* getLatestData()       { return mPixelBuffer; };
+ 
+     bool isFrameReady()         { return mFrameReady; };
+     void markFrameConsumed()    { returnFrame(); };
+@@ -51,8 +51,9 @@ private:
+ 
+     int mDeviceFd = -1;
+ 
+-    v4l2_buffer mBufferInfo = {};
+-    void* mPixelBuffer = nullptr;
++    int currentIndex = 0;
++    v4l2_buffer mBufferInfo[2] = {};
++    void* mPixelBuffer[2] = {nullptr};
+ 
+     __u32   mFormat = 0;
+     __u32   mWidth  = 0;
+@@ -63,6 +64,7 @@ private:
+ 
+     std::thread mCaptureThread;             // The thread we'll use to dispatch frames
+     std::atomic<int> mRunMode;              // Used to signal the frame loop (see RunModes below)
++    std::atomic<int> mIndex;              // Used to signal the frame loop (see RunModes below)
+     std::atomic<bool> mFrameReady;          // Set when a frame has been delivered
+ 
+     // Careful changing these -- we're using bit-wise ops to manipulate these
+diff --git a/evs/sampleDriver/android.hardware.automotive.evs@1.0-sample.rc b/evs/sampleDriver/android.hardware.automotive.evs@1.0-sample.rc
+index 7b11cf5..a99e61b 100644
+--- a/evs/sampleDriver/android.hardware.automotive.evs@1.0-sample.rc
++++ b/evs/sampleDriver/android.hardware.automotive.evs@1.0-sample.rc
+@@ -1,6 +1,4 @@
+ service evs_driver /system/bin/android.hardware.automotive.evs@1.0-sample
+-    class hal
+-    priority -20
+-    user graphics
+-    group automotive_evs camera
++    user root
++    group root
+     onrestart restart evs_manager
+diff --git a/evs/sampleDriver/bufferCopy.cpp b/evs/sampleDriver/bufferCopy.cpp
+index 6c8c3ef..354619d 100644
+--- a/evs/sampleDriver/bufferCopy.cpp
++++ b/evs/sampleDriver/bufferCopy.cpp
+@@ -15,6 +15,8 @@
+  */
+ 
+ #include "bufferCopy.h"
++#include "EvsEnumerator.h"
++#include "EvsV4lCamera.h"
+ 
+ 
+ namespace android {
+@@ -144,6 +146,7 @@ void fillNV21FromYUYV(const BufferDesc& tgtBuff, uint8_t* tgt, void* imgData, un
+ 
+ 
+ void fillRGBAFromYUYV(const BufferDesc& tgtBuff, uint8_t* tgt, void* imgData, unsigned imgStride) {
++	ALOGE("sanshan *****************   fillRGBAFromYUYV 1 ");
+     unsigned width = tgtBuff.width;
+     unsigned height = tgtBuff.height;
+     uint32_t* src = (uint32_t*)imgData;
+@@ -153,6 +156,8 @@ void fillRGBAFromYUYV(const BufferDesc& tgtBuff, uint8_t* tgt, void* imgData, un
+ 
+     const int srcRowPadding32 = srcStridePixels/2 - width/2;  // 2 bytes per pixel, 4 bytes per word
+     const int dstRowPadding32 = dstStridePixels   - width;    // 4 bytes per pixel, 4 bytes per word
++	ALOGE("sanshan *****************   fillRGBAFromYUYV 2");
++	ALOGE("sanshan *****************   fillRGBAFromYUYV  src %p, dst %p, srcRowPadding32 %d, dstRowPadding32 %d", src, dst, srcRowPadding32, dstRowPadding32);
+ 
+     for (unsigned r=0; r<height; r++) {
+         for (unsigned c=0; c<width/2; c++) {
+@@ -174,6 +179,8 @@ void fillRGBAFromYUYV(const BufferDesc& tgtBuff, uint8_t* tgt, void* imgData, un
+         src += srcRowPadding32;
+         dst += dstRowPadding32;
+     }
++	ALOGE("sanshan *****************   fillRGBAFromYUYV 3");
++
+ }
+ 
+ 
+diff --git a/evs/sampleDriver/service.cpp b/evs/sampleDriver/service.cpp
+index 41be742..ae65a07 100644
+--- a/evs/sampleDriver/service.cpp
++++ b/evs/sampleDriver/service.cpp
+@@ -47,9 +47,12 @@ int main() {
+ 
+     // Register our service -- if somebody is already registered by our name,
+     // they will be killed (their thread pool will throw an exception).
+-    status_t status = service->registerAsService(kEnumeratorServiceName);
++    status_t status = service->registerAsService();
+     if (status == OK) {
+         ALOGD("%s is ready.", kEnumeratorServiceName);
++sleep(10);
++	android::sp<IEvsEnumerator> debug_evs = IEvsEnumerator::getService();
++        ALOGD("debug: %d kEnumeratorServiceName %s",  debug_evs.get() == nullptr, kEnumeratorServiceName);
+         joinRpcThreadpool();
+     } else {
+         ALOGE("Could not register service %s (%d).", kEnumeratorServiceName, status);
+diff --git a/evs/sepolicy/evs_app.te b/evs/sepolicy/evs_app.te
+index 28e71a9..a036e9f 100644
+--- a/evs/sepolicy/evs_app.te
++++ b/evs/sepolicy/evs_app.te
+@@ -1,5 +1,5 @@
+ # evs app
+-type evs_app, domain;
++type evs_app, evs_domain, domain;
+ hal_client_domain(evs_app, hal_evs)
+ hal_client_domain(evs_app, hal_vehicle)
+ 
+@@ -19,4 +19,4 @@ allow evs_app gpu_device:chr_file { getattr open read write };
+ 
+ # Permit communication with the vehicle HAL
+ # (Communcations with the rest of the EVS stack is allowed via hal_evs)
+-binder_call(evs_app, hal_vehicle);
+\ No newline at end of file
++binder_call(evs_app, hal_vehicle);
+diff --git a/evs/sepolicy/evs_default.te b/evs/sepolicy/evs_default.te
+index c90e34b..bcf923d 100644
+--- a/evs/sepolicy/evs_default.te
++++ b/evs/sepolicy/evs_default.te
+@@ -1,5 +1,5 @@
+ # evs_mock mock hardware driver service
+-type hal_evs_default, domain;
++type hal_evs_default, evs_domain, domain;
+ hal_server_domain(hal_evs_default, hal_evs)
+ 
+ # allow init to launch processes in this context
+diff --git a/evs/sepolicy/evs_driver.te b/evs/sepolicy/evs_driver.te
+index 2226dd6..f63af4f 100644
+--- a/evs/sepolicy/evs_driver.te
++++ b/evs/sepolicy/evs_driver.te
+@@ -1,5 +1,5 @@
+ # evs_mock mock hardware driver service
+-type hal_evs_driver, domain;
++type hal_evs_driver, evs_domain, domain;
+ hal_server_domain(hal_evs_driver, hal_evs)
+ 
+ # allow init to launch processes in this context
+diff --git a/evs/sepolicy/evs_manager.te b/evs/sepolicy/evs_manager.te
+index 70a2cda..bf6e8a3 100644
+--- a/evs/sepolicy/evs_manager.te
++++ b/evs/sepolicy/evs_manager.te
+@@ -1,5 +1,5 @@
+ # evs manager
+-type evs_manager, domain;
++type evs_manager, evs_domain, domain;
+ hal_server_domain(evs_manager, hal_evs)
+ hal_client_domain(evs_manager, hal_evs)
+ 
