@@ -1468,6 +1468,10 @@ static int out_set_volume(struct audio_stream_out *stream, float left, float rig
     struct imx_stream_out *out = (struct imx_stream_out *)stream;
     struct imx_audio_device *adev = out->dev;
 
+    // FIXME: When pause/seek direct output stream, AudioFlinger may
+    // call out_set_volume and set stream's volume to 0
+    return -ENOSYS;
+
     if (!strcmp(adev->card_list[out->card_index]->driver_name, "ak4458-audio")) {
         struct mixer *mixer;
         struct mixer_ctl *ctl[2];
