@@ -1,0 +1,4 @@
+// add subdirs for vehicle hal
+subdirs = [
+    "vehicle",
+]
