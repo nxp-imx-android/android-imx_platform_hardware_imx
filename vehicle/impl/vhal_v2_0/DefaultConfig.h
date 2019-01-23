@@ -194,6 +194,12 @@ const ConfigDeclaration kVehicleProperties[]{
          },
      .initialValue = {.int32Values = {toInt(VehicleHvacFanDirection::FACE)}}},
 
+    {.config = {.prop = toInt(VehicleProperty::TURN_SIGNAL_STATE),
+                .access = VehiclePropertyAccess::READ_WRITE,
+                .changeMode = VehiclePropertyChangeMode::ON_CHANGE,
+                .areaConfigs = {VehicleAreaConfig{.areaId = 0}}},
+     .initialValue = {.int32Values = {toInt(VehicleTurnSignal::NONE)}}},
+
     {.config = {.prop = toInt(VehicleProperty::HVAC_TEMPERATURE_SET),
                 .access = VehiclePropertyAccess::READ_WRITE,
                 .changeMode = VehiclePropertyChangeMode::ON_CHANGE,
@@ -244,7 +250,7 @@ const ConfigDeclaration kVehicleProperties[]{
              .access = VehiclePropertyAccess::READ,
              .changeMode = VehiclePropertyChangeMode::ON_CHANGE,
          },
-     .initialValue = {.int32Values = {toInt(VehicleGear::GEAR_PARK)}}},
+     .initialValue = {.int32Values = {toInt(VehicleGear::GEAR_REVERSE)}}},
 
     {
         .config =
