@@ -1399,7 +1399,7 @@ void KmsDisplay::handleVsyncEvent(nsecs_t timestamp)
     if (callback == NULL) {
         return;
     }
-
+    triggerRefresh();
     callback->onVSync(DISPLAY_PRIMARY, timestamp);
 }
 
@@ -1546,7 +1546,7 @@ bool KmsDisplay::VSyncThread::threadLoop()
 {
     { // scope for lock
         Mutex::Autolock _l(mLock);
-        while (!mEnabled) {
+        while (!mEnabled && !mCtx->forceVync()) {
             mCondition.wait(mLock);
         }
     }
