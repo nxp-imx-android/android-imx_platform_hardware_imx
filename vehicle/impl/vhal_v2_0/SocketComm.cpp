@@ -168,6 +168,8 @@ int SocketComm::write(const std::vector<uint8_t>& data) {
     nlh->nlmsg_pid = getpid();
     memcpy(NLMSG_DATA(nlh), data.data(), data.size());
     ret = sendto(mSockFd, nlh, nlh->nlmsg_len, 0, (struct sockaddr *)&daddr, sizeof(struct sockaddr_nl));
+    free(nlh);
+
     if(!ret) {
         ALOGE("send message failed.\n");
         return -1;
