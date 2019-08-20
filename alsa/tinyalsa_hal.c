@@ -1379,6 +1379,8 @@ static char * out_get_parameters(const struct audio_stream *stream, const char *
         value[0] = '\0';
         strcat(value, "AUDIO_FORMAT_PCM_16_BIT");
         str_parms_add_str(reply, AUDIO_PARAMETER_STREAM_SUP_FORMATS, value);
+        if (str != NULL)
+            free(str);
         str = strdup(str_parms_to_str(reply));
         checked = true;
     }
