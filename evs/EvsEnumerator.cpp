@@ -188,6 +188,9 @@ bool EvsEnumerator::PollVideoFileThread::threadLoop()
             if (numINotifyItem < 0) {
                 ALOGE("Fail to read from INotifyFd,error:%s",strerror(errno));
                 continue;
+            } else {
+                int len = numINotifyItem < BUFFER_SIZE ? numINotifyItem : BUFFER_SIZE-1;
+                buf[len] = '\0';
             }
 
             //Each successful read returns a buffer containing one or more of struct inotify_event
