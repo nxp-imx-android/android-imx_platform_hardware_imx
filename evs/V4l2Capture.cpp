@@ -103,6 +103,7 @@ bool V4l2Capture::onOpen(const char* deviceName)
         if (result  < 0) {
             ALOGE("failed to get device caps for %s (%d = %s)",
                     deviceName, errno, strerror(errno));
+            ::close(fd);
             return false;
         }
     }
@@ -143,6 +144,7 @@ bool V4l2Capture::onOpen(const char* deviceName)
         !(caps.capabilities & V4L2_CAP_STREAMING)) {
         // Can't do streaming capture.
         ALOGE("Streaming capture not supported by %s.", deviceName);
+        ::close(fd);
         return false;
     }
 
@@ -155,6 +157,7 @@ bool V4l2Capture::onOpen(const char* deviceName)
     int ret = ioctl(fd, VIDIOC_S_PARM, &param);
     if (ret < 0) {
         ALOGE("%s: VIDIOC_S_PARM Failed: %s", __func__, strerror(errno));
+        ::close(fd);
         return false;
     }
 
@@ -192,6 +195,7 @@ bool V4l2Capture::onOpen(const char* deviceName)
     }
     else {
         ALOGE("VIDIOC_G_FMT: %s", strerror(errno));
+        ::close(fd);
         return false;
     }
 
