@@ -56,6 +56,7 @@
 #define DEFAULT_ERROR_NAME_str "0"
 #define IMX8_BOARD_NAME "imx8"
 #define IMX7_BOARD_NAME "imx7"
+#define IMX8MN_SOC_NAME "imx8mn"
 
 #define UVC_SENSOR_NAME "uvc"
 #define OV5640_SENSOR_NAME "csi"

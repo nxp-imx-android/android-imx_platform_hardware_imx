@@ -39,6 +39,7 @@
 #include "Ov5640Csi8MQ.h"
 #include "Ov5640Csi7D.h"
 #include "Ov5640Imx8Q.h"
+#include "Ov5640Imx8MN.h"
 #include "Ov5640Mipi.h"
 #include "Ov5642Csi.h"
 #include "TVINDevice.h"
@@ -69,8 +70,15 @@ Camera* Camera::createCamera(int32_t id, char* name, int32_t facing,
     android::Mutex::Autolock al(sStaticInfoLock);
 
     if (strstr(name, IMX8_OV5640_SENSOR_NAME)) {
-        ALOGI("create id:%d imx8 ov5640 camera device", id);
-        device = new Ov5640Imx8Q(id, facing, orientation, path);
+        ALOGI("create id:%d imx8q or imx8mn ov5640 camera device", id);
+        char socName[CAMERA_SENSOR_LENGTH];
+        memset(socName, 0, sizeof(socName));
+        property_get("ro.boot.soc_type", socName, DEFAULT_ERROR_NAME_str);
+
+        if (strstr(socName, IMX8MN_SOC_NAME))
+            device = new Ov5640Imx8MN(id, facing, orientation, path);
+        else
+            device = new Ov5640Imx8Q(id, facing, orientation, path);
     }
     else if (strstr(name, OV5640MIPI_SENSOR_NAME)) {
         ALOGI("create id:%d ov5640 mipi device", id);
