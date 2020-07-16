@@ -62,7 +62,8 @@ LOCAL_SRC_FILES := \
     ImageProcess.cpp \
     CameraMetadata.cpp \
     utils/CameraConfigurationParser.cpp \
-    ISPCamera.cpp
+    ISPCamera.cpp \
+    ISPWrapper.cpp
 
 LOCAL_SHARED_LIBRARIES := \
     libcamera_metadata \

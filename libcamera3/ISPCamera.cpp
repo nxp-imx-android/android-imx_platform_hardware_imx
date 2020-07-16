@@ -33,10 +33,39 @@ ISPCamera::ISPCamera(int32_t id, int32_t facing, int32_t orientation, char *path
     mCameraMetadata = cam_metadata;
 
     mVideoStream = new ISPCameraMMAPStream(this, cam_metadata->omit_frame);
+    m_pIspWrapper = new ISPWrapper();
 }
 
 ISPCamera::~ISPCamera()
 {
+    if(m_pIspWrapper)
+        delete m_pIspWrapper;
+}
+
+int32_t ISPCamera::initDevice()
+{
+    int ret = m_pIspWrapper->init(mDevPath);
+    if(ret) {
+        ALOGE("%s: m_pIspWrapper->init %s faild", __func__, mDevPath);
+        return BAD_VALUE;
+    }
+
+    return Camera::initDevice();
+}
+
+int32_t ISPCamera::processSettings(sp<Metadata> settings, uint32_t frame)
+{
+    int ret_isp;
+    int ret_common;
+    Metadata *pMeta = settings.get();
+
+    ret_isp = m_pIspWrapper->process(pMeta);
+    ret_common = Camera::processSettings(settings, frame);
+
+    if((ret_isp == 0) && (ret_common == 0))
+        return 0;
+
+    return BAD_VALUE;
 }
 
 status_t ISPCamera::initSensorStaticData()
@@ -175,23 +204,9 @@ int32_t ISPCamera::ISPCameraMMAPStream::onDeviceConfigureLocked()
         return ret;
     }
 
-    /* set mode, ref ISP code video_test.cpp */
-    struct v4l2_control ctrl;
-    memset(&ctrl, 0, sizeof(ctrl));
-    ctrl.id = V4L2_CID_VIV_SENSOR_MODE;
-    if (ioctl(mDev, VIDIOC_G_CTRL, &ctrl) < 0) {
-        ALOGE("VIDIOC_G_CTRL: %s", strerror(errno));
-    } else {
-        ALOGI("Current sensor's mode: %d", ctrl.value);
-    }
-
-    if (ioctl(mDev, VIDIOC_S_CTRL, &ctrl) < 0) {
-        ALOGE("VIDIOC_S_CTRL: %s", strerror(errno));
-    } else {
-        ALOGI("Change sensor's mode to: %d", ctrl.value);
-    }
-
-    setOmitFrameCount(0);
+    // When reconfig stream (shift between picture and record mode), need recover to awb,
+    // or the image will blurry if previous mode is mwb.
+    ((ISPCamera *)mCamera)->m_pIspWrapper->processAWB(ANDROID_CONTROL_AWB_MODE_AUTO);
 
     struct OmitFrame *item;
     for(item = mOmitFrame; item < mOmitFrame + OMIT_RESOLUTION_NUM; item++) {

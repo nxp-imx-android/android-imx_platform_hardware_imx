@@ -584,7 +584,7 @@ int32_t Camera::processSettings(sp<Metadata> settings, uint32_t frame)
     settings->addUInt8(ANDROID_CONTROL_AF_STATE, 1, &m3aState.afState);
 
     // auto white balance control.
-    m3aState.awbState = ANDROID_CONTROL_AWB_STATE_INACTIVE;
+    m3aState.awbState = ANDROID_CONTROL_AWB_STATE_CONVERGED;
     settings->addUInt8(ANDROID_CONTROL_AWB_STATE, 1, &m3aState.awbState);
 
     entry = settings->find(ANDROID_CONTROL_AF_TRIGGER_ID);

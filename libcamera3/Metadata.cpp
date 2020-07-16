@@ -455,7 +455,7 @@ camera_metadata_t* Metadata::createStaticInfo(SensorData& sensor, camera_info &c
     static const uint8_t aeLockAvailable = ANDROID_CONTROL_AE_LOCK_AVAILABLE_FALSE;
     m.addUInt8(ANDROID_CONTROL_AE_LOCK_AVAILABLE, 1, &aeLockAvailable);
 
-    static const uint8_t awbLockAvailable = ANDROID_CONTROL_AWB_LOCK_AVAILABLE_FALSE;
+    static const uint8_t awbLockAvailable = ANDROID_CONTROL_AWB_LOCK_AVAILABLE_TRUE;
     m.addUInt8(ANDROID_CONTROL_AWB_LOCK_AVAILABLE, 1, &awbLockAvailable);
 
     static const uint8_t availableControlModes[] = {ANDROID_CONTROL_MODE_OFF, ANDROID_CONTROL_MODE_AUTO, ANDROID_CONTROL_MODE_USE_SCENE_MODE};

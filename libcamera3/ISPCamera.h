@@ -20,6 +20,7 @@
 #include "Camera.h"
 #include "MMAPStream.h"
 #include "utils/CameraConfigurationParser.h"
+#include "ISPWrapper.h"
 
 using namespace cameraconfigparser;
 class ISPCamera: public Camera
@@ -32,6 +33,10 @@ public:
     CameraSensorMetadata *mCameraMetadata;
     virtual status_t initSensorStaticData();
     virtual PixelFormat getPreviewPixelFormat();
+    virtual int32_t processSettings(sp<Metadata> settings, uint32_t frame);
+
+protected:
+    virtual int32_t initDevice();
 
 private:
     class ISPCameraMMAPStream : public MMAPStream
@@ -45,6 +50,9 @@ private:
         virtual int32_t onDeviceConfigureLocked();
         struct OmitFrame *mOmitFrame;
     };
+
+public:
+    ISPWrapper *m_pIspWrapper;
 };
 
 #endif
