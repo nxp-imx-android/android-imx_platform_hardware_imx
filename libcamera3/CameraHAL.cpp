@@ -332,8 +332,8 @@ void CameraHAL::enumSensorSet()
     mSets[BACK_CAM_ID].mExisting = false;
 
     // get front camera property.
-    strncpy(mSets[FRONT_CAM_ID].mPropertyName, mCameraDef.camera_metadata[FRONT_CAM_ID].camera_name, strlen(mCameraDef.camera_metadata[BACK_CAM_ID].camera_name));
-    mSets[FRONT_CAM_ID].mOrientation = mCameraDef.camera_metadata[BACK_CAM_ID].orientation;;
+    strncpy(mSets[FRONT_CAM_ID].mPropertyName, mCameraDef.camera_metadata[FRONT_CAM_ID].camera_name, strlen(mCameraDef.camera_metadata[FRONT_CAM_ID].camera_name));
+    mSets[FRONT_CAM_ID].mOrientation = mCameraDef.camera_metadata[FRONT_CAM_ID].orientation;
     mSets[FRONT_CAM_ID].mFacing = CAMERA_FACING_FRONT;
     mSets[FRONT_CAM_ID].mExisting = false;
 
@@ -412,7 +412,7 @@ int32_t CameraHAL::matchNodeName(const char* nodeName, nodeSet* nodes, int32_t i
             continue;
         }
 
-        if (!strstr(sensorName, nodeName)) {
+        if ((strlen(nodeName) == 0) || !strstr(sensorName, nodeName)) {
             node = node->next;
             continue;
         }
