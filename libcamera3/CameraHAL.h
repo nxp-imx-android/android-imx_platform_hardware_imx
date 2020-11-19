@@ -70,60 +70,8 @@ private:
     int32_t matchNodeName(const char* nodeName, nodeSet* nodes, int32_t index);
     int32_t matchPropertyName(nodeSet* nodes, int32_t index);
 
-    int32_t handleThreadHotplug();
-    void handleThreadExit();
-    int32_t handleCameraConnected(char* uevent);
-    int32_t handleCameraDisonnected(char* uevent);
     void enumSensorSet();
     void enumSensorNode(int index);
-
-private:
-    /**
-     * Thread for managing usb camera hotplug. It does below:
-     * 1. Monitor camera hotplug status, and notify the status changes by calling
-     *    module callback methods.
-     * 2. When camera is plugged, create camera device instance, initialize the camera
-     *    static info. When camera is unplugged, destroy the camera device instance and
-     *    static metadata. As an optimization option, the camera device instance (
-     *    including the static info) could be cached when the same camera
-     *    plugged/unplugge multiple times.
-     */
-    class HotplugThread : public android::Thread {
-    public:
-        HotplugThread(CameraHAL *hal)
-            : Thread(false), mModule(hal) {}
-        ~HotplugThread() {}
-
-        virtual void onFirstRef() {
-            run("HotplugThread", PRIORITY_URGENT_DISPLAY);
-        }
-
-        virtual status_t readyToRun(){
-            uevent_init();
-            return 0;
-        }
-
-        // Override below two methods for proper cleanup.
-        virtual bool threadLoop() {
-            int ret = mModule->handleThreadHotplug();
-            if (ret != 0) {
-                ALOGI("%s exit...", __func__);
-                return false;
-            }
-
-            return true;
-        }
-
-        virtual void requestExit() {
-            // Call parent to set up shutdown
-            mModule->handleThreadExit();
-            Thread::requestExit();
-            // Cleanup other states?
-        }
-
-    private:
-        CameraHAL *mModule;
-    };
 
 private:
     SensorSet mSets[MAX_CAMERAS];
@@ -133,8 +81,6 @@ private:
     const camera_module_callbacks_t *mCallbacks;
     // Array of camera devices, contains mCameraCount device pointers
     Camera **mCameras;
-    // camera hotplug handle thread.
-    sp<HotplugThread> mHotplugThread;
 };
 
 #endif // CAMERA_HAL_H_
