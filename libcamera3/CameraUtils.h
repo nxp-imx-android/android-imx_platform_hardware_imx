@@ -245,6 +245,16 @@ public:
     int mSensorFormats[MAX_SENSOR_FORMAT];
     int mSensorFormatCount;
     char mDevPath[CAMAERA_FILENAME_LENGTH];
+
+    // Ref https://developer.android.com/reference/android/hardware/camera2/CameraCharacteristics#CONTROL_AE_COMPENSATION_RANGE
+    // and https://developer.android.com/reference/android/hardware/camera2/CameraCharacteristics#CONTROL_AE_COMPENSATION_STEP.
+    // In short, EV(exposure value) = AeComp * AeCompStepNumerator / AeCompStepDenominator.
+    // Ref above link, One unit of EV compensation changes the brightness of the captured image by a factor of two.
+    // +1 EV doubles the image brightness, while -1 EV halves the image brightness.
+    int32_t mAeCompMin;
+    int32_t mAeCompMax;
+    int32_t mAeCompStepNumerator;
+    int32_t mAeCompStepDenominator;
 };
 
 #endif

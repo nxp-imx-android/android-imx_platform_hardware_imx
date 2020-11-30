@@ -17,6 +17,9 @@
 #ifndef _ISP_WRAPPER_H
 #define _ISP_WRAPPER_H
 
+#include <json/json.h>
+#include <json/reader.h>
+
 #define STR_AWB_ENABLE    (char *)"{<id>:<awb.s.en>; <enable>:true}"
 #define STR_AWB_DISABLE   (char *)"{<id>:<awb.s.en>; <enable>:false}"
 
@@ -54,20 +57,26 @@ static char* g_strWBList[] = {
 class ISPWrapper
 {
 public:
-    ISPWrapper();
+    ISPWrapper(SensorData *pSensor);
     ~ISPWrapper();
     int init(char *devPath);
     int process(Metadata *pMeta);
     int processAWB(uint8_t mode);
+    int processAeMode(uint8_t mode);
 
 private:
     int setFeature(const char *value);
+    int viv_private_ioctl(const char *cmd, Json::Value& jsonRequest, Json::Value& jsonResponse);
+    int processExposureGain(int32_t comp);
 
 private:
     int m_fd;
     uint32_t m_ctrl_id;
+    SensorData* m_sensor;
 
     uint8_t m_awb_mode;
+    uint8_t m_ae_mode;
+    int32_t m_exposure_comp;
 };
 
 #endif // _ISP_WRAPPER_H

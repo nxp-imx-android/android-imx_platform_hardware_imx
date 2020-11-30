@@ -565,7 +565,7 @@ int32_t Camera::processSettings(sp<Metadata> settings, uint32_t frame)
         ALOGV("ae precature trigger");
     }
     else {
-        m3aState.aeState = ANDROID_CONTROL_AE_STATE_INACTIVE;
+        m3aState.aeState = ANDROID_CONTROL_AE_STATE_CONVERGED;
     }
 
     entry = settings->find(ANDROID_CONTROL_AE_PRECAPTURE_ID);

@@ -284,6 +284,16 @@ SensorData::SensorData()
 
     // For 2592x1944 jpg, mostly less than 1MB, 4MB is enough.
     mMaxJpegSize = 4 * 1024 * 1024;
+
+    // Ref https://developer.android.com/reference/android/hardware/camera2/CameraCharacteristics#CONTROL_AE_COMPENSATION_RANGE
+    // for the meanings.
+    mAeCompMin = -3;
+    mAeCompMax = 3;
+
+    // Ref https://developer.android.com/reference/android/hardware/camera2/CameraCharacteristics#CONTROL_AE_COMPENSATION_STEP
+    // for the meanings.
+    mAeCompStepNumerator = 1;
+    mAeCompStepDenominator = 1;
 }
 
 SensorData::~SensorData()

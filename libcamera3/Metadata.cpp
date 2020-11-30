@@ -193,12 +193,12 @@ camera_metadata_t* Metadata::createStaticInfo(SensorData& sensor, camera_info &c
             ANDROID_CONTROL_AE_ANTIBANDING_MODE_AUTO;
     m.addUInt8(ANDROID_CONTROL_AE_AVAILABLE_ANTIBANDING_MODES, 1, &aeAntibandingMode);
 
-    int32_t android_control_ae_compensation_range[] = {-3, 3};
+    int32_t android_control_ae_compensation_range[] = {sensor.mAeCompMin, sensor.mAeCompMax};
     m.addInt32(ANDROID_CONTROL_AE_COMPENSATION_RANGE,
             ARRAY_SIZE(android_control_ae_compensation_range),
             android_control_ae_compensation_range);
 
-    camera_metadata_rational_t android_control_ae_compensation_step[] = {{1,1}};
+    camera_metadata_rational_t android_control_ae_compensation_step[] = {{sensor.mAeCompStepNumerator, sensor.mAeCompStepDenominator}};
     m.addRational(ANDROID_CONTROL_AE_COMPENSATION_STEP,
             ARRAY_SIZE(android_control_ae_compensation_step),
             android_control_ae_compensation_step);
@@ -452,7 +452,7 @@ camera_metadata_t* Metadata::createStaticInfo(SensorData& sensor, camera_info &c
     m.addInt32(ANDROID_STATISTICS_INFO_MAX_FACE_COUNT, 1, &maxFaceCount);
 
 #if ANDROID_SDK_VERSION >= 28
-    static const uint8_t aeLockAvailable = ANDROID_CONTROL_AE_LOCK_AVAILABLE_FALSE;
+    static const uint8_t aeLockAvailable = ANDROID_CONTROL_AE_LOCK_AVAILABLE_TRUE;
     m.addUInt8(ANDROID_CONTROL_AE_LOCK_AVAILABLE, 1, &aeLockAvailable);
 
     static const uint8_t awbLockAvailable = ANDROID_CONTROL_AWB_LOCK_AVAILABLE_TRUE;

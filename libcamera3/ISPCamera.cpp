@@ -33,7 +33,7 @@ ISPCamera::ISPCamera(int32_t id, int32_t facing, int32_t orientation, char *path
     mCameraMetadata = cam_metadata;
 
     mVideoStream = new ISPCameraMMAPStream(this, cam_metadata->omit_frame);
-    m_pIspWrapper = new ISPWrapper();
+    m_pIspWrapper = new ISPWrapper(this);
 }
 
 ISPCamera::~ISPCamera()
@@ -204,10 +204,6 @@ int32_t ISPCamera::ISPCameraMMAPStream::onDeviceConfigureLocked()
         return ret;
     }
 
-    // When reconfig stream (shift between picture and record mode), need recover to awb,
-    // or the image will blurry if previous mode is mwb.
-    ((ISPCamera *)mCamera)->m_pIspWrapper->processAWB(ANDROID_CONTROL_AWB_MODE_AUTO);
-
     struct OmitFrame *item;
     for(item = mOmitFrame; item < mOmitFrame + OMIT_RESOLUTION_NUM; item++) {
       if ((mWidth == item->width) && (mHeight == item->height)) {
@@ -219,4 +215,16 @@ int32_t ISPCamera::ISPCameraMMAPStream::onDeviceConfigureLocked()
     return 0;
 }
 
+int32_t ISPCamera::ISPCameraMMAPStream::onDeviceStartLocked()
+{
+    int ret = MMAPStream::onDeviceStartLocked();
 
+    // When restart stream (shift between picture and record mode, or shift between APK), need recover to awb,
+    // or the image will blurry if previous mode is mwb.
+    // awb/aec need to be set after stream on.
+    ((ISPCamera *)mCamera)->m_pIspWrapper->processAWB(ANDROID_CONTROL_AWB_MODE_AUTO);
+
+    ((ISPCamera *)mCamera)->m_pIspWrapper->processAeMode(ANDROID_CONTROL_AE_MODE_ON);
+
+    return ret;
+}

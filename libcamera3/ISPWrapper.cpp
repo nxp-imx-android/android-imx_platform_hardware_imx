@@ -25,11 +25,19 @@
 
 #define VIV_CTRL_NAME "viv_ext_ctrl"
 
-ISPWrapper::ISPWrapper()
+ISPWrapper::ISPWrapper(SensorData *pSensor)
 {
     m_fd = -1;
     m_ctrl_id = 0;
+    m_sensor = pSensor;
+
+    // Set ISP feature to it's default value
     m_awb_mode = ANDROID_CONTROL_AWB_MODE_AUTO;
+    m_ae_mode = ANDROID_CONTROL_AE_MODE_ON;
+
+    // When init, aec is on. m_exposure_comp is only valid when aec is off, set to an invalid value.
+    m_exposure_comp = m_sensor->mAeCompMax + 1;
+
 }
 
 ISPWrapper::~ISPWrapper()
@@ -165,6 +173,152 @@ int ISPWrapper::process(Metadata *pMeta)
         processAWB(entry.data.u8[0]);
 
     // Todo, add other meta process.
+    entry = pMeta->find(ANDROID_CONTROL_AE_EXPOSURE_COMPENSATION);
+    if (entry.count > 0)
+        processExposureGain(entry.data.i32[0]);
+
+#if 0
+    // The com.intermedia.hd.camera.professional.fbnps_8730133319.apk enalbes aec right
+    // after set exposure value, so the brightness will recover very quickly, hard to demo
+    // the effect. Will uncomment the code after find a suitable APK.
+
+    entry = pMeta->find(ANDROID_CONTROL_AE_MODE);
+    if (entry.count > 0)
+        processAeMode(entry.data.u8[0]);
+#endif
+
+    return 0;
+}
+
+
+#define IF_EC_S_CFG       "ec.s.cfg"
+#define IF_EC_G_CFG       "ec.g.cfg"
+
+#define EC_GAIN_PARAMS    "gain"
+#define EC_TIME_PARAMS    "time"
+#define EC_MAX_PARAMS     "max"
+#define EC_MIN_PARAMS     "min"
+#define EC_STEP_PARAMS    "step"
+
+#define VIV_CUSTOM_CID_BASE   (V4L2_CID_USER_BASE | 0xf000)
+#define V4L2_CID_VIV_EXTCTRL  (VIV_CUSTOM_CID_BASE + 1)
+#define VIV_JSON_BUFFER_SIZE  (64*1024)
+
+int ISPWrapper::viv_private_ioctl(const char *cmd, Json::Value& jsonRequest, Json::Value& jsonResponse)
+{
+    if (!cmd) {
+        ALOGE("cmd should not be null!");
+        return -1;
+    }
+    jsonRequest["id"] = cmd;
+    jsonRequest["streamid"] = 0;
+
+    struct v4l2_ext_controls ecs;
+    struct v4l2_ext_control ec;
+    memset(&ecs, 0, sizeof(ecs));
+    memset(&ec, 0, sizeof(ec));
+    ec.string = new char[VIV_JSON_BUFFER_SIZE];
+    ec.id = V4L2_CID_VIV_EXTCTRL;
+    ec.size = 0;
+    ecs.controls = &ec;
+    ecs.count = 1;
+
+    ioctl(m_fd, VIDIOC_G_EXT_CTRLS, &ecs);
+
+    strcpy(ec.string, jsonRequest.toStyledString().c_str());
+
+    int ret = ioctl(m_fd, VIDIOC_S_EXT_CTRLS, &ecs);
+    if (ret != 0)
+        return ret;
+
+    ioctl(m_fd, VIDIOC_G_EXT_CTRLS, &ecs);
+
+    Json::Reader reader;
+    reader.parse(ec.string, jsonResponse, true);
+    delete ec.string;
+    ec.string = NULL;
+    return jsonResponse["MC_RET"].asInt();
+}
+
+
+#define EC_GAIN_MIN   (double)2.900000
+#define EC_GAIN_MAX   (double)22.475000
+
+#define AE_ENABLE_PARAMS    "enable"
+#define IF_AE_S_EN          "ae.s.en"
+
+int ISPWrapper::processExposureGain(int32_t comp)
+{
+    int ret;
+    Json::Value jRequest, jResponse;
+
+    if(m_exposure_comp == comp)
+        return 0;
+
+    if(comp > m_sensor->mAeCompMax) comp = m_sensor->mAeCompMax;
+    if(comp < m_sensor->mAeCompMin) comp = m_sensor->mAeCompMin;
+
+    // Fix me, currntly just linear map compensation value to gain.
+    // In theory, should use (step * value) to calculate the exposure value.
+    // Ref https://developer.android.com/reference/android/hardware/camera2/CameraCharacteristics#CONTROL_AE_COMPENSATION_STEP.
+    // One unit of EV compensation changes the brightness of the captured image by a factor of two.
+    // +1 EV doubles the image brightness, while -1 EV halves the image brightness.
+    // But we don't know how much gain will double brightness.
+    double gain = EC_GAIN_MIN + ((comp - m_sensor->mAeCompMin) * (EC_GAIN_MAX - EC_GAIN_MIN)) / (m_sensor->mAeCompMax - m_sensor->mAeCompMin);
+
+    // first disable aec
+    processAeMode(ANDROID_CONTROL_AE_MODE_OFF);
+
+    viv_private_ioctl(IF_EC_G_CFG, jRequest, jResponse);
+    double currentGain = jResponse[EC_GAIN_PARAMS].asDouble();
+    double currentExposureTime = jResponse[EC_TIME_PARAMS].asDouble();
+
+    jRequest[EC_GAIN_PARAMS] = gain;
+    jRequest[EC_TIME_PARAMS] = currentExposureTime;
+
+    ALOGI("%s: change comp from %d to %d, currentGain %f, set to %f",  __func__, m_exposure_comp, comp, currentGain, gain);
+
+    ret = viv_private_ioctl(IF_EC_S_CFG, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: viv_private_ioctl failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    m_exposure_comp = comp;
+
+    return 0;
+}
+
+int ISPWrapper::processAeMode(uint8_t mode)
+{
+    if((mode != ANDROID_CONTROL_AE_MODE_OFF) && (mode != ANDROID_CONTROL_AE_MODE_ON)) {
+        ALOGW("%s: unsupported ae mode %d", __func__, mode);
+        return BAD_VALUE;
+    }
+
+    if(mode == m_ae_mode)
+        return 0;
+
+    ALOGI("%s: set ae mode to %d", __func__, mode);
+
+    bool enable = (mode == ANDROID_CONTROL_AE_MODE_ON);
+    Json::Value jRequest, jResponse;
+    jRequest[AE_ENABLE_PARAMS] = enable;
+
+    int ret = viv_private_ioctl(IF_AE_S_EN, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: viv_private_ioctl failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    m_ae_mode = mode;
+
+    // m_exposure_comp is only valid when aec is off. When aec is on, set it to an invalid value.
+    // So when use manual aec, the comp will be set whatever.
+    // If not so, when (aec off, comp = max) -> (aec on) -> (aec off, comp = max),
+    // processExposureGain() will do nothing since comp not change.
+    if(m_ae_mode == ANDROID_CONTROL_AE_MODE_ON)
+        m_exposure_comp = m_sensor->mAeCompMax + 1;
 
     return 0;
 }

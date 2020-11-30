@@ -48,6 +48,7 @@ private:
 
         // configure device.
         virtual int32_t onDeviceConfigureLocked();
+        virtual int32_t onDeviceStartLocked();
         struct OmitFrame *mOmitFrame;
     };
 
