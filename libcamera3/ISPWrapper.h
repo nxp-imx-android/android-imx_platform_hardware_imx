@@ -30,16 +30,15 @@
 // DAYLIGHT  -> D50
 // CLOUDY_DAYLIGHT  -> D65
 // TWILIGHT -> TL84
-// SHADE ->D75
-#define STR_AWB_INCANDESCENT (char *)"{<id>:<awb.s.gain>; <blue>:1.09915;<green.b>:1.0;<green.r>:1.0;<red>:3.1024}"
-#define STR_AWB_FLUORESCENT (char *)"{<id>:<awb.s.gain>; <blue>:1.58448;<green.b>:1.0;<green.r>:1.0;<red>:2.5385}"
-// To be refine once get the data, currently just copy STR_AWB_FLUORESCENT
-#define STR_AWB_WARM_FLUORESCENT (char *)"{<id>:<awb.s.gain>; <blue>:1.58448;<green.b>:1.0;<green.r>:1.0;<red>:2.5385}"
-#define STR_AWB_DAYLIGHT (char *)"{<id>:<awb.s.gain>; <blue>:1.66425;<green.b>:1.0;<green.r>:1.0;<red>:1.9972}"
-#define STR_AWB_CLOUDY_DAYLIGHT (char *)"{<id>:<awb.s.gain>; <blue>:1.94499;<green.b>:1.0;<green.r>:1.0;<red>:1.6718}"
-#define STR_AWB_TWILIGHT (char *)"{<id>:<awb.s.gain>; <blue>:1.36191;<green.b>:1.0;<green.r>:1.0;<red>:2.4337}"
+// SHADE -> ???
+#define STR_AWB_INCANDESCENT (char *)"{<id>:<awb.s.gain>; <red>:1.09915;<green.b>:1.0;<green.r>:1.0;<blue>:3.1024}"
+#define STR_AWB_FLUORESCENT (char *)"{<id>:<awb.s.gain>; <red>:1.58448;<green.b>:1.0;<green.r>:1.0;<blue>:2.5385}"
+#define STR_AWB_WARM_FLUORESCENT (char *)"{<id>:<awb.s.gain>; <red>:1.28448;<green.b>:1.2;<green.r>:1.2;<blue>:2.1385}"
+#define STR_AWB_DAYLIGHT (char *)"{<id>:<awb.s.gain>; <red>:1.66425;<green.b>:1.0;<green.r>:1.0;<blue>:1.9972}"
+#define STR_AWB_CLOUDY_DAYLIGHT (char *)"{<id>:<awb.s.gain>; <red>:1.94499;<green.b>:1.0;<green.r>:1.0;<blue>:1.6718}"
+#define STR_AWB_TWILIGHT (char *)"{<id>:<awb.s.gain>; <red>:1.36191;<green.b>:1.0;<green.r>:1.0;<blue>:2.4337}"
 // To be refine once get the data, currently just copy STR_AWB_TWILIGHT
-#define STR_AWB_SHADE (char *)"{<id>:<awb.s.gain>; <blue>:1.36191;<green.b>:1.0;<green.r>:1.0;<red>:2.4337}"
+#define STR_AWB_SHADE (char *)"{<id>:<awb.s.gain>; <red>:1.36191;<green.b>:1.0;<green.r>:1.0;<blue>:2.4337}"
 
 // Keep same sequence as camera_metadata_enum_android_control_awb_mode_t defined in camera_metadata_tags.h
 static char* g_strWBList[] = {
