@@ -34,6 +34,17 @@ ISPCamera::ISPCamera(int32_t id, int32_t facing, int32_t orientation, char *path
 
     mVideoStream = new ISPCameraMMAPStream(this, cam_metadata->omit_frame);
     m_pIspWrapper = new ISPWrapper(this);
+
+    mAeCompMin = -4;
+    mAeCompMax = 4;
+    mAeCompStepNumerator = 1;
+    mAeCompStepDenominator = 2;
+
+    mFpsRangeLow = 30;
+    mFpsRangeHigh = 30;
+
+    // Will uncomment after fix most failed CTS tests when set to LIMITED.
+    // mHwLvl = ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED;
 }
 
 ISPCamera::~ISPCamera()

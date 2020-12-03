@@ -294,6 +294,11 @@ SensorData::SensorData()
     // for the meanings.
     mAeCompStepNumerator = 1;
     mAeCompStepDenominator = 1;
+
+    mFpsRangeLow = 15;
+    mFpsRangeHigh = 30;
+
+    mHwLvl = ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY;
 }
 
 SensorData::~SensorData()

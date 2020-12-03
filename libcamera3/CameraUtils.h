@@ -246,6 +246,8 @@ public:
     int mSensorFormatCount;
     char mDevPath[CAMAERA_FILENAME_LENGTH];
 
+    uint8_t mHwLvl;
+
     // Ref https://developer.android.com/reference/android/hardware/camera2/CameraCharacteristics#CONTROL_AE_COMPENSATION_RANGE
     // and https://developer.android.com/reference/android/hardware/camera2/CameraCharacteristics#CONTROL_AE_COMPENSATION_STEP.
     // In short, EV(exposure value) = AeComp * AeCompStepNumerator / AeCompStepDenominator.
@@ -255,6 +257,9 @@ public:
     int32_t mAeCompMax;
     int32_t mAeCompStepNumerator;
     int32_t mAeCompStepDenominator;
+
+    int32_t mFpsRangeLow;
+    int32_t mFpsRangeHigh;
 };
 
 #endif
