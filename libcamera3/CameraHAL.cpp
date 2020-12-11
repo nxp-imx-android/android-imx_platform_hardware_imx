@@ -243,6 +243,7 @@ int32_t CameraHAL::matchNodeName(const char* nodeName, nodeSet* nodes, int32_t i
 
     const char* sensorName = NULL;
     const char* devNode = NULL;
+    const char* busInfo = NULL;
     int32_t ret = -1;
 
     ALOGI("%s", __func__);
@@ -250,6 +251,8 @@ int32_t CameraHAL::matchNodeName(const char* nodeName, nodeSet* nodes, int32_t i
     while (node != NULL) {
         devNode = node->devNode;
         sensorName = node->nodeName;
+        busInfo = node->busInfo;
+
         if (node->isHeld || strlen(sensorName) == 0) {
             node = node->next;
             continue;
@@ -260,8 +263,15 @@ int32_t CameraHAL::matchNodeName(const char* nodeName, nodeSet* nodes, int32_t i
 
         CameraSensorMetadata *camera_metadata;
         camera_metadata = &(mCameraDef.camera_metadata[index]);
+
         if(camera_metadata->device_node[0] && strcmp(devNode, camera_metadata->device_node)) {
             ALOGI("matchNodeName: device node %s is not the given node %s", devNode, camera_metadata->device_node);
+            node = node->next;
+            continue;
+        }
+
+        if(camera_metadata->bus_info[0] && strcmp(busInfo, camera_metadata->bus_info)) {
+            ALOGI("matchNodeName: bus info unmatch, expect %s, actual %s", camera_metadata->bus_info, busInfo);
             node = node->next;
             continue;
         }
@@ -313,7 +323,7 @@ int32_t CameraHAL::matchDevNodes()
 
         sprintf(node->devNode, "/dev/%s", dirEntry->d_name);
 
-        getNodeName(node->devNode, node->nodeName, nameLen);
+        getNodeName(node->devNode, node->nodeName, nameLen, node->busInfo, nameLen);
 
         if (strlen(node->nodeName) != 0) {
             if (nodes == NULL) {
@@ -342,7 +352,7 @@ int32_t CameraHAL::matchDevNodes()
     return 0;
 }
 
-int32_t CameraHAL::getNodeName(const char* devNode, char name[], size_t length)
+int32_t CameraHAL::getNodeName(const char* devNode, char name[], size_t length, char busInfo[], size_t busInfoLen)
 {
     int32_t ret = -1;
     int32_t fd = -1;
@@ -385,10 +395,12 @@ int32_t CameraHAL::getNodeName(const char* devNode, char name[], size_t length)
         }
     }
 
+    strncpy(busInfo, (const char*)vidCap.bus_info, busInfoLen);
+
     strncat(name, (const char*)vidCap.driver, length);
     strLen = strlen((const char*)vidCap.driver);
     length -= strLen;
-    ALOGI("getNodeName: node name:%s", name);
+    ALOGI("getNodeName: node name:%s, bus info: %s", name, vidCap.bus_info);
 
     ret = ioctl(fd, VIDIOC_DBG_G_CHIP_IDENT, &vidChip);
     if (ret < 0) {
