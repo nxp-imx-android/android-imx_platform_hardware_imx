@@ -614,6 +614,7 @@ camera_metadata_t* Metadata::createStaticInfo(SensorData& sensor, camera_info &c
                                       ANDROID_LENS_INFO_AVAILABLE_APERTURES,
                                       ANDROID_LENS_INFO_AVAILABLE_FILTER_DENSITIES,
                                       ANDROID_LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION,
+                                      ANDROID_LENS_OPTICAL_STABILIZATION_MODE,
                                       ANDROID_REQUEST_AVAILABLE_CAPABILITIES,
                                       ANDROID_COLOR_CORRECTION_ABERRATION_MODE,
                                       ANDROID_NOISE_REDUCTION_MODE,
