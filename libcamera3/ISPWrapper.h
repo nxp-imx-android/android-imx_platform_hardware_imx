@@ -76,6 +76,7 @@ private:
     uint8_t m_awb_mode;
     uint8_t m_ae_mode;
     int32_t m_exposure_comp;
+    double m_exposure_time;
 };
 
 #endif // _ISP_WRAPPER_H

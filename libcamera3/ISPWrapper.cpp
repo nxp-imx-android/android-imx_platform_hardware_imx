@@ -37,6 +37,7 @@ ISPWrapper::ISPWrapper(SensorData *pSensor)
 
     // When init, aec is on. m_exposure_comp is only valid when aec is off, set to an invalid value.
     m_exposure_comp = m_sensor->mAeCompMax + 1;
+    m_exposure_time = 0.0;
 
 }
 
@@ -247,6 +248,8 @@ int ISPWrapper::viv_private_ioctl(const char *cmd, Json::Value& jsonRequest, Jso
 #define AE_ENABLE_PARAMS    "enable"
 #define IF_AE_S_EN          "ae.s.en"
 
+#define EXP_TIME_DFT	 0.006535 // unit: seconds
+
 int ISPWrapper::processExposureGain(int32_t comp)
 {
     int ret;
@@ -269,14 +272,20 @@ int ISPWrapper::processExposureGain(int32_t comp)
     // first disable aec
     processAeMode(ANDROID_CONTROL_AE_MODE_OFF);
 
-    viv_private_ioctl(IF_EC_G_CFG, jRequest, jResponse);
-    double currentGain = jResponse[EC_GAIN_PARAMS].asDouble();
-    double currentExposureTime = jResponse[EC_TIME_PARAMS].asDouble();
+    if(m_exposure_time == 0.0) {
+        viv_private_ioctl(IF_EC_G_CFG, jRequest, jResponse);
+        m_exposure_time = jResponse[EC_TIME_PARAMS].asDouble();
+        ALOGI("%s: get exposure time %f", __func__, m_exposure_time);
+
+        if(m_exposure_time == 0.0)
+            m_exposure_time = EXP_TIME_DFT;
+    }
 
     jRequest[EC_GAIN_PARAMS] = gain;
-    jRequest[EC_TIME_PARAMS] = currentExposureTime;
+    jRequest[EC_TIME_PARAMS] = m_exposure_time;
 
-    ALOGI("%s: change comp from %d to %d, currentGain %f, set to %f",  __func__, m_exposure_comp, comp, currentGain, gain);
+    ALOGI("%s: change comp from %d to %d, set exposure gain to %f, exposure time to %f",
+        __func__, m_exposure_comp, comp,  gain, m_exposure_time);
 
     ret = viv_private_ioctl(IF_EC_S_CFG, jRequest, jResponse);
     if(ret) {
@@ -317,8 +326,10 @@ int ISPWrapper::processAeMode(uint8_t mode)
     // So when use manual aec, the comp will be set whatever.
     // If not so, when (aec off, comp = max) -> (aec on) -> (aec off, comp = max),
     // processExposureGain() will do nothing since comp not change.
-    if(m_ae_mode == ANDROID_CONTROL_AE_MODE_ON)
+    if(m_ae_mode == ANDROID_CONTROL_AE_MODE_ON) {
         m_exposure_comp = m_sensor->mAeCompMax + 1;
+        m_exposure_time = 0.0;
+    }
 
     return 0;
 }
