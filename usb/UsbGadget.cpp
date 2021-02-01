@@ -533,16 +533,22 @@ Return<void> UsbGadget::setCurrentUsbFunctions(
     uint64_t functions, const sp<V1_0::IUsbGadgetCallback> &callback,
     uint64_t timeout) {
   std::unique_lock<std::mutex> lk(mLockSetCurrentFunction);
+  bool canSet = true;
 
   V1_0::Status status;
+  // Don't do multiple adb function set to avoid adb stable issue under xTS
+  if (mCurrentUsbFunctions == functions) {
+    if (functions & GadgetFunction::ADB) {
+      canSet = false;
+    }
+  }
 
-  if ((mCurrentUsbFunctions != functions) || (mCurrentUsbFunctionsApplied == false))
-  {
+  if (canSet || (mCurrentUsbFunctionsApplied == false)) {
     mCurrentUsbFunctions = functions;
     mCurrentUsbFunctionsApplied = false;
 
     // Unlink the gadget and stop the monitor if running.
-  V1_0::Status status = tearDownGadget();
+    status = tearDownGadget();
     if (status != Status::SUCCESS) {
       goto error;
     }
