@@ -692,6 +692,14 @@ static int start_output_stream(struct imx_stream_out *out)
         select_output_device(adev);
     }
 
+    if(out->flags == AUDIO_OUTPUT_FLAG_PRIMARY){
+            out->device = AUDIO_DEVICE_OUT_SPEAKER;
+    }
+
+    if (lpa_enable && (out->flags & AUDIO_OUTPUT_FLAG_DIRECT)){
+            out->device = AUDIO_DEVICE_OUT_LINE;
+    }
+
     if (lpa_enable)
         flags |= PCM_LPA;
     if (out->format == AUDIO_FORMAT_DSD)
@@ -707,8 +715,8 @@ static int start_output_stream(struct imx_stream_out *out)
     else
         card = get_card_for_device(adev, out->device, PCM_OUT, &out->card_index);
 
-    ALOGD("%s: pcm_open: card: %d, pcm_device_id: %d, rate: %d, channel: %d, format: %d, period_size: 0x%x, flag: %x",
-          __func__, card, pcm_device_id, config->rate, config->channels, config->format, config->period_size, flags);
+    ALOGD("%s: pcm_open: out->device:%d,  card: %d, pcm_device_id: %d, rate: %d, channel: %d, format: %d, period_size: 0x%x, flag: %x",
+          __func__, out->device, card, pcm_device_id, config->rate, config->channels, config->format, config->period_size, flags);
 
     if (card < 0) {
         ALOGE("%s: Invalid PCM card id: %d", __func__, card);
