@@ -1653,7 +1653,7 @@ static int hwc2_get_layer_generic_metadata_key(hwc2_device_t* device, uint32_t /
 
     DisplayManager* displayManager = DisplayManager::getInstance();
     if (displayManager == NULL) {
-        ALOGE("%s invalid display manager" PRId64, __func__);
+        ALOGE("%s invalid display manager", __func__);
         return HWC2_ERROR_BAD_DISPLAY;
     }
 
@@ -1913,6 +1913,12 @@ static int hwc_device_open(const struct hw_module_t* module, const char* name,
     dev->color_tranform = false;
 
     *device = &dev->device.common;
+    /* Start IDisplay service to remove EVS dependency on SF */
+    DisplayManager* displayManager = DisplayManager::getInstance();
+    if (displayManager == NULL) {
+        ALOGI("%s invalid display manager", __func__);
+        return status;
+    }
     ALOGI("%s,%d", __FUNCTION__, __LINE__);
     return 0;
 }
