@@ -461,8 +461,8 @@ Return<sp<IEvsCamera_1_1>> EvsEnumerator::openCamera_1_1(const hidl_string& came
     std::string fakeCamera(EVS_FAKE_NAME);
     std::string fakeLogicCamera(EVS_FAKE_LOGIC_NAME);
     if (fakeCamera == pRecord->desc.v1.cameraId || fakeLogicCamera == pRecord->desc.v1.cameraId) {
-        // the camera is fake, and it's logic camera, it will beeen fakeLogicCamera
-        //  the camera is fake, and it's phsical camera, it will beeen fakeCamera
+        // the camera is fake, and it's logic camera is fakeLogicCamera
+        //  the camera is fake, and it's physical camera is fakeCamera
         pActiveCamera = new FakeCapture(pRecord->desc.v1.cameraId.c_str(),
                  reinterpret_cast<camera_metadata_t *>(pRecord->desc.metadata.data()));
     } else {
@@ -543,13 +543,22 @@ Return<sp<IEvsCamera_1_0>> EvsEnumerator::openCamera(const hidl_string& cameraId
         closeCamera(pActiveCamera);
     }
 
-    // Construct a camera instance for the caller
-    pActiveCamera = new V4l2Capture(pRecord->desc.v1.cameraId.c_str(),
-                                               pRecord->name.c_str(),
-                                               kDefaultResolution[0],
-                                               kDefaultResolution[1],
-                                               HAL_PIXEL_FORMAT_RGB_888,
-                                               nullptr);
+    std::string fakeCamera(EVS_FAKE_NAME);
+    std::string fakeLogicCamera(EVS_FAKE_LOGIC_NAME);
+    if (fakeCamera == pRecord->desc.v1.cameraId || fakeLogicCamera == pRecord->desc.v1.cameraId) {
+        // the camera is fake, and it's logic camera is fakeLogicCamera
+        // the camera is fake, and it's physical camera is fakeCamera
+        pActiveCamera = new FakeCapture(pRecord->desc.v1.cameraId.c_str(),
+                 reinterpret_cast<camera_metadata_t *>(pRecord->desc.metadata.data()));
+    } else {
+            // Construct a camera instance for the caller
+            pActiveCamera = new V4l2Capture(pRecord->desc.v1.cameraId.c_str(),
+                                                       pRecord->name.c_str(),
+                                                       kDefaultResolution[0],
+                                                       kDefaultResolution[1],
+                                                       HAL_PIXEL_FORMAT_RGB_888,
+                                                       nullptr);
+    }
 
     pActiveCamera->openup(pRecord->desc.v1.cameraId.c_str());
     pRecord->activeInstance = pActiveCamera;
