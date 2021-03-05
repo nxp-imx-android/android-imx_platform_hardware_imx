@@ -25,6 +25,7 @@
 #include <log/log.h>
 #include <inttypes.h>
 #include <utils/SystemClock.h>
+#include <cutils/properties.h>
 #include <binder/IServiceManager.h>
 #include <system/camera_metadata.h>
 
@@ -33,11 +34,6 @@ using BufferDesc_1_0 = ::android::hardware::automotive::evs::V1_0::BufferDesc;
 using ::android::hardware::automotive::evs::V1_0::EvsResult;
 using ::android::hardware::graphics::common::V1_0::PixelFormat;
 const size_t kStreamCfgSz = sizeof(RawStreamConfig);
-
-static bool isSfReady() {
-    const android::String16 serviceName("SurfaceFlinger");
-    return android::defaultServiceManager()->checkService(serviceName) != nullptr;
-}
 
 // TODO:  Seems like it'd be nice if the Vehicle HAL provided such helpers (but how & where?)
 inline constexpr VehiclePropertyType getPropType(VehicleProperty prop) {
@@ -292,7 +288,6 @@ StatusCode EvsStateControl::invokeGet(VehiclePropValue *pRequestedPropValue) {
 
 
 bool EvsStateControl::configureEvsPipeline(State desiredState) {
-    static bool isGlReady = false;
 
     if (mCurrentState == desiredState) {
         // Nothing to do here...
@@ -305,7 +300,9 @@ bool EvsStateControl::configureEvsPipeline(State desiredState) {
     ALOGD("  Desired state %d has %zu cameras", desiredState,
           mCameraList[desiredState].size());
 
-    if (!isGlReady && !isSfReady()) {
+  int cpuRender = property_get_int32(EVS_CPU_RENDER, 0);
+  if (cpuRender != 0) {
+        ALOGD("Using simple CPU renderer.");
         // Graphics is not ready yet; using CPU renderer.
         if (mCameraList[desiredState].size() >= 1) {
             mDesiredRenderer = std::make_unique<RenderPixelCopy>(mEvs,
@@ -319,8 +316,7 @@ bool EvsStateControl::configureEvsPipeline(State desiredState) {
                   desiredState, static_cast<unsigned int>(mCameraList[desiredState].size()));
         }
     } else {
-        // Assumes that SurfaceFlinger is available always after being launched.
-
+        ALOGD("Using GL renderer.");
         // Do we need a new direct view renderer?
         if (mCameraList[desiredState].size() == 1) {
             // We have a camera assigned to this state for direct view.
@@ -394,9 +390,6 @@ bool EvsStateControl::configureEvsPipeline(State desiredState) {
             ALOGD("Unsupported, desiredState %d has %u cameras.",
                   desiredState, static_cast<unsigned int>(mCameraList[desiredState].size()));
         }
-
-        // GL renderer is now ready.
-        isGlReady = true;
     }
 
     // Since we're changing states, shut down the current renderer
