@@ -99,7 +99,9 @@ bool FakeCapture::onStart()
 {
     int fd = -1;
     fsl::Memory *buffer = nullptr;
-    onIncreaseMemoryBuffer(3);
+    if (mFramesAllowed == 0) {
+        onIncreaseMemoryBuffer(3);
+    }
 
     for (const auto& physical_cam : mPhysicalCamera) {
         if (mDeviceFd[physical_cam] < 0)
@@ -299,6 +301,8 @@ void FakeCapture::onIncreaseMemoryBuffer(unsigned number) {
         cam_nu++;
         mCamBuffers[mDeviceFd[physical_cam]] = fsl_mem;
     }
+    /* "number" parameter is ignored, so set maximum allowed frames to 1 */
+    mFramesAllowed++;
 }
 
 void FakeCapture::readFromPng(const char *filename, void* buf) {
