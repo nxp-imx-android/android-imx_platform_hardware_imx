@@ -35,6 +35,49 @@ using ::android::frameworks::automotive::display::V1_0::HwDisplayState;
 #define DISPLAY_WIDTH 1280
 #define DISPLAY_HEIGHT 720
 
+/**
+ * Getter for IDisplay service. This function is called outside of EvsDisplay
+ * constructor since it depends on DisplayManager and it can be costly
+ * operation during early booting process.
+ */
+sp<IDisplay> EvsDisplay::getDisplay()
+{
+    if (mDisplay == nullptr) {
+		//
+		//  Create the native full screen window and get a suitable configuration to match it
+		//
+		uint32_t layer = -1;
+		sp<IDisplay> display = nullptr;
+		while (display.get() == nullptr) {
+			display = IDisplay::getService();
+			if (display.get() == nullptr) {
+				ALOGE("%s get display service failed", __func__);
+				usleep(200000);
+			}
+		}
+
+		display->getLayer(DISPLAY_BUFFER_NUM,
+			[&](const auto& tmpError, const auto& tmpLayer) {
+				if (tmpError == Error::NONE) {
+					layer = tmpLayer;
+				}
+		});
+
+		if (layer == (uint32_t)-1) {
+			ALOGE("%s get layer failed", __func__);
+			return nullptr;
+		}
+
+		{
+			std::unique_lock<std::mutex> lock(mLock);
+			mIndex = 0;
+			mDisplay = display;
+			mLayer = layer;
+		}
+    }
+    return mDisplay;
+}
+
 EvsDisplay::EvsDisplay()
 {
     ALOGD("EvsDisplay instantiated");
@@ -70,38 +113,6 @@ void EvsDisplay::hideWindow()
 // Main entry point
 bool EvsDisplay::initialize()
 {
-    //
-    //  Create the native full screen window and get a suitable configuration to match it
-    //
-    uint32_t layer = -1;
-    sp<IDisplay> display = nullptr;
-    while (display.get() == nullptr) {
-        display = IDisplay::getService();
-        if (display.get() == nullptr) {
-            ALOGE("%s get display service failed", __func__);
-            usleep(200000);
-        }
-    }
-
-    display->getLayer(DISPLAY_BUFFER_NUM,
-        [&](const auto& tmpError, const auto& tmpLayer) {
-            if (tmpError == Error::NONE) {
-                layer = tmpLayer;
-            }
-    });
-
-    if (layer == (uint32_t)-1) {
-        ALOGE("%s get layer failed", __func__);
-        return false;
-    }
-
-    {
-        std::unique_lock<std::mutex> lock(mLock);
-        mIndex = 0;
-        mDisplay = display;
-        mLayer = layer;
-    }
-
     // allocate memory.
     fsl::Memory *buffer = nullptr;
     fsl::MemoryManager* allocator = fsl::MemoryManager::getInstance();
@@ -137,7 +148,7 @@ void EvsDisplay::forceShutdown()
 {
     ALOGD("EvsDisplay forceShutdown");
     int layer;
-    sp<IDisplay> display;
+    sp<IDisplay> display = getDisplay();
     {
         std::unique_lock<std::mutex> lock(mLock);
         layer = mLayer;
@@ -266,7 +277,7 @@ Return<void> EvsDisplay::getTargetBuffer(getTargetBuffer_cb _hidl_cb)
 
     int layer;
     uint32_t slot = -1;
-    sp<IDisplay> display = nullptr;
+    sp<IDisplay> display = getDisplay();
     {
         std::lock_guard<std::mutex> lock(mLock);
         display = mDisplay;
@@ -339,7 +350,7 @@ Return<EvsResult> EvsDisplay::returnTargetBufferForDisplay(const BufferDesc_1_0&
     }
 
     EvsDisplayState state;
-    sp<IDisplay> display;
+    sp<IDisplay> display = getDisplay();
     fsl::Memory *abuffer = nullptr;
     int layer;
     {

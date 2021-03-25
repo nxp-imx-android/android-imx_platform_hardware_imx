@@ -64,6 +64,7 @@ private:
     bool initialize();
     void showWindow();
     void hideWindow();
+    sp<IDisplay> getDisplay();
 
 private:
     std::mutex mLock;
@@ -78,7 +79,7 @@ private:
     EvsDisplayState mRequestedState = EvsDisplayState::NOT_VISIBLE;
 
     uint32_t mLayer = -1;
-    sp<IDisplay> mDisplay;
+    sp<IDisplay> mDisplay = nullptr;
 };
 
 } // namespace implementation
