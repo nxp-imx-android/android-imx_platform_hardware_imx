@@ -168,6 +168,7 @@ void copyMatchedInterleavedFormats(unsigned width, unsigned height,
     }
 }
 
+
 BufferDesc_1_1 convertBufferDesc(const BufferDesc_1_0& src) {
     BufferDesc_1_1 dst = {};
     AHardwareBuffer_Desc* pDesc =

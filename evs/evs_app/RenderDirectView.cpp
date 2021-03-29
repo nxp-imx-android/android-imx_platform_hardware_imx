@@ -22,7 +22,7 @@
 #include "shader_reverseLine.h"
 
 #include <system/camera_metadata.h>
-#include <log/log.h>
+#include <android-base/logging.h>
 #include <math/mat4.h>
 
 using ::android::hardware::graphics::common::V1_0::PixelFormat;
@@ -39,7 +39,7 @@ RenderDirectView::RenderDirectView(sp<IEvsEnumerator> enumerator,
 bool RenderDirectView::activate() {
     // Ensure GL is ready to go...
     if (!prepareGL()) {
-        ALOGE("Error initializing GL");
+        LOG(ERROR) << "Error initializing GL";
         return false;
     }
 
@@ -49,7 +49,7 @@ bool RenderDirectView::activate() {
                                             pixShader_simpleTexture,
                                             "simpleTexture");
         if (!mShaderProgram) {
-            ALOGE("Error buliding shader program");
+            LOG(ERROR) << "Error building shader program";
             return false;
         }
     }
@@ -68,8 +68,7 @@ bool RenderDirectView::activate() {
     mTexture.reset(createVideoTexture(mEnumerator, mCameraDesc.v1.cameraId.c_str(),
                     std::move(mTargetCfg), sDisplay));
     if (!mTexture) {
-        ALOGE("Failed to set up video texture for %s (%s)",
-              mCameraInfo.cameraId.c_str(), mCameraInfo.function.c_str());
+        LOG(ERROR) << "Failed to set up video texture for " << mCameraDesc.v1.cameraId;
 // TODO:  For production use, we may actually want to fail in this case, but not yet...
        return false;
     }
@@ -95,7 +94,7 @@ bool RenderDirectView::drawFrame(const BufferDesc& tgtBuffer) {
 
     // Tell GL to render to the given buffer
     if (!attachRenderTarget(tgtBuffer)) {
-        ALOGE("Failed to attached render target");
+        LOG(ERROR) << "Failed to attached render target";
         return false;
     }
 
@@ -105,13 +104,12 @@ bool RenderDirectView::drawFrame(const BufferDesc& tgtBuffer) {
     // Set up the model to clip space transform (identity matrix if we're modeling in screen space)
     GLint loc = glGetUniformLocation(mShaderProgram, "cameraMat");
     if (loc < 0) {
-        ALOGE("Couldn't set shader parameter 'cameraMat'");
+        LOG(ERROR) << "Couldn't set shader parameter 'cameraMat'";
         return false;
     } else {
         const android::mat4 identityMatrix;
         glUniformMatrix4fv(loc, 1, false, identityMatrix.asArray());
     }
-
 
     // Bind the texture and assign it to the shader's sampler
     mTexture->refresh();
@@ -121,7 +119,7 @@ bool RenderDirectView::drawFrame(const BufferDesc& tgtBuffer) {
 
     GLint sampler = glGetUniformLocation(mShaderProgram, "tex");
     if (sampler < 0) {
-        ALOGE("Couldn't set shader parameter 'tex'");
+        LOG(ERROR) << "Couldn't set shader parameter 'tex'";
         return false;
     } else {
         // Tell the sampler we looked up from the shader to use texture slot 0 as its source

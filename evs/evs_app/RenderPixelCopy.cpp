@@ -17,7 +17,7 @@
 #include "RenderPixelCopy.h"
 #include "FormatConvert.h"
 
-#include <log/log.h>
+#include <android-base/logging.h>
 
 
 RenderPixelCopy::RenderPixelCopy(sp<IEvsEnumerator> enumerator,
@@ -30,22 +30,22 @@ RenderPixelCopy::RenderPixelCopy(sp<IEvsEnumerator> enumerator,
 bool RenderPixelCopy::activate() {
     // Set up the camera to feed this texture
     sp<IEvsCamera> pCamera =
-                IEvsCamera::castFrom(mEnumerator->openCamera(mCameraInfo.cameraId.c_str()));
+        IEvsCamera::castFrom(mEnumerator->openCamera(mCameraInfo.cameraId.c_str()));
     if (pCamera.get() == nullptr) {
-        ALOGE("Failed to allocate new EVS Camera interface");
+        LOG(ERROR) << "Failed to allocate new EVS Camera interface";
         return false;
     }
 
     // Initialize the stream that will help us update this texture's contents
     sp<StreamHandler> pStreamHandler = new StreamHandler(pCamera);
     if (pStreamHandler.get() == nullptr) {
-        ALOGE("failed to allocate FrameHandler");
+        LOG(ERROR) << "Failed to allocate FrameHandler";
         return false;
     }
 
     // Start the video stream
     if (!pStreamHandler->startStream()) {
-        ALOGE("start stream failed");
+        LOG(ERROR) << "Start stream failed";
         return false;
     }
 
@@ -81,13 +81,12 @@ bool RenderPixelCopy::drawFrame(const BufferDesc& tgtBuffer) {
     if (tgtPixels) {
         if (pTgtDesc->format != HAL_PIXEL_FORMAT_RGBA_8888) {
             // We always expect 32 bit RGB for the display output for now.  Is there a need for 565?
-            ALOGE("Diplay buffer is always expected to be 32bit RGBA");
+            LOG(ERROR) << "Diplay buffer is always expected to be 32bit RGBA";
             success = false;
         } else {
             // Make sure we have the latest frame data
             if (mStreamHandler->newFrameAvailable()) {
                 const BufferDesc& srcBuffer = mStreamHandler->getNewFrame();
-
                 const AHardwareBuffer_Desc* pSrcDesc =
                       reinterpret_cast<const AHardwareBuffer_Desc *>(&srcBuffer.buffer.description);
 
@@ -104,7 +103,7 @@ bool RenderPixelCopy::drawFrame(const BufferDesc& tgtBuffer) {
                 unsigned char* srcPixels = nullptr;
                 src->lock(GRALLOC_USAGE_SW_READ_OFTEN, (void**)&srcPixels);
                 if (!srcPixels) {
-                    ALOGE("Failed to get pointer into src image data");
+                    LOG(ERROR) << "Failed to get pointer into src image data";
                 }
 
                 // Make sure we don't run off the end of either buffer
@@ -136,7 +135,7 @@ bool RenderPixelCopy::drawFrame(const BufferDesc& tgtBuffer) {
             }
         }
     } else {
-        ALOGE("Failed to lock buffer contents for contents transfer");
+        LOG(ERROR) << "Failed to lock buffer contents for contents transfer";
         success = false;
     }
 
