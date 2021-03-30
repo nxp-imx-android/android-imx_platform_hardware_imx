@@ -197,7 +197,8 @@ Return<void> StreamHandler::deliverFrame_1_1(const hidl_vec<BufferDesc_1_1>& buf
         BufferDesc_1_1 bufDesc = buffers[0];
         if (bufDesc.buffer.nativeHandle.getNativeHandle() == nullptr) {
             // Signal that the last frame has been received and the stream is stopped
-            mRunning = false;
+            LOG(WARNING) << "Invalid null frame (id: " << std::hex << bufDesc.bufferId
+                         << ") is ignored";
         } else {
             // Do we already have a "ready" frame?
             if (mReadyBuffer >= 0) {
