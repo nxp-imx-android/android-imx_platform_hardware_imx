@@ -76,8 +76,11 @@ public:
     // This spawns a new thread that is expected to run continuously
     bool startUpdateLoop();
 
+    // This stops a rendering thread
+    void terminateUpdateLoop();
+
     // Safe to be called from other threads
-    void postCommand(const Command& cmd);
+    void postCommand(const Command& cmd, bool clear = false);
 
 private:
     void updateLoop();
@@ -95,10 +98,12 @@ private:
 
     State                       mCurrentState = OFF;
 
+
+
     std::vector<ConfigManager::CameraInfo>  mCameraList[NUM_STATES];
-    std::vector<CameraDesc> mCameraDescList[NUM_STATES];
     std::unique_ptr<RenderBase> mCurrentRenderer;
     std::unique_ptr<RenderBase> mDesiredRenderer;
+    std::vector<CameraDesc>     mCameraDescList[NUM_STATES];
 
     std::thread                 mRenderThread;  // The thread that runs the main rendering loop
 
