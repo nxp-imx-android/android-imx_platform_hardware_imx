@@ -30,7 +30,6 @@
 
 #define EVS_CPU_RENDER   "vendor.evs.cpu.render.enable"
 
-using EvsDisplayState = ::android::hardware::automotive::evs::V1_0::DisplayState;
 using namespace ::android::hardware::automotive::evs::V1_1;
 using namespace ::android::hardware::automotive::vehicle::V2_0;
 using ::android::hardware::Return;

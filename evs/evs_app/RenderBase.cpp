@@ -153,7 +153,7 @@ bool RenderBase::attachRenderTarget(const BufferDesc& tgtBuffer) {
                                                      pDesc->width,
                                                      pDesc->height,
                                                      pDesc->format,
-                                                     1, // layer count
+                                                     1, //pDesc->layers,
                                                      GRALLOC_USAGE_HW_RENDER,
                                                      pDesc->stride);
     if (pGfxBuffer.get() == nullptr) {

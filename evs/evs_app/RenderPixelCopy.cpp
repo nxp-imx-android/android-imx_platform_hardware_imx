@@ -30,7 +30,9 @@ RenderPixelCopy::RenderPixelCopy(sp<IEvsEnumerator> enumerator,
 bool RenderPixelCopy::activate() {
     // Set up the camera to feed this texture
     sp<IEvsCamera> pCamera =
-        IEvsCamera::castFrom(mEnumerator->openCamera(mCameraInfo.cameraId.c_str()));
+        IEvsCamera::castFrom(mEnumerator->openCamera(mCameraInfo.cameraId.c_str()))
+        .withDefault(nullptr);
+
     if (pCamera.get() == nullptr) {
         LOG(ERROR) << "Failed to allocate new EVS Camera interface";
         return false;
@@ -65,14 +67,14 @@ bool RenderPixelCopy::drawFrame(const BufferDesc& tgtBuffer) {
     const AHardwareBuffer_Desc* pTgtDesc =
        reinterpret_cast<const AHardwareBuffer_Desc *>(&tgtBuffer.buffer.description);
 
-    sp<android::GraphicBuffer> tgt = new android::GraphicBuffer(
-            tgtBuffer.buffer.nativeHandle, android::GraphicBuffer::CLONE_HANDLE,
-            pTgtDesc->width,
-            pTgtDesc->height,
-            pTgtDesc->format,
-            1,
-            pTgtDesc->usage,
-            pTgtDesc->stride);
+    sp<android::GraphicBuffer> tgt = new android::GraphicBuffer(tgtBuffer.buffer.nativeHandle,
+                                                                android::GraphicBuffer::CLONE_HANDLE,
+                                                                pTgtDesc->width,
+                                                                pTgtDesc->height,
+                                                                pTgtDesc->format,
+                                                                1, //pTgtDesc->layers,
+                                                                pTgtDesc->usage,
+                                                                pTgtDesc->stride);
 
     // Lock our target buffer for writing (should be RGBA8888 format)
     uint32_t* tgtPixels = nullptr;
@@ -91,15 +93,14 @@ bool RenderPixelCopy::drawFrame(const BufferDesc& tgtBuffer) {
                       reinterpret_cast<const AHardwareBuffer_Desc *>(&srcBuffer.buffer.description);
 
                 // Lock our source buffer for reading (current expectation are for this to be NV21 format)
-                sp<android::GraphicBuffer> src = new android::GraphicBuffer(
-                        srcBuffer.buffer.nativeHandle,
-                        android::GraphicBuffer::CLONE_HANDLE,
-                        pSrcDesc->width,
-                        pSrcDesc->height,
-                        pSrcDesc->format,
-                        1,
-                        pSrcDesc->usage,
-                        pSrcDesc->stride);
+                sp<android::GraphicBuffer> src = new android::GraphicBuffer(srcBuffer.buffer.nativeHandle,
+                                                                            android::GraphicBuffer::CLONE_HANDLE,
+                                                                            pSrcDesc->width,
+                                                                            pSrcDesc->height,
+                                                                            pSrcDesc->format,
+                                                                            1, //pSrcDesc->layers,
+                                                                            pSrcDesc->usage,
+                                                                            pSrcDesc->stride);
 
                 unsigned char* srcPixels = nullptr;
                 src->lock(GRALLOC_USAGE_SW_READ_OFTEN, (void**)&srcPixels);

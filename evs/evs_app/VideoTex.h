@@ -16,6 +16,9 @@
 #ifndef VIDEOTEX_H
 #define VIDEOTEX_H
 
+#include "StreamHandler.h"
+#include "TexWrapper.h"
+
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
@@ -24,13 +27,9 @@
 #include <GLES3/gl3ext.h>
 
 #include <android/hardware/automotive/evs/1.1/IEvsEnumerator.h>
-
-#include "TexWrapper.h"
-#include "StreamHandler.h"
-
-
-using namespace ::android::hardware::automotive::evs::V1_1;
 using ::android::hardware::camera::device::V3_2::Stream;
+using namespace ::android::hardware::automotive::evs::V1_1;
+
 
 typedef struct {
     int32_t id;
@@ -69,6 +68,7 @@ private:
 };
 
 
+// Creates a video texture to draw the camera preview.
 VideoTex* createVideoTexture(sp<IEvsEnumerator> pEnum,
                              const char * deviceName,
                              std::unique_ptr<Stream> streamCfg,

@@ -25,14 +25,16 @@
 #include <android/hardware/automotive/evs/1.1/IEvsCamera.h>
 #include <android/hardware/automotive/evs/1.1/IEvsDisplay.h>
 
-using BufferDesc_1_0 = ::android::hardware::automotive::evs::V1_0::BufferDesc;
-using BufferDesc_1_1 = ::android::hardware::automotive::evs::V1_1::BufferDesc;
+using namespace ::android::hardware::automotive::evs::V1_1;
 using ::android::hardware::Return;
 using ::android::hardware::Void;
 using ::android::hardware::hidl_vec;
 using ::android::hardware::hidl_handle;
 using ::android::sp;
-using namespace ::android::hardware::automotive::evs::V1_1;
+using ::android::hardware::automotive::evs::V1_1::IEvsDisplay;
+using EvsDisplayState = ::android::hardware::automotive::evs::V1_0::DisplayState;
+using BufferDesc_1_0  = ::android::hardware::automotive::evs::V1_0::BufferDesc;
+using BufferDesc_1_1  = ::android::hardware::automotive::evs::V1_1::BufferDesc;
 
 
 /*
@@ -56,12 +58,14 @@ public:
     bool isRunning();
 
     bool newFrameAvailable();
-    const BufferDesc& getNewFrame();
-    void doneWithFrame(const BufferDesc& buffer);
+    const BufferDesc_1_1& getNewFrame();
+    void doneWithFrame(const BufferDesc_1_1& buffer);
 
 private:
-    // Implementation for ::android::hardware::automotive::evs::V1_0::ICarCameraStream
+    // Implementation for ::android::hardware::automotive::evs::V1_0::IEvsCameraStream
     Return<void> deliverFrame(const BufferDesc_1_0& buffer)  override;
+
+    // Implementation for ::android::hardware::automotive::evs::V1_1::IEvsCameraStream
     Return<void> deliverFrame_1_1(const hidl_vec<BufferDesc_1_1>& buffer)  override;
     Return<void> notify(const EvsEventDesc& event) override;
 

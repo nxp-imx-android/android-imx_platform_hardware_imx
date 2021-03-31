@@ -16,8 +16,9 @@
 #ifndef CONFIG_MANAGER_H
 #define CONFIG_MANAGER_H
 
-#include <vector>
+
 #include <string>
+#include <vector>
 
 
 class ConfigManager {

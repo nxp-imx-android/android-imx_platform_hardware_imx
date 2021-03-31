@@ -29,10 +29,11 @@
 #include <binder/IServiceManager.h>
 #include <system/camera_metadata.h>
 
-
-using BufferDesc_1_0 = ::android::hardware::automotive::evs::V1_0::BufferDesc;
 using ::android::hardware::automotive::evs::V1_0::EvsResult;
+using EvsDisplayState = ::android::hardware::automotive::evs::V1_0::DisplayState;
+using BufferDesc_1_0 = ::android::hardware::automotive::evs::V1_0::BufferDesc;
 using ::android::hardware::graphics::common::V1_0::PixelFormat;
+
 const size_t kStreamCfgSz = sizeof(RawStreamConfig);
 
 // TODO:  Seems like it'd be nice if the Vehicle HAL provided such helpers (but how & where?)
@@ -62,11 +63,11 @@ EvsStateControl::EvsStateControl(android::sp <IVehicle>       pVnet,
     mGearValue.prop       = static_cast<int32_t>(VehicleProperty::GEAR_SELECTION);
     mTurnSignalValue.prop = static_cast<int32_t>(VehicleProperty::TURN_SIGNAL_STATE);
 
-#if 1
     // This way we only ever deal with cameras which exist in the system
     // Build our set of cameras for the states we support
     LOG(DEBUG) << "Requesting camera list";
-    mEvs->getCameraList_1_1([this, &config](hidl_vec<CameraDesc> cameraList) {
+    mEvs->getCameraList_1_1(
+        [this, &config](hidl_vec<CameraDesc> cameraList) {
                             LOG(INFO) << "Camera list callback received " << cameraList.size() << "cameras.";
                             for (auto&& cam: cameraList) {
                                 LOG(DEBUG) << "Found camera " << cam.v1.cameraId;
@@ -109,24 +110,6 @@ EvsStateControl::EvsStateControl(android::sp <IVehicle>       pVnet,
                             }
                         }
     );
-#else // This way we use placeholders for cameras in the configuration but not reported by EVS
-    // Build our set of cameras for the states we support
-    ALOGD("Requesting camera list");
-    for (auto&& info: config.getCameras()) {
-        if (info.function.find("reverse") != std::string::npos) {
-            mCameraList[State::REVERSE].push_back(info);
-        }
-        if (info.function.find("right") != std::string::npos) {
-            mCameraList[State::RIGHT].push_back(info);
-        }
-        if (info.function.find("left") != std::string::npos) {
-            mCameraList[State::LEFT].push_back(info);
-        }
-        if (info.function.find("park") != std::string::npos) {
-            mCameraList[State::PARKING].push_back(info);
-        }
-    }
-#endif
 
     LOG(DEBUG) << "State controller ready";
 }
@@ -262,7 +245,7 @@ bool EvsStateControl::selectStateForCurrentConditions() {
             sDummyGear = int32_t(VehicleGear::GEAR_DRIVE);
         }
 
-        // Build the dummy vehicle state values (treating single values as 1 element vectors)
+        // Build the placeholder vehicle state values (treating single values as 1 element vectors)
         mGearValue.value.int32Values.setToExternal(&sDummyGear, 1);
         mTurnSignalValue.value.int32Values.setToExternal(&sDummySignal, 1);
     }

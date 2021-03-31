@@ -87,13 +87,12 @@ bool VideoTex::refresh() {
     // create a GraphicBuffer from the existing handle
     const AHardwareBuffer_Desc* pDesc =
          reinterpret_cast<const AHardwareBuffer_Desc *>(&mImageBuffer.buffer.description);
-
     sp<GraphicBuffer> pGfxBuffer = new GraphicBuffer(mImageBuffer.buffer.nativeHandle,
                                                      GraphicBuffer::CLONE_HANDLE,
                                                      pDesc->width,
                                                      pDesc->height,
                                                      pDesc->format,
-                                                     1, // layer count
+                                                     1,//pDesc->layers,
                                                      GRALLOC_USAGE_HW_TEXTURE,
                                                      pDesc->stride);
     if (pGfxBuffer.get() == nullptr) {
@@ -139,20 +138,28 @@ VideoTex* createVideoTexture(sp<IEvsEnumerator> pEnum,
                              EGLDisplay glDisplay) {
     // Set up the camera to feed this texture
     sp<IEvsCamera> pCamera = nullptr;
+    sp<StreamHandler> pStreamHandler = nullptr;
     if (streamCfg != nullptr) {
         pCamera = pEnum->openCamera_1_1(evsCameraId, *streamCfg);
+        
+        // Initialize the stream that will help us update this texture's contents
+        pStreamHandler = new StreamHandler(pCamera);
+        
     } else {
-        pCamera = IEvsCamera::castFrom(pEnum->openCamera(evsCameraId));
+        pCamera =
+            IEvsCamera::castFrom(pEnum->openCamera(evsCameraId))
+            .withDefault(nullptr);
+            
+        // Initialize the stream with the default resolution
+        pStreamHandler = new StreamHandler(pCamera);
     }
 
-    if (pCamera.get() == nullptr) {
+    if (pCamera == nullptr) {
         LOG(ERROR) << "Failed to allocate new EVS Camera interface for " << evsCameraId;
         return nullptr;
     }
 
-    // Initialize the stream that will help us update this texture's contents
-    sp<StreamHandler> pStreamHandler = new StreamHandler(pCamera);
-    if (pStreamHandler.get() == nullptr) {
+    if (pStreamHandler == nullptr) {
         LOG(ERROR) << "Failed to allocate FrameHandler";
         return nullptr;
     }

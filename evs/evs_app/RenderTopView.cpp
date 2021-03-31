@@ -28,6 +28,7 @@
 
 using ::android::hardware::graphics::common::V1_0::PixelFormat;
 
+
 // Simple aliases to make geometric math using vectors more readable
 static const unsigned X = 0;
 static const unsigned Y = 1;
@@ -153,8 +154,10 @@ bool RenderTopView::activate() {
 
     // Set up streaming video textures for our associated cameras
     for (auto&& cam: mActiveCameras) {
-        cam.tex.reset(createVideoTexture(mEnumerator, cam.info.cameraId.c_str(),
-                   std::move(mTargetCfg), sDisplay));
+        cam.tex.reset(createVideoTexture(mEnumerator,
+                                         cam.info.cameraId.c_str(),
+                                         std::move(mTargetCfg),
+                                         sDisplay));
         if (!cam.tex) {
             LOG(ERROR) << "Failed to set up video texture for " << cam.info.cameraId
                        << " (" << cam.info.function << ")";

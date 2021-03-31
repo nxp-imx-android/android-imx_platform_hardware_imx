@@ -14,25 +14,24 @@
  * limitations under the License.
  */
 
+#include "ConfigManager.h"
+#include "EvsStateControl.h"
+#include "EvsVehicleListener.h"
+
 #include <signal.h>
 #include <stdio.h>
 
+#include <android/hardware/automotive/evs/1.1/IEvsDisplay.h>
+#include <android/hardware/automotive/evs/1.1/IEvsEnumerator.h>
+#include <android-base/logging.h>
+#include <android-base/macros.h>    // arraysize
 #include <hidl/HidlTransportSupport.h>
 #include <hwbinder/IPCThreadState.h>
+#include <hwbinder/ProcessState.h>
 #include <utils/Errors.h>
 #include <utils/StrongPointer.h>
 #include <utils/Log.h>
-#include <android-base/logging.h>
-#include <android-base/macros.h>    // arraysize
 
-#include <android/hardware/automotive/evs/1.1/IEvsEnumerator.h>
-#include <android/hardware/automotive/evs/1.1/IEvsDisplay.h>
-
-#include <hwbinder/ProcessState.h>
-
-#include "EvsStateControl.h"
-#include "EvsVehicleListener.h"
-#include "ConfigManager.h"
 
 
 // libhidl:
@@ -127,9 +126,10 @@ int main(int argc, char** argv)
     }
     if (printHelp) {
         printf("Options include:\n");
-        printf("  --test   Do not talk to Vehicle Hal, but simulate 'reverse' instead\n");
-        printf("  --hw     Bypass EvsManager by connecting directly to EvsEnumeratorHw\n");
-        printf("  --mock   Connect directly to EvsEnumeratorHw-Mock\n");
+        printf("  --test\n\tDo not talk to Vehicle Hal, "
+               "but simulate 'reverse' instead\n");
+        printf("  --hw\n\tBypass EvsManager by connecting directly to EvsEnumeratorHw\n");
+        printf("  --mock\n\tConnect directly to EvsEnumeratorHw-Mock\n");
     }
 
     // Load our configuration information

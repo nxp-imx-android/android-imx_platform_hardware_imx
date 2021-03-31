@@ -23,9 +23,6 @@
 #include <android-base/logging.h>
 #include <cutils/native_handle.h>
 using ::android::hardware::automotive::evs::V1_0::EvsResult;
-using EvsDisplayState = ::android::hardware::automotive::evs::V1_0::DisplayState;
-using BufferDesc_1_0  = ::android::hardware::automotive::evs::V1_0::BufferDesc;
-using BufferDesc_1_1  = ::android::hardware::automotive::evs::V1_1::BufferDesc;
 
 StreamHandler::StreamHandler(android::sp <IEvsCamera> pCamera) :
     mCamera(pCamera)
@@ -96,7 +93,7 @@ bool StreamHandler::newFrameAvailable() {
 }
 
 
-const BufferDesc& StreamHandler::getNewFrame() {
+const BufferDesc_1_1& StreamHandler::getNewFrame() {
     std::unique_lock<std::mutex> lock(mLock);
 
     if (mHeldBuffer >= 0) {
@@ -139,93 +136,51 @@ void StreamHandler::doneWithFrame(const BufferDesc_1_1& bufDesc_1_1) {
 }
 
 
-Return<void> StreamHandler::deliverFrame(const BufferDesc_1_0& buffer) {
-    ALOGV("Received a frame from the camera (%p)", buffer.memHandle.getNativeHandle());
-
-    // Take the lock to protect our frame slots and running state variable
-    {
-        std::unique_lock <std::mutex> lock(mLock);
-
-        if (buffer.memHandle.getNativeHandle() == nullptr) {
-            // Signal that the last frame has been received and the stream is stopped
-            mRunning = false;
-        } else {
-            // Do we already have a "ready" frame?
-            if (mReadyBuffer >= 0) {
-                // Send the previously saved buffer back to the camera unused
-                AHardwareBuffer_Desc* pDesc =
-                    reinterpret_cast<AHardwareBuffer_Desc *>(&mBuffers[mReadyBuffer].buffer.description);
-
-                BufferDesc_1_0 bufDesc_1_0 = {
-                    pDesc->width,
-                    pDesc->height,
-                    pDesc->stride,
-                    mBuffers[mReadyBuffer].pixelSize,
-                    static_cast<uint32_t>(pDesc->format),
-                    static_cast<uint32_t>(pDesc->usage),
-                    mBuffers[mReadyBuffer].bufferId,
-                    mBuffers[mReadyBuffer].buffer.nativeHandle
-                };
-                mCamera->doneWithFrame(bufDesc_1_0);
-
-                // We'll reuse the same ready buffer index
-            } else if (mHeldBuffer >= 0) {
-                // The client is holding a buffer, so use the other slot for "on deck"
-                mReadyBuffer = 1 - mHeldBuffer;
-            } else {
-                // This is our first buffer, so just pick a slot
-                mReadyBuffer = 0;
-            }
-
-            // Save this frame until our client is interested in it
-            mBuffers[mReadyBuffer] = convertBufferDesc(buffer);
-        }
-    }
-
-    // Notify anybody who cares that things have changed
-    mSignal.notify_all();
+Return<void> StreamHandler::deliverFrame(const BufferDesc_1_0& bufDesc_1_0) {
+    LOG(INFO) << "Ignores a frame delivered from v1.0 EVS service.";
+    auto ret = mCamera->doneWithFrame(bufDesc_1_0);
 
     return Void();
 }
+
 
 Return<void> StreamHandler::deliverFrame_1_1(const hidl_vec<BufferDesc_1_1>& buffers) {
     LOG(DEBUG) << "Received frames from the camera";
 
     // Take the lock to protect our frame slots and running state variable
-    {
-        std::unique_lock <std::mutex> lock(mLock);
-        BufferDesc_1_1 bufDesc = buffers[0];
-        if (bufDesc.buffer.nativeHandle.getNativeHandle() == nullptr) {
-            // Signal that the last frame has been received and the stream is stopped
-            LOG(WARNING) << "Invalid null frame (id: " << std::hex << bufDesc.bufferId
-                         << ") is ignored";
-        } else {
-            // Do we already have a "ready" frame?
-            if (mReadyBuffer >= 0) {
-                // Send the previously saved buffer back to the camera unused
-                hidl_vec<BufferDesc_1_1> frames;
-                frames.resize(1);
-                frames[0] = mBuffers[mReadyBuffer];
-                auto ret = mCamera->doneWithFrame_1_1(frames);
-                if (!ret.isOk()) {
-                    LOG(WARNING) << __FUNCTION__ << " fails to return a buffer";
-                }
-
-                // We'll reuse the same ready buffer index
-            } else if (mHeldBuffer >= 0) {
-                // The client is holding a buffer, so use the other slot for "on deck"
-                mReadyBuffer = 1 - mHeldBuffer;
-            } else {
-                // This is our first buffer, so just pick a slot
-                mReadyBuffer = 0;
+    std::unique_lock <std::mutex> lock(mLock);
+    BufferDesc_1_1 bufDesc = buffers[0];
+    if (bufDesc.buffer.nativeHandle.getNativeHandle() == nullptr) {
+        // Signal that the last frame has been received and the stream is stopped
+        LOG(WARNING) << "Invalid null frame (id: " << std::hex << bufDesc.bufferId
+                     << ") is ignored";
+    } else {
+        // Do we already have a "ready" frame?
+        if (mReadyBuffer >= 0) {
+            // Send the previously saved buffer back to the camera unused
+            hidl_vec<BufferDesc_1_1> frames;
+            frames.resize(1);
+            frames[0] = mBuffers[mReadyBuffer];
+            auto ret = mCamera->doneWithFrame_1_1(frames);
+            if (!ret.isOk()) {
+                LOG(WARNING) << __FUNCTION__ << " fails to return a buffer";
             }
 
-            // Save this frame until our client is interested in it
-            mBuffers[mReadyBuffer] = bufDesc;
+            // We'll reuse the same ready buffer index
+        } else if (mHeldBuffer >= 0) {
+            // The client is holding a buffer, so use the other slot for "on deck"
+            mReadyBuffer = 1 - mHeldBuffer;
+        } else {
+            // This is our first buffer, so just pick a slot
+            mReadyBuffer = 0;
         }
+
+        // Save this frame until our client is interested in it
+        mBuffers[mReadyBuffer] = bufDesc;
     }
 
     // Notify anybody who cares that things have changed
+    lock.unlock();
     mSignal.notify_all();
 
     return Void();
