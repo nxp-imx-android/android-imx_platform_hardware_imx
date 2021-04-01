@@ -15,24 +15,43 @@
  */
 
 #include "RenderDirectView.h"
+
 #include "VideoTex.h"
 #include "glError.h"
 #include "shader.h"
 #include "shader_simpleTex.h"
 #include "shader_reverseLine.h"
 
-#include <system/camera_metadata.h>
 #include <android-base/logging.h>
 #include <math/mat4.h>
+#include <system/camera_metadata.h>
 
 using ::android::hardware::graphics::common::V1_0::PixelFormat;
 
 RenderDirectView::RenderDirectView(sp<IEvsEnumerator> enumerator,
                                    const CameraDesc& camDesc,
-                                   std::unique_ptr<Stream> targetCfg) {
-    mEnumerator = enumerator;
-    mCameraDesc = camDesc;
-    mTargetCfg = std::move(targetCfg);
+                                   const ConfigManager& config,
+                                   std::unique_ptr<Stream> targetCfg) :
+    mEnumerator(enumerator),
+    mCameraDesc(camDesc),
+    mConfig(config),
+    mTargetCfg(std::move(targetCfg)) {
+
+    // Find and store the target camera configuration
+    const auto& camList = mConfig.getCameras();
+    const auto target = std::find_if(camList.begin(), camList.end(),
+                                     [this](const ConfigManager::CameraInfo& info) {
+                                         return info.cameraId == mCameraDesc.v1.cameraId;
+                                     });
+    if (target != camList.end()) {
+        // Store the info
+        mCameraInfo = *target;
+
+        // Calculate a rotation matrix
+        float sinRoll, cosRoll;
+        sincosf(mCameraInfo.roll, &sinRoll, &cosRoll);
+        mRotationMat = {cosRoll, -sinRoll, sinRoll, cosRoll};
+    }
 }
 
 
@@ -65,8 +84,10 @@ bool RenderDirectView::activate() {
     }
 
     // Construct our video texture
-    mTexture.reset(createVideoTexture(mEnumerator, mCameraDesc.v1.cameraId.c_str(),
-                    std::move(mTargetCfg), sDisplay));
+    mTexture.reset(createVideoTexture(mEnumerator,
+                                      mCameraDesc.v1.cameraId.c_str(),
+                                      std::move(mTargetCfg),
+                                      sDisplay));
     if (!mTexture) {
         LOG(ERROR) << "Failed to set up video texture for " << mCameraDesc.v1.cameraId;
 // TODO:  For production use, we may actually want to fail in this case, but not yet...
@@ -102,6 +123,10 @@ bool RenderDirectView::drawFrame(const BufferDesc& tgtBuffer) {
     glUseProgram(mShaderProgram);
 
     // Set up the model to clip space transform (identity matrix if we're modeling in screen space)
+    android::vec2 leftTop = {-0.5f, 0.5f};
+    android::vec2 rightTop = {0.5f, 0.5f};
+    android::vec2 leftBottom = {-0.5f, -0.5f};
+    android::vec2 rightBottom = {0.5f, -0.5f};
     GLint loc = glGetUniformLocation(mShaderProgram, "cameraMat");
     if (loc < 0) {
         LOG(ERROR) << "Couldn't set shader parameter 'cameraMat'";
@@ -109,6 +134,12 @@ bool RenderDirectView::drawFrame(const BufferDesc& tgtBuffer) {
     } else {
         const android::mat4 identityMatrix;
         glUniformMatrix4fv(loc, 1, false, identityMatrix.asArray());
+
+        // Rotate the preview
+        leftTop     = mRotationMat * leftTop;
+        leftBottom  = mRotationMat * leftBottom;
+        rightTop    = mRotationMat * rightTop;
+        rightBottom = mRotationMat * rightBottom;
     }
 
     // Bind the texture and assign it to the shader's sampler
@@ -136,11 +167,22 @@ bool RenderDirectView::drawFrame(const BufferDesc& tgtBuffer) {
                               -1.0, -1.0, 0.0f,   // left bottom
                                1.0, -1.0, 0.0f    // right bottom
     };
-    // TODO:  We're flipping horizontally here, but should do it only for specified cameras!
-    GLfloat vertsCarTex[] = { 1.0f, 1.0f,   // left top
-                              0.0f, 1.0f,   // right top
-                              1.0f, 0.0f,   // left bottom
-                              0.0f, 0.0f    // right bottom
+
+    // Flip the preview if needed
+    if (mCameraInfo.hflip) {
+        std::swap(leftTop.x, rightTop.x);
+        std::swap(leftBottom.x, rightBottom.x);
+    }
+
+    if (mCameraInfo.vflip) {
+        std::swap(leftTop.y, leftBottom.y);
+        std::swap(rightTop.y, rightBottom.y);
+    }
+
+    GLfloat vertsCarTex[] = { leftTop.x + 0.5f, leftTop.y + 0.5f,
+                              rightTop.x + 0.5f, rightTop.y + 0.5f,
+                              leftBottom.x + 0.5f, leftBottom.y + 0.5f,
+                              rightBottom.x + 0.5f, rightBottom.y + 0.5f
     };
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, vertsCarPos);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, vertsCarTex);

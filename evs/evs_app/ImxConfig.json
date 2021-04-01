@@ -22,8 +22,11 @@
       "z" : 100,
       "yaw" : 180,
       "pitch" : -35,
+      "roll" : 0,
       "hfov" : 120,
-      "vfov" : 103
+      "vfov" : 103,
+      "hflip" : true,
+      "vflip" : true
     },
     {
       "cameraId" : "mxc_isi.1.capture",
@@ -33,8 +36,11 @@
       "z" : 48,
       "yaw" : 0,
       "pitch" : -11,
+      "roll" : 0,
       "hfov" : 120,
-      "vfov" : 50
+      "vfov" : 50,
+      "hflip" : true,
+      "vflip" : true
     },
     {
       "cameraId" : "mxc_isi.2.capture",
@@ -44,8 +50,11 @@
       "z" : 118,
       "yaw" : -90,
       "pitch" : -42,
+      "roll" : 0,
       "hfov" : 85,
-      "vfov" : 50
+      "vfov" : 50,
+      "hflip" : true,
+      "vflip" : true
     },
     {
       "cameraId" : "mxc_isi.3.capture",
@@ -55,8 +64,11 @@
       "z" : 118,
       "yaw" : 90,
       "pitch" : -42,
+      "roll" : 0,
       "hfov" : 85,
-      "vfov" : 50
+      "vfov" : 50,
+      "hflip" : true,
+      "vflip" : true
     }
   ]
 }

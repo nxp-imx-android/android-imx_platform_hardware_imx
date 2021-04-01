@@ -80,23 +80,22 @@ EvsStateControl::EvsStateControl(android::sp <IVehicle>       pVnet,
                                 // list all of them and let the UX/rendering logic use one, some
                                 // or all of them as appropriate.
                                 for (auto&& info: config.getCameras()) {
-                                    if (strstr(cam.v1.cameraId.c_str(), info.cameraId.c_str())) {
-
+                                    if (cam.v1.cameraId == info.cameraId) {
                                         // We found a match!
                                         if (info.function.find("reverse") != std::string::npos) {
-                                            mCameraList[State::REVERSE].push_back(info);
+                                            mCameraList[State::REVERSE].emplace_back(info);
                                             mCameraDescList[State::REVERSE].emplace_back(cam);
                                         }
                                         if (info.function.find("right") != std::string::npos) {
-                                            mCameraList[State::RIGHT].push_back(info);
+                                            mCameraList[State::RIGHT].emplace_back(info);
                                             mCameraDescList[State::RIGHT].emplace_back(cam);
                                         }
                                         if (info.function.find("left") != std::string::npos) {
-                                            mCameraList[State::LEFT].push_back(info);
+                                            mCameraList[State::LEFT].emplace_back(info);
                                             mCameraDescList[State::LEFT].emplace_back(cam);
                                         }
                                         if (info.function.find("park") != std::string::npos) {
-                                            mCameraList[State::PARKING].push_back(info);
+                                            mCameraList[State::PARKING].emplace_back(info);
                                             mCameraDescList[State::PARKING].emplace_back(cam);
                                         }
                                         cameraConfigFound = true;
@@ -363,8 +362,9 @@ bool EvsStateControl::configureEvsPipeline(State desiredState) {
                            static_cast<PixelFormat>(HAL_PIXEL_FORMAT_RGB_888);
 
             mDesiredRenderer = std::make_unique<RenderDirectView>(mEvs,
-                                                                   mCameraDescList[desiredState][0],
-                                                                   std::move(targetCfg));
+                                                                  mCameraDescList[desiredState][0],
+                                                                  mConfig,
+                                                                  std::move(targetCfg));
             if (!mDesiredRenderer) {
                 LOG(ERROR) << "Failed to construct direct renderer.  Skipping state change.";
                 return false;

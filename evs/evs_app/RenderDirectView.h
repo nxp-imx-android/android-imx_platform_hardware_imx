@@ -22,6 +22,7 @@
 #include "VideoTex.h"
 
 #include <android/hardware/automotive/evs/1.1/IEvsEnumerator.h>
+#include <math/mat2.h>
 
 using namespace ::android::hardware::automotive::evs::V1_1;
 using ::android::hardware::camera::device::V3_2::Stream;
@@ -34,6 +35,7 @@ class RenderDirectView: public RenderBase {
 public:
     RenderDirectView(sp<IEvsEnumerator> enumerator,
                      const CameraDesc& camDesc,
+                     const ConfigManager& config,
                      std::unique_ptr<Stream> targetCfg);
 
     virtual bool activate() override;
@@ -46,12 +48,14 @@ protected:
     sp<IEvsEnumerator>              mEnumerator;
     ConfigManager::CameraInfo       mCameraInfo;
     CameraDesc                      mCameraDesc;
+    const ConfigManager&            mConfig;
     std::unique_ptr<Stream>         mTargetCfg;
 
     std::unique_ptr<VideoTex>       mTexture;
 
     GLuint                          mShaderProgram = 0;
     GLuint                          mLineShaderProgram = 0;
+    android::mat2                   mRotationMat;
 };
 
 

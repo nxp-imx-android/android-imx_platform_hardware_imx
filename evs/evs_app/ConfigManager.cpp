@@ -133,8 +133,11 @@ bool ConfigManager::initialize(const char* configFileName)
 
             float yaw   = node.get("yaw", 0).asFloat();
             float pitch = node.get("pitch", 0).asFloat();
+            float roll  = node.get("roll", 0).asFloat();
             float hfov  = node.get("hfov", 0).asFloat();
             float vfov  = node.get("vfov", 0).asFloat();
+            bool  hflip = node.get("hflip", false).asBool();
+            bool  vflip = node.get("vflip", false).asBool();
 
             // Wrap the direction angles to be in the 180deg to -180deg range
             // Rotate 180 in yaw if necessary to flip the pitch into the +/-90degree range
@@ -148,6 +151,7 @@ bool ConfigManager::initialize(const char* configFileName)
                 pitch = -180.0f + pitch;
             }
             yaw = normalizeToPlusMinus180degrees(yaw);
+            roll = normalizeToPlusMinus180degrees(roll);
 
             // Range check the FOV values to ensure they are postive and less than 180degrees
             if (hfov > 179.0f) {
@@ -174,12 +178,15 @@ bool ConfigManager::initialize(const char* configFileName)
             info.position[2] = node.get("z", 0).asFloat();
             info.yaw         = yaw   * kDegreesToRadians;
             info.pitch       = pitch * kDegreesToRadians;
+            info.roll        = roll  * kDegreesToRadians;
             info.hfov        = hfov  * kDegreesToRadians;
             info.vfov        = vfov  * kDegreesToRadians;
+            info.hflip       = hflip;
+            info.vflip       = vflip;
             info.cameraId    = cameraId;
             info.function    = function;
 
-            mCameras.push_back(info);
+            mCameras.emplace_back(info);
         }
     }
 
