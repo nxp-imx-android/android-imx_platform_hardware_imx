@@ -28,15 +28,25 @@
 
 using ::android::hardware::graphics::common::V1_0::PixelFormat;
 
+
+typedef struct {
+    int32_t id;
+    int32_t width;
+    int32_t height;
+    int32_t format;
+    int32_t direction;
+    int32_t framerate;
+} RawStreamConfig;
+
+const size_t kStreamCfgSz = sizeof(RawStreamConfig);
+
+
 RenderDirectView::RenderDirectView(sp<IEvsEnumerator> enumerator,
                                    const CameraDesc& camDesc,
-                                   const ConfigManager& config,
-                                   std::unique_ptr<Stream> targetCfg) :
+                                   const ConfigManager& config) :
     mEnumerator(enumerator),
     mCameraDesc(camDesc),
-    mConfig(config),
-    mTargetCfg(std::move(targetCfg)) {
-
+    mConfig(config) {
     // Find and store the target camera configuration
     const auto& camList = mConfig.getCameras();
     const auto target = std::find_if(camList.begin(), camList.end(),
@@ -82,11 +92,58 @@ bool RenderDirectView::activate() {
             ALOGE("Failed to build line shader program");
         }
     }
+    bool foundCfg = false;
+    std::unique_ptr<Stream> targetCfg(new Stream());
+
+    if (!foundCfg) {
+        // This logic picks the first configuration in the list among them that
+        // support RGB888 format and its frame rate is faster than minReqFps.
+        const int32_t minReqFps = 15;
+        int32_t maxArea = 0;
+        camera_metadata_entry_t streamCfgs;
+        if (!find_camera_metadata_entry(
+                 reinterpret_cast<camera_metadata_t *>(mCameraDesc.metadata.data()),
+                 ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS,
+                 &streamCfgs)) {
+           // Stream configurations are found in metadata
+           // the size of every stream is kStreamCfgSz
+           RawStreamConfig *ptr = reinterpret_cast<RawStreamConfig *>(streamCfgs.data.i32);
+           unsigned streamCfgSize = calculate_camera_metadata_entry_data_size(
+               get_camera_metadata_tag_type(
+                    ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS
+               ),
+               streamCfgs.count);
+
+           for (unsigned idx = 0; idx < streamCfgSize; idx += kStreamCfgSz) {
+               if (ptr->direction == ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT &&
+                   ptr->format == HAL_PIXEL_FORMAT_RGB_888) {
+                   if (ptr->framerate >= minReqFps &&
+                       ptr->width * ptr->height > maxArea) {
+                       targetCfg->id = ptr->id;
+                       targetCfg->width = ptr->width;
+                       targetCfg->height = ptr->height;
+
+                       maxArea = ptr->width * ptr->height;
+
+                       foundCfg = true;
+                   }
+               }
+               ++ptr;
+           }
+        } else {
+            LOG(WARNING) << "No stream configuration data is found; "
+                        << "default parameters will be used.";
+        }
+    }
+
+    // This client always wants below input data format
+    targetCfg->format =
+        static_cast<PixelFormat>(HAL_PIXEL_FORMAT_RGB_888);
 
     // Construct our video texture
     mTexture.reset(createVideoTexture(mEnumerator,
                                       mCameraDesc.v1.cameraId.c_str(),
-                                      std::move(mTargetCfg),
+                                      foundCfg ? std::move(targetCfg) : nullptr,
                                       sDisplay));
     if (!mTexture) {
         LOG(ERROR) << "Failed to set up video texture for " << mCameraDesc.v1.cameraId;

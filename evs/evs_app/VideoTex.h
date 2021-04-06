@@ -31,15 +31,6 @@ using ::android::hardware::camera::device::V3_2::Stream;
 using namespace ::android::hardware::automotive::evs::V1_1;
 
 
-typedef struct {
-    int32_t id;
-    int32_t width;
-    int32_t height;
-    int32_t format;
-    int32_t direction;
-    int32_t framerate;
-} RawStreamConfig;
-
 class VideoTex: public TexWrapper {
     friend VideoTex* createVideoTexture(sp<IEvsEnumerator> pEnum,
                                         const char * evsCameraId,

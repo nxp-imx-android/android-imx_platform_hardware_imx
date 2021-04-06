@@ -35,8 +35,7 @@ class RenderDirectView: public RenderBase {
 public:
     RenderDirectView(sp<IEvsEnumerator> enumerator,
                      const CameraDesc& camDesc,
-                     const ConfigManager& config,
-                     std::unique_ptr<Stream> targetCfg);
+                     const ConfigManager& config);
 
     virtual bool activate() override;
     virtual void deactivate() override;
@@ -49,7 +48,6 @@ protected:
     ConfigManager::CameraInfo       mCameraInfo;
     CameraDesc                      mCameraDesc;
     const ConfigManager&            mConfig;
-    std::unique_ptr<Stream>         mTargetCfg;
 
     std::unique_ptr<VideoTex>       mTexture;
 
