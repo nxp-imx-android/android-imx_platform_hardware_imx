@@ -26,7 +26,7 @@
       "hfov" : 120,
       "vfov" : 103,
       "hflip" : true,
-      "vflip" : true
+      "vflip" : false
     },
     {
       "cameraId" : "mxc_isi.1.capture",
@@ -40,7 +40,7 @@
       "hfov" : 120,
       "vfov" : 50,
       "hflip" : true,
-      "vflip" : true
+      "vflip" : false
     },
     {
       "cameraId" : "mxc_isi.2.capture",
@@ -54,7 +54,7 @@
       "hfov" : 85,
       "vfov" : 50,
       "hflip" : true,
-      "vflip" : true
+      "vflip" : false
     },
     {
       "cameraId" : "mxc_isi.3.capture",
@@ -68,7 +68,7 @@
       "hfov" : 85,
       "vfov" : 50,
       "hflip" : true,
-      "vflip" : true
+      "vflip" : false
     }
   ]
 }
