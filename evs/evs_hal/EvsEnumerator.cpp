@@ -44,6 +44,8 @@ namespace implementation {
 #define EPOLL_MAX_EVENTS 8
 #define MEDIA_FILE_PATH "/dev"
 #define EVS_VIDEO_READY "vendor.evs.video.ready"
+#define EVS_VIDEO_DEV   "vendor.evs.video.dev"
+#define EVS_ISI_NAME    "vendor.evs.isi.name"
 #define EVS_FAKE_SENSOR "mxc_isi.0.capture"
 #define EVS_FAKE_LOGIC_CAMERA "group0"
 #define EVS_FAKE_NAME   "fake.camera"
@@ -152,63 +154,70 @@ bool EvsEnumerator::EnumAvailableVideo() {
 
         sConfigManager =
             ConfigManager::Create("/vendor/etc/automotive/evs/fake_evs_configuration.xml");
-        goto found;
-    }
-
-    // For every video* entry in the dev folder, see if it reports suitable capabilities
-    // WARNING:  Depending on the driver implementations this could be slow, especially if
-    //           there are timeouts or round trips to hardware required to collect the needed
-    //           information.  Platform implementers should consider hard coding this list of
-    //           known good devices to speed up the startup time of their EVS implementation.
-    //           For example, this code might be replaced with nothing more than:
-    //                   sCameraList.emplace_back("/dev/video0");
-    //                   sCameraList.emplace_back("/dev/video1");
-    ALOGI("Starting dev/video* enumeration");
-    DIR* dir;
-    dir = opendir("/dev");
-    if (!dir) {
-        LOG_FATAL("Failed to open /dev folder\n");
-        goto found;
-    }
-    struct dirent* entry;
-    FILE *fp;
-    char devPath[HWC_PATH_LENGTH];
-    char value[HWC_PATH_LENGTH];
-    int len_val;
-    while ((entry = readdir(dir)) != nullptr) {
-        // We're only looking for entries starting with 'video'
-        if (strncmp(entry->d_name, "video", 5) == 0) {
-            std::string deviceName("/dev/");
-            deviceName += entry->d_name;
+    } else {
+        char camera[PROPERTY_VALUE_MAX];
+        char isi[PROPERTY_VALUE_MAX];
+        if ((property_get(EVS_VIDEO_DEV, camera, NULL) > 0) && (property_get(EVS_ISI_NAME, isi, NULL) > 0)) {
+            ALOGI("Using camera provided by prop: name:%s path:%s", isi, camera);
+            sCameraList.emplace_back(isi, camera);
+            captureCount++;
             videoCount++;
-            if (qualifyCaptureDevice(deviceName.c_str())) {
-                snprintf(devPath, HWC_PATH_LENGTH,
-                    "/sys/class/video4linux/%s/name", entry->d_name);
-                if ((fp = fopen(devPath, "r")) == nullptr) {
-                    ALOGE("can't open %s", devPath);
-                    continue;
-                }
-                if(fgets(value, sizeof(value), fp) == nullptr) {
-                    fclose(fp);
-                    ALOGE("can't read %s", devPath);
-                    continue;
-                }
-                // last byte is '\n' if get the string through fgets
-                // it cause issue that can't find item for camera. set the last byte as '\0'
-                len_val = strlen(value) - 1;
-                fclose(fp);
-                value[len_val] = '\0';
-                ALOGI("enum name:%s path:%s", value, deviceName.c_str());
-                if (!filterVideoFromConfigure(value)) {
-                    continue;
-                }
-                sCameraList.emplace_back(value, deviceName.c_str());
-                captureCount++;
+        } else {
+            // For every video* entry in the dev folder, see if it reports suitable capabilities
+            // WARNING:  Depending on the driver implementations this could be slow, especially if
+            //           there are timeouts or round trips to hardware required to collect the needed
+            //           information.  Platform implementers should consider hard coding this list of
+            //           known good devices to speed up the startup time of their EVS implementation.
+            //           For example, this code might be replaced with nothing more than:
+            //                   sCameraList.emplace_back("/dev/video0");
+            //                   sCameraList.emplace_back("/dev/video1");
+            ALOGI("Starting dev/video* enumeration");
+            DIR* dir;
+            dir = opendir("/dev");
+            if (!dir) {
+                LOG_FATAL("Failed to open /dev folder\n");
+                goto found;
             }
+            struct dirent* entry;
+            FILE *fp;
+            char devPath[HWC_PATH_LENGTH];
+            char value[HWC_PATH_LENGTH];
+            int len_val;
+            while ((entry = readdir(dir)) != nullptr) {
+                // We're only looking for entries starting with 'video'
+                if (strncmp(entry->d_name, "video", 5) == 0) {
+                    std::string deviceName("/dev/");
+                    deviceName += entry->d_name;
+                    videoCount++;
+                    if (qualifyCaptureDevice(deviceName.c_str())) {
+                        snprintf(devPath, HWC_PATH_LENGTH,
+                                          "/sys/class/video4linux/%s/name", entry->d_name);
+                        if ((fp = fopen(devPath, "r")) == nullptr) {
+                            ALOGE("can't open %s", devPath);
+                            continue;
+                        }
+                        if(fgets(value, sizeof(value), fp) == nullptr) {
+                            fclose(fp);
+                            ALOGE("can't read %s", devPath);
+                            continue;
+                        }
+                        // last byte is '\n' if get the string through fgets
+                        // it cause issue that can't find item for camera. set the last byte as '\0'
+                        len_val = strlen(value) - 1;
+                        fclose(fp);
+                        value[len_val] = '\0';
+                        ALOGI("enum name:%s path:%s", value, deviceName.c_str());
+                        if (!filterVideoFromConfigure(value)) {
+                            continue;
+                        }
+                        sCameraList.emplace_back(value, deviceName.c_str());
+                        captureCount++;
+                    }
+                }
+            }
+            closedir(dir);
         }
     }
-    closedir(dir);
-
 found:
     if (captureCount != 0) {
         videoReady = true;
