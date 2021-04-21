@@ -27,6 +27,7 @@
 #include <linux/secure_ion.h>
 #endif
 #include <ion_ext.h>
+#include <linux/ion_imx.h>
 #include "IonAllocator.h"
 
 namespace fsl {
@@ -174,10 +175,26 @@ int IonAllocator::getPhys(int fd, int size, uint64_t& addr)
     else {
         struct dma_buf_phys dma_phys;
         if (ioctl(fd, DMA_BUF_IOCTL_PHYS, &dma_phys) < 0) {
-            ALOGE("%s DMA_BUF_IOCTL_PHYS failed",__func__);
-            return -EINVAL;
+            ALOGI("%s DMA_BUF_IOCTL_PHYS failed",__func__);
+            struct ion_imx_phys_data data;
+            int fd_;
+            fd_ = open("/dev/ion_imx", O_RDONLY | O_CLOEXEC);
+            if (fd_ < 0) {
+                ALOGE("open /dev/ion_imx failed: %s", strerror(errno));
+                return -EINVAL;
+            }
+
+            data.dmafd = fd;
+            if (ioctl(fd_, ION_GET_PHYS, &data) < 0) {
+                ALOGE("%s ION_GET_PHYS  failed",__func__);
+                close(fd_);
+                return -EINVAL;
+            } else
+                phyAddr = data.phys;
+            close(fd_);
+        } else {
+            phyAddr = dma_phys.phys;
         }
-        phyAddr = dma_phys.phys;
     }
 
     addr = phyAddr;
