@@ -65,6 +65,11 @@ bool Imx2DSV::SetConfigs(ImxSV2DParams &sv2DParams,
     return true;
 }
 
+void Imx2DSV::Update2dOutputResolution(int width, int heigh) {
+    m2DParams.resolution.width = width;
+    m2DParams.resolution.height =heigh;
+}
+
 //Assume the input and out buffer share the same format/bpp
 bool Imx2DSV::GetSVBuffer(vector<shared_ptr<char>> &distorts, 
         void *flat_outbuf, uint32_t bpp) {

@@ -81,6 +81,7 @@ class Imx2DSV {
             vector<Matrix<double, 3, 3>> &Ks, vector<Matrix<double, 1, 4>> &Ds);
     bool GetSVBuffer(vector<shared_ptr<char>> &distorts, void *flat_outbuf,
             uint32_t bpp);
+    void Update2dOutputResolution(int width, int heigh);
 
     private:
     bool updateLUT();
