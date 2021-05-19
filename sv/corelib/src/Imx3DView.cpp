@@ -499,7 +499,9 @@ bool Imx3DView::renderSV(vector<shared_ptr<unsigned char>> images, char *outbuf,
                            uint32_t output_w, uint32_t output_h) {
 
     if (!mInitial) {
-        prepareGL(output_w, output_h);
+        if (!prepareGL(output_w, output_h)) {
+            return false;
+        }
         mInitial = true;
     }
 
