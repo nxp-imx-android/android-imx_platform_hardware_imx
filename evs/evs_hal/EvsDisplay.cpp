@@ -43,37 +43,37 @@ using ::android::frameworks::automotive::display::V1_0::HwDisplayState;
 sp<IDisplay> EvsDisplay::getDisplay()
 {
     if (mDisplay == nullptr) {
-		//
-		//  Create the native full screen window and get a suitable configuration to match it
-		//
-		uint32_t layer = -1;
-		sp<IDisplay> display = nullptr;
-		while (display.get() == nullptr) {
-			display = IDisplay::getService();
-			if (display.get() == nullptr) {
-				ALOGE("%s get display service failed", __func__);
-				usleep(200000);
-			}
-		}
+        //
+        //  Create the native full screen window and get a suitable configuration to match it
+        //
+        uint32_t layer = -1;
+        sp<IDisplay> display = nullptr;
+        while (display.get() == nullptr) {
+            display = IDisplay::getService();
+            if (display.get() == nullptr) {
+                ALOGE("%s get display service failed", __func__);
+                usleep(200000);
+            }
+        }
 
-		display->getLayer(DISPLAY_BUFFER_NUM,
-			[&](const auto& tmpError, const auto& tmpLayer) {
-				if (tmpError == Error::NONE) {
-					layer = tmpLayer;
-				}
-		});
+        display->getLayer(DISPLAY_BUFFER_NUM,
+            [&](const auto& tmpError, const auto& tmpLayer) {
+                if (tmpError == Error::NONE) {
+                    layer = tmpLayer;
+                }
+        });
 
-		if (layer == (uint32_t)-1) {
-			ALOGE("%s get layer failed", __func__);
-			return nullptr;
-		}
+        if (layer == (uint32_t)-1) {
+            ALOGE("%s get layer failed", __func__);
+            return nullptr;
+        }
 
-		{
-			std::unique_lock<std::mutex> lock(mLock);
-			mIndex = 0;
-			mDisplay = display;
-			mLayer = layer;
-		}
+        {
+            std::unique_lock<std::mutex> lock(mLock);
+            mIndex = 0;
+            mDisplay = display;
+            mLayer = layer;
+        }
     }
     return mDisplay;
 }
@@ -397,15 +397,21 @@ Return<EvsResult> EvsDisplay::returnTargetBufferForDisplay(const BufferDesc_1_0&
 Return<void> EvsDisplay::getDisplayInfo_1_1(__attribute__ ((unused))getDisplayInfo_1_1_cb _info_cb) {
     android::DisplayConfig displayConfig;
     android::ui::DisplayState displayState;
-    displayConfig.resolution = ui::Size(mWidth, mHeight);
-    displayConfig.refreshRate = 60.f;
-    displayState.layerStack = mLayer;
     HwDisplayConfig activeConfig;
     HwDisplayState  activeState;
 
+    if (getDisplay() == nullptr) {
+        _info_cb(activeConfig, activeState);
+        return Void();
+    }
+
+    displayConfig.resolution = ui::Size(mWidth, mHeight);
+    displayConfig.refreshRate = 60.f;
+    displayState.layerStack = mLayer;
+
     activeConfig.setToExternal((uint8_t*)&displayConfig, sizeof(android::DisplayConfig));
     activeState.setToExternal((uint8_t*)&displayState, sizeof(android::ui::DisplayState));
-    // return null, because we have no display proxy
+
     _info_cb(activeConfig, activeState);
     return Void();
 }
