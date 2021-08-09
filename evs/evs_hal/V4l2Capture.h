@@ -61,8 +61,8 @@ private:
     // mPhysicalCamera return the physical camera
     std::unordered_set<std::string> mPhysicalCamera;
 
-    // if the camera is logic camera, mDeviceFd will been instored according the mPhysicalCamera name.
-    // if the camera is pyhsical camera, mDeviceFd will been the fd of pyhsical camera
+    // If the camera is logic camera, mDeviceFd will be stored according the mPhysicalCamera name.
+    // If the camera is physical camera, mDeviceFd will be the fd of physical camera.
     std::unordered_map<std::string, int> mDeviceFd;
     __u32 mV4lFormat = 0;
     // judge whether it's logic camera according the metadata

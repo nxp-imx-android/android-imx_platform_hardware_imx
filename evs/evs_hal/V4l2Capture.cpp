@@ -108,25 +108,22 @@ bool V4l2Capture::onOpen(const char* deviceName)
 {
     // If we want polling interface for getting frames, we would use O_NONBLOCK
     // int mDeviceFd = open(deviceName, O_RDWR | O_NONBLOCK, 0);
-    int pyhic_cam_fd;
     if (mIslogicCamera) {
         for (const auto& phsical_cam : mPhysicalCamera) {
             ALOGI("onOpen physical camera %s", phsical_cam.c_str());
-            pyhic_cam_fd = onOpenSingleCamera(phsical_cam.c_str());
+            mDeviceFd[phsical_cam] = onOpenSingleCamera(phsical_cam.c_str());
 
-            if (pyhic_cam_fd < 0) {
+            if (mDeviceFd[phsical_cam] < 0) {
                 ALOGE("open phsical_cam %s failed", phsical_cam.c_str());
                 return false;
             }
-            mDeviceFd[phsical_cam] = pyhic_cam_fd;
         }
     } else {
-        pyhic_cam_fd = onOpenSingleCamera(deviceName);
-        if (pyhic_cam_fd < 0) {
+        mDeviceFd[deviceName] = onOpenSingleCamera(deviceName);
+        if (mDeviceFd[deviceName] < 0) {
             ALOGE("open phsical_cam %s failed", deviceName);
             return false;
         }
-        mDeviceFd[deviceName] = pyhic_cam_fd;
     }
 
     // init v4l2 buffer index to -1, which mean it do not map one grolloc buffer
