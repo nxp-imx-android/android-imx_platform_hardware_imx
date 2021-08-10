@@ -211,11 +211,11 @@ void EvsCamera::shutdown()
     // (It really should be already)
     stopVideoStream();
 
-    // Close our video capture device
-    onClose();
-
     // Destroy memory.
     onMemoryDestroy();
+
+    // Close our video capture device
+    onClose();
 }
 
 Return<void> EvsCamera::getCameraInfo_1_1(getCameraInfo_1_1_cb _hidl_cb) {
