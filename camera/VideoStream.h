@@ -89,6 +89,8 @@ protected:
     bool mbStart;
 
     CameraDeviceSessionHwlImpl *mSession;
+
+    char soc_type[PROPERTY_VALUE_MAX];
 };
 
 }  // namespace android
