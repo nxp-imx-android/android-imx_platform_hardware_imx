@@ -63,6 +63,11 @@ typedef struct {
     int32_t framerate;
 } RawStreamConfig;
 
+typedef enum _camType {
+    logicCam = 0,
+    hwCam = 1,
+} camType;
+
 class EvsEnumerator : public IEvsEnumerator {
 public:
     // Methods from ::android::hardware::automotive::evs::V1_0::IEvsEnumerator follow.
@@ -98,12 +103,13 @@ public:
 
 private:
     struct CameraRecord {
-        std::string         name;
-        CameraDesc          desc;
+        std::string      name;
+        CameraDesc       desc;
         wp<EvsCamera>    activeInstance;
+        camType          cameraType;
 
-        CameraRecord(const char *name, const char *cameraId)
-            : desc() { this->name = name; desc.v1.cameraId = cameraId; }
+        CameraRecord(const char *name, const char *cameraId, camType cameraType)
+            : desc() { this->name = name; desc.v1.cameraId = cameraId; this->cameraType = cameraType; }
     };
 
 

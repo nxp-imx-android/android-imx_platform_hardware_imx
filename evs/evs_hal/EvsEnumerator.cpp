@@ -99,7 +99,7 @@ bool EvsEnumerator::EnumAvailableVideo() {
     // otherwise app will not get the metadata
     int enableFake = property_get_int32(EVS_FAKE_PROP, 0);
     if (enableFake != 0) {
-        CameraRecord camrec_group(EVS_FAKE_LOGIC_CAMERA, NULL);
+        CameraRecord camrec_group(EVS_FAKE_LOGIC_CAMERA, NULL, logicCam);
         unique_ptr<ConfigManager::CameraGroupInfo> &tmpInfo =
             sConfigManager->getCameraGroupInfo(EVS_FAKE_LOGIC_CAMERA);
         if (tmpInfo != nullptr) {
@@ -137,7 +137,7 @@ bool EvsEnumerator::EnumAvailableVideo() {
         sCameraList.push_back(camrec_group);
         captureCount++;
 
-        CameraRecord camrec_single(EVS_FAKE_SENSOR, NULL);
+        CameraRecord camrec_single(EVS_FAKE_SENSOR, NULL, hwCam);
         unique_ptr<ConfigManager::CameraInfo> &tempInfo =
             sConfigManager->getCameraInfo(EVS_FAKE_SENSOR);
         if (tempInfo != nullptr) {
@@ -159,7 +159,7 @@ bool EvsEnumerator::EnumAvailableVideo() {
         char isi[PROPERTY_VALUE_MAX];
         if ((property_get(EVS_VIDEO_DEV, camera, NULL) > 0) && (property_get(EVS_ISI_NAME, isi, NULL) > 0)) {
             ALOGI("Using camera provided by prop: name:%s path:%s", isi, camera);
-            sCameraList.emplace_back(isi, camera);
+            sCameraList.emplace_back(isi, camera, hwCam);
             captureCount++;
             videoCount++;
         } else {
@@ -210,7 +210,7 @@ bool EvsEnumerator::EnumAvailableVideo() {
                         if (!filterVideoFromConfigure(value)) {
                             continue;
                         }
-                        sCameraList.emplace_back(value, deviceName.c_str());
+                        sCameraList.emplace_back(value, deviceName.c_str(), hwCam);
                         captureCount++;
                     }
                 }
@@ -397,7 +397,7 @@ Return<void> EvsEnumerator::getCameraList_1_1(getCameraList_1_1_cb _hidl_cb)  {
         for (auto&& id : camGroups) {
             unique_ptr<ConfigManager::CameraGroupInfo> &tempInfo =
                 sConfigManager->getCameraGroupInfo(id);
-            CameraRecord camrec(id.c_str(), NULL);
+            CameraRecord camrec(id.c_str(), NULL, logicCam);
             if (tempInfo != nullptr) {
 
                 aCamera.metadata.setToExternal(
@@ -416,7 +416,7 @@ Return<void> EvsEnumerator::getCameraList_1_1(getCameraList_1_1_cb _hidl_cb)  {
             }
 
             if (!included_group_camera)
-                sCameraList.push_back(camrec);;
+                sCameraList.push_back(camrec);
         }
 
     }
@@ -428,16 +428,19 @@ Return<void> EvsEnumerator::getCameraList_1_1(getCameraList_1_1_cb _hidl_cb)  {
 Return<void> EvsEnumerator::getCameraList(getCameraList_cb _hidl_cb)  {
     ALOGD("getCameraList");
 
-    const unsigned numCameras = sCameraList.size();
+    hidl_vec<CameraDesc_1_0> hidlCameras;
+    unsigned i = 0;
+    unsigned numCameras = 0;
+    CameraDesc_1_0 aCamera;
 
     // Build up a packed array of CameraDesc for return
-    hidl_vec<CameraDesc_1_0> hidlCameras;
-    hidlCameras.resize(numCameras);
-    unsigned i = 0;
-    CameraDesc_1_0 aCamera;
     for (const auto& cam : sCameraList) {
-        aCamera.cameraId = cam.name.c_str();
-        hidlCameras[i++] = aCamera;
+        if (cam.cameraType == hwCam) {
+            // Add only hw camera(s) from the list
+            aCamera.cameraId = cam.name.c_str();
+            hidlCameras.resize(++numCameras);
+            hidlCameras[i++] = aCamera;
+        }
     }
 
     // Send back the results
