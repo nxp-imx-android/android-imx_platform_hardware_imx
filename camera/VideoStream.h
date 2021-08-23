@@ -91,6 +91,7 @@ protected:
     CameraDeviceSessionHwlImpl *mSession;
 
     char soc_type[PROPERTY_VALUE_MAX];
+    uint32_t mFrames;
 };
 
 }  // namespace android
