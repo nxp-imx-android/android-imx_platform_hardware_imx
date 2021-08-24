@@ -236,9 +236,6 @@ EvsEnumerator::EvsEnumerator(sp<IAutomotiveDisplayProxyService> proxyService) {
          ALOGD("proxy server is null");
     if (!EnumAvailableVideo())
         mPollVideoFileThread = new PollVideoFileThread();
-    vector<string> camList =
-                sConfigManager->getCameraIdList();
-    mCameranum = camList.size();
 }
 
 Return<void> EvsEnumerator::getDisplayIdList(getDisplayIdList_cb _list_cb) {
@@ -350,9 +347,9 @@ Return<void> EvsEnumerator::getCameraList_1_1(getCameraList_1_1_cb _hidl_cb)  {
         }
     }
     hidl_vec<CameraDesc_1_1> hidlCameras;
+    const unsigned numCameras = sCameraList.size();
     if (sConfigManager == nullptr) {
 
-        const unsigned numCameras = sCameraList.size();
         hidlCameras.resize(numCameras);
         unsigned i = 0;
         CameraDesc_1_1 aCamera;
@@ -364,7 +361,7 @@ Return<void> EvsEnumerator::getCameraList_1_1(getCameraList_1_1_cb _hidl_cb)  {
         auto camGroups = sConfigManager->getCameraGroupIdList();
         // Build up a packed array of CameraDesc for return
         const unsigned numGroup = camGroups.size();
-        hidlCameras.resize(mCameranum + numGroup);
+        hidlCameras.resize(numCameras + numGroup);
         unsigned i = 0;
         CameraDesc_1_1 aCamera;
 
