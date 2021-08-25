@@ -477,9 +477,13 @@ Return<sp<IEvsCamera_1_1>> EvsEnumerator::openCamera_1_1(const hidl_string& came
     } else {
 
         if (sConfigManager != nullptr && validStreamCfg(streamCfg)) {
-            unique_ptr<ConfigManager::CameraInfo> &camInfo = sConfigManager->getCameraInfo(cameraId);
-            /* currently do not support group metadta */
-            //unique_ptr<ConfigManager::CameraGroupInfo> &camInfo = sConfigManager->getCameraGroupInfo(cameraId);
+            ConfigManager::CameraInfo *camInfo = nullptr;
+            if (pRecord->cameraType == hwCam) {
+                camInfo = sConfigManager->getCameraInfo(cameraId).get();
+            }
+            if (pRecord->cameraType == logicCam) {
+                camInfo = sConfigManager->getCameraGroupInfo(cameraId).get();
+            }
             int32_t streamId = -1, area = INT_MIN;
 
             if (camInfo != nullptr ) {
@@ -507,12 +511,8 @@ Return<sp<IEvsCamera_1_1>> EvsEnumerator::openCamera_1_1(const hidl_string& came
                        camInfo->streamConfigurations[streamId][3],
                        reinterpret_cast<camera_metadata_t *>(pRecord->desc.metadata.data()));
             } else {
-                pActiveCamera = new V4l2Capture(pRecord->desc.v1.cameraId.c_str(),
-                                                    pRecord->name.c_str(),
-                                                   kDefaultResolution[0],
-                                                   kDefaultResolution[1],
-                                                   HAL_PIXEL_FORMAT_RGB_888,
-                                                   reinterpret_cast<camera_metadata_t *>(pRecord->desc.metadata.data()));
+                ALOGE("No camera information has been found!");
+                return nullptr;
             }
         } else {
             pActiveCamera = new V4l2Capture(pRecord->desc.v1.cameraId.c_str(),
