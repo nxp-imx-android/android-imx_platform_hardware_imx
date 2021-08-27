@@ -67,7 +67,10 @@ std::list<EvsEnumerator::CameraRecord>   EvsEnumerator::sCameraList;
 wp<EvsDisplay>                           EvsEnumerator::sActiveDisplay;
 std::mutex                               EvsEnumerator::sLock;
 std::unique_ptr<ConfigManager>           EvsEnumerator::sConfigManager;
-unsigned                                 EvsEnumerator::mCameranum;;
+
+ConfigManager * EvsEnumerator::getConfigManager() {
+    return sConfigManager.get();
+}
 
 bool EvsEnumerator::filterVideoFromConfigure(char *deviceName) {
     if (sConfigManager == nullptr)

@@ -14,9 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+#include "EvsEnumerator.h"
+#include "EvsCamera.h"
+
 #include <log/log.h>
 #include <android/hardware_buffer.h>
-#include "EvsCamera.h"
 #include <system/camera_metadata.h>
 #include <android-base/file.h>
 #include <cutils/properties.h>
@@ -48,16 +51,8 @@ EvsCamera::EvsCamera(const char *videoName, const camera_metadata_t *metadata)
     mDeqIdx = -1;
     mDescription.v1.cameraId = videoName;
     mLogiccam = isLogicalCamera(metadata);
-    if (mLogiccam) {
-        std::unique_ptr<ConfigManager>  config;
-        int enableFake = property_get_int32(EVS_FAKE_PROP, 0);
-        if (enableFake != 0)
-            config =
-                ConfigManager::Create("/vendor/etc/automotive/evs/fake_evs_configuration.xml");
-        else
-            config =
-                ConfigManager::Create("/vendor/etc/automotive/evs/imx_evs_configuration.xml");
-
+    ConfigManager *config = EvsEnumerator::getConfigManager();
+    if ((config != nullptr) && mLogiccam) {
         vector<string> cameraList = config->getCameraIdList();
         for (auto&cam : cameraList) {
             CameraDesc aCamera;
@@ -159,7 +154,7 @@ std::unordered_set<std::string> EvsCamera::getPhysicalCameraInLogic(const camera
         if (ids[i] == '\0') {
             if (start != i) {
                 std::string id(reinterpret_cast<const char *>(ids + start));
-                if (property_get_int32("vendor.evs.fake.enable", 0))
+                if (property_get_int32(EVS_FAKE_PROP, 0))
                     physicalCameras.emplace(id);
                 else {
                     cam = getVideoDevice(id);

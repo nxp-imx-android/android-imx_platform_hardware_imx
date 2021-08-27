@@ -101,6 +101,9 @@ public:
     // Implementation details
     EvsEnumerator(sp<IAutomotiveDisplayProxyService> proxyService = nullptr);
 
+    // Returns pointer to the config manager. Can return nullptr.
+    static ConfigManager * getConfigManager();
+
 private:
     struct CameraRecord {
         std::string      name;
@@ -118,7 +121,7 @@ private:
     static bool filterVideoFromConfigure(char *deviceName);
     static CameraRecord* findCameraById(const std::string& cameraId);
 
-    static std::unique_ptr<ConfigManager>   sConfigManager;
+    static std::unique_ptr<ConfigManager> sConfigManager;
 
     class PollVideoFileThread : public Thread {
     public:
@@ -144,7 +147,6 @@ private:
     static std::mutex                       sLock;
 
     static wp<EvsDisplay>          sActiveDisplay; // Weak pointer. Object destructs if client dies.
-    static unsigned mCameranum;
 };
 
 } // namespace implementation
