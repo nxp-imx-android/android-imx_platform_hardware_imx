@@ -349,9 +349,9 @@ Return<void> EvsEnumerator::getCameraList_1_1(getCameraList_1_1_cb _hidl_cb)  {
                ALOGD("Timer expired.  No new device has been added.");
         }
     }
-    hidl_vec<CameraDesc_1_1> hidlCameras;
-    const unsigned numCameras = sCameraList.size();
+    std::vector<CameraDesc_1_1> hidlCameras;
     if (sConfigManager == nullptr) {
+        const unsigned numCameras = sCameraList.size();
 
         hidlCameras.resize(numCameras);
         unsigned i = 0;
@@ -361,11 +361,7 @@ Return<void> EvsEnumerator::getCameraList_1_1(getCameraList_1_1_cb _hidl_cb)  {
              hidlCameras[i++] = aCamera;
         }
     } else {
-        auto camGroups = sConfigManager->getCameraGroupIdList();
         // Build up a packed array of CameraDesc for return
-        const unsigned numGroup = camGroups.size();
-        hidlCameras.resize(numCameras + numGroup);
-        unsigned i = 0;
         CameraDesc_1_1 aCamera;
 
         for (auto&cam : sCameraList) {
@@ -387,28 +383,25 @@ Return<void> EvsEnumerator::getCameraList_1_1(getCameraList_1_1_cb _hidl_cb)  {
               ALOGE("do not find ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS in CameraMetadata");
         }
 #endif
-
             aCamera.v1.cameraId = cam.name.c_str();
-
-            hidlCameras[i++] = aCamera;
+            hidlCameras.push_back(aCamera);
         }
 
         // Adding camera groups that represent logical camera devices
+        auto camGroups = sConfigManager->getCameraGroupIdList();
         for (auto&& id : camGroups) {
             unique_ptr<ConfigManager::CameraGroupInfo> &tempInfo =
                 sConfigManager->getCameraGroupInfo(id);
             CameraRecord camrec(id.c_str(), NULL, logicCam);
             if (tempInfo != nullptr) {
-
                 aCamera.metadata.setToExternal(
                     (uint8_t *)tempInfo->characteristics,
                      get_camera_metadata_size(tempInfo->characteristics)
                 );
             }
-
             aCamera.v1.cameraId = id;
             camrec.desc = aCamera;
-            hidlCameras[i++] = aCamera;
+            hidlCameras.push_back(aCamera);
             bool included_group_camera = false;
             for(auto &&cam : sCameraList) {
                 if (cam.desc.v1.cameraId == id)
@@ -428,9 +421,7 @@ Return<void> EvsEnumerator::getCameraList_1_1(getCameraList_1_1_cb _hidl_cb)  {
 Return<void> EvsEnumerator::getCameraList(getCameraList_cb _hidl_cb)  {
     ALOGD("getCameraList");
 
-    hidl_vec<CameraDesc_1_0> hidlCameras;
-    unsigned i = 0;
-    unsigned numCameras = 0;
+    std::vector<CameraDesc_1_0> hidlCameras;
     CameraDesc_1_0 aCamera;
 
     // Build up a packed array of CameraDesc for return
@@ -438,8 +429,7 @@ Return<void> EvsEnumerator::getCameraList(getCameraList_cb _hidl_cb)  {
         if (cam.cameraType == hwCam) {
             // Add only hw camera(s) from the list
             aCamera.cameraId = cam.name.c_str();
-            hidlCameras.resize(++numCameras);
-            hidlCameras[i++] = aCamera;
+            hidlCameras.push_back(aCamera);
         }
     }
 
