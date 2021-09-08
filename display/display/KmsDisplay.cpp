@@ -1128,6 +1128,10 @@ int KmsDisplay::openKms()
     if (mConfigThread == NULL)
         mConfigThread = new ConfigThread(this);
 
+    if (mEdid != NULL) {
+        delete mEdid;
+    }
+    mEdid = new Edid(mDrmFd,mConnectorID);
     return 0;
 }
 
@@ -1735,8 +1739,6 @@ int KmsDisplay::setDrm(int drmfd, size_t connectorId)
     }
     mDrmFd = dup(drmfd);
     mConnectorID = connectorId;
-
-    mEdid = new Edid(mDrmFd,mConnectorID);
     return 0;
 }
 
