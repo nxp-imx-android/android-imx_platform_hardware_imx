@@ -157,6 +157,9 @@ bool ExternalCameraDeviceSession::initialize() {
         return true;
     }
 
+#ifdef HANTRO_V4L2
+    ALOGE("%s:-------HANTRO_V4L2 MJPEG to I420--------", __FUNCTION__);
+#endif
     mRequestMetadataQueue = std::make_unique<RequestMetadataQueue>(
             kMetadataMsgQueueSize, false /* non blocking */);
     if (!mRequestMetadataQueue->isValid()) {
@@ -1506,6 +1509,8 @@ bool ExternalCameraDeviceSession::OutputThread::threadLoop() {
     // TODO: in some special case maybe we can decode jpg directly to gralloc output?
     if (req->frameIn->mFourcc == V4L2_PIX_FMT_MJPEG) {
         ATRACE_BEGIN("MJPGtoI420");
+         ALOGE("%s:-------software MJPEG to I420--------", __FUNCTION__);
+
         int res = libyuv::MJPGToI420(
             inData, inDataSize, static_cast<uint8_t*>(mYu12FrameLayout.y), mYu12FrameLayout.yStride,
             static_cast<uint8_t*>(mYu12FrameLayout.cb), mYu12FrameLayout.cStride,
