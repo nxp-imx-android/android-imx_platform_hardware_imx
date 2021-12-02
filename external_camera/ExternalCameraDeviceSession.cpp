@@ -165,11 +165,14 @@ bool ExternalCameraDeviceSession::initialize() {
         return true;
     }
 
+#ifdef HANTRO_V4L2
+    ALOGE("%s:-------HANTRO_V4L2 MJPEG to I420--------", __FUNCTION__);
     status = mOutputThread->initVpuThread();
     if (status != OK) {
         ALOGE("%s: init VPU decoder thread failed!", __FUNCTION__);
         return true;
     }
+#endif
 
     mRequestMetadataQueue = std::make_unique<RequestMetadataQueue>(
             kMetadataMsgQueueSize, false /* non blocking */);
@@ -1614,6 +1617,8 @@ bool ExternalCameraDeviceSession::OutputThread::threadLoop() {
             mDecodedData = mDecoder->exportDecodedBuf();
         }
 #else
+         ALOGE("%s:-------software MJPEG to I420--------", __FUNCTION__);
+
         int res = libyuv::MJPGToI420(
             inData, inDataSize, static_cast<uint8_t*>(mYu12FrameLayout.y), mYu12FrameLayout.yStride,
             static_cast<uint8_t*>(mYu12FrameLayout.cb), mYu12FrameLayout.cStride,
