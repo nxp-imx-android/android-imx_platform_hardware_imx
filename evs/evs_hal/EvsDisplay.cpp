@@ -17,7 +17,7 @@
 #include "EvsDisplay.h"
 
 #include <sync/sync.h>
-#include <ui/DisplayConfig.h>
+#include <ui/DisplayMode.h>
 #include <ui/DisplayState.h>
 
 namespace android {
@@ -395,7 +395,7 @@ Return<EvsResult> EvsDisplay::returnTargetBufferForDisplay(const BufferDesc_1_0&
 }
 
 Return<void> EvsDisplay::getDisplayInfo_1_1(__attribute__ ((unused))getDisplayInfo_1_1_cb _info_cb) {
-    android::DisplayConfig displayConfig;
+    android::ui::DisplayMode displayMode;
     android::ui::DisplayState displayState;
     HwDisplayConfig activeConfig;
     HwDisplayState  activeState;
@@ -405,11 +405,11 @@ Return<void> EvsDisplay::getDisplayInfo_1_1(__attribute__ ((unused))getDisplayIn
         return Void();
     }
 
-    displayConfig.resolution = ui::Size(mWidth, mHeight);
-    displayConfig.refreshRate = 60.f;
+    displayMode.resolution = ui::Size(mWidth, mHeight);
+    displayMode.refreshRate = 60.f;
     displayState.layerStack = mLayer;
 
-    activeConfig.setToExternal((uint8_t*)&displayConfig, sizeof(android::DisplayConfig));
+    activeConfig.setToExternal((uint8_t*)&displayMode, sizeof(android::ui::DisplayMode));
     activeState.setToExternal((uint8_t*)&displayState, sizeof(android::ui::DisplayState));
 
     _info_cb(activeConfig, activeState);
