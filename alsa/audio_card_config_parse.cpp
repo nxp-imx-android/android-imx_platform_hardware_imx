@@ -21,6 +21,7 @@
 #include <android-base/strings.h>
 #include <android-base/properties.h>
 #include <system/audio-base.h>
+#include <system/audio-hal-enums.h>
 #include <log/log.h>
 #include <json/json.h>
 #include <json/reader.h>
@@ -177,11 +178,13 @@ static bool parse_one_card(char *config_file, struct audio_card **pp_audio_card)
         return false;
     }
 
-    Json::Reader config_reader;
+    Json::CharReaderBuilder builder;
+    std::unique_ptr<Json::CharReader> config_reader(builder.newCharReader());
+    std::string errorMessage;
     Json::Value root;
-    if (!config_reader.parse(config, root)) {
+    if (!config_reader->parse(config.data(), config.data() + config.length(), &root, &errorMessage)) {
         ALOGE("Could not parse configuration file: %s, %s",
-            config_reader.getFormattedErrorMessages().c_str(), config_file);
+            errorMessage.c_str(), config_file);
         return false;
     }
 

@@ -95,11 +95,10 @@ int32_t MMAPStream::onDeviceConfigureLocked(uint32_t format, uint32_t width, uin
     }
 
     int vformat = convertPixelFormatToV4L2Format(format);
-    int capturemode = getCaptureMode(mDev, width, height);
 
-    ALOGI("%s, Width * Height %d x %d format %c%c%c%c, fps: %d, capturemode %d",
+    ALOGI("%s, Width * Height %d x %d format %c%c%c%c, fps: %d",
         __func__, (int)width, (int)height,
-        vformat & 0xFF, (vformat >> 8) & 0xFF, (vformat >> 16) & 0xFF, (vformat >> 24) & 0xFF, fps, capturemode);
+        vformat & 0xFF, (vformat >> 8) & 0xFF, (vformat >> 16) & 0xFF, (vformat >> 24) & 0xFF, fps);
 
     int buf_type = mPlane ? V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE : V4L2_BUF_TYPE_VIDEO_CAPTURE;
     int num_planes = mPlane ? 1 : 0;
@@ -111,7 +110,6 @@ int32_t MMAPStream::onDeviceConfigureLocked(uint32_t format, uint32_t width, uin
     param.type = buf_type;
     param.parm.capture.timeperframe.numerator = 1;
     param.parm.capture.timeperframe.denominator = vfps;
-    param.parm.capture.capturemode = capturemode;
     ret = ioctl(mDev, VIDIOC_S_PARM, &param);
     if (ret < 0) {
         ALOGE("%s: VIDIOC_S_PARM Failed: %s", __func__, strerror(errno));
@@ -335,53 +333,6 @@ int32_t MMAPStream::onDeviceStopLocked()
     mbStart = false;
 
     return 0;
-}
-
-ImxStreamBuffer* MMAPStream::onFrameAcquireLocked()
-{
-    ALOGV("%s", __func__);
-    int32_t ret = 0;
-    struct v4l2_buffer cfilledbuffer;
-    struct v4l2_plane planes;
-    memset(&planes, 0, sizeof(struct v4l2_plane));
-
-capture_data:
-    memset(&cfilledbuffer, 0, sizeof(cfilledbuffer));
-
-    if (mPlane) {
-        cfilledbuffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-        cfilledbuffer.m.planes = &planes;
-        cfilledbuffer.length = 1;
-    } else {
-        cfilledbuffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    }
-
-    cfilledbuffer.memory = V4L2_MEMORY_MMAP;
-
-    ret = ioctl(mDev, VIDIOC_DQBUF, &cfilledbuffer);
-    if (ret < 0) {
-        ALOGE("%s: VIDIOC_DQBUF Failed", __func__);
-        return NULL;
-    }
-
-    ALOGV("VIDIOC_DQBUF ok, idx %d", cfilledbuffer.index);
-
-    mFrames++;
-    if (mFrames == 1)
-        ALOGI("%s: first frame get for %dx%d", __func__, mWidth, mHeight);
-
-    if (mOmitFrames > 0) {
-        ALOGI("%s omit frame", __func__);
-        ret = ioctl(mDev, VIDIOC_QBUF, &cfilledbuffer);
-        if (ret < 0) {
-            ALOGE("%s VIDIOC_QBUF Failed", __func__);
-            return NULL;
-        }
-        mOmitFrames--;
-        goto capture_data;
-    }
-
-    return mBuffers[cfilledbuffer.index];
 }
 
 int32_t MMAPStream::onFrameReturnLocked(ImxStreamBuffer& buf)

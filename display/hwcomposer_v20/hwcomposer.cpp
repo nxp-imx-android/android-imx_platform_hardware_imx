@@ -1650,7 +1650,7 @@ static int hwc2_get_layer_generic_metadata_key(hwc2_device_t* device, uint32_t /
 
     DisplayManager* displayManager = DisplayManager::getInstance();
     if (displayManager == NULL) {
-        ALOGE("%s invalid display manager", __func__);
+        ALOGE("%s invalid display manager" PRId64, __func__);
         return HWC2_ERROR_BAD_DISPLAY;
     }
 

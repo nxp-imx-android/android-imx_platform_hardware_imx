@@ -135,7 +135,7 @@ public:
 
     status_t SubmitRequests(
         uint32_t frame_number,
-        const std::vector<HwlPipelineRequest>& requests) override;
+        std::vector<HwlPipelineRequest>& requests) override;
 
     status_t Flush() override;
 
@@ -302,6 +302,7 @@ private:
     CscHw mCamBlitCopyType;
     CscHw mCamBlitCscType;
     char mJpegHw[JPEG_HW_NAME_LEN] = { 0 };
+    int mUseCpuEncoder;
     CameraSensorMetadata mSensorData;
 
     int mPreviewResolutions[MAX_RESOLUTION_SIZE];

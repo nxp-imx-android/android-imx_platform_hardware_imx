@@ -30,6 +30,67 @@
 #include "FbDisplay.h"
 #include "Layer.h"
 
+// uncomment below to enable frame dump feature
+//#define DEBUG_DUMP_FRAME
+
+#ifdef DEBUG_DUMP_FRAME
+static void dump_frame_to_file(char *pbuf, int size, char *filename)
+{
+    int fd = 0;
+    int len = 0;
+    fd = open(filename, O_CREAT | O_RDWR, 0666);
+    if (fd<0) {
+        ALOGE("Unable to open file [%s]\n",
+             filename);
+    }
+    len = write(fd, pbuf, size);
+    close(fd);
+}
+
+static void dump_frame(char *pbuf, int size)
+{
+    static bool start_dump = false;
+    static int prev_request_frame_count = 0;
+    static int request_frame_count = 0;
+    static int dumpped_count = 0;
+
+    if(!start_dump) {
+        char value[PROPERTY_VALUE_MAX];
+        property_get("vendor.hwc.enable.dump_frame", value, "0");
+        request_frame_count = atoi(value);
+        //Previous dump request finished, no more request catched
+        if(prev_request_frame_count == request_frame_count)
+            return;
+
+        prev_request_frame_count = request_frame_count;
+        if (request_frame_count >= 1)
+            start_dump = true;
+        else
+            start_dump = false;
+
+    }
+
+    if((start_dump)&& (request_frame_count >= 1)) {
+        ALOGI("Dump %d frame buffer %p, size %d",
+                dumpped_count, pbuf, size);
+        if (pbuf != 0) {
+            char filename[128];
+            memset(filename, 0, 128);
+            sprintf(filename, "/data/%s-frame-%d.rgba",
+                    "fb-display", dumpped_count);
+            dump_frame_to_file(pbuf, size, filename);
+            dumpped_count++;
+        }
+        request_frame_count--;
+        if(request_frame_count == 0){
+            start_dump = false;
+        }
+    }
+
+}
+
+#endif
+
 namespace fsl {
 
 #define VSYNC_STRING_LEN 128
@@ -51,6 +112,7 @@ FbDisplay::FbDisplay()
     mOutFence = -1;
     mPresentFence = -1;
     mCustomizeUI = false;
+    mEPDCDevice = false;
 }
 
 FbDisplay::~FbDisplay()
@@ -328,6 +390,19 @@ int FbDisplay::updateScreen()
         }
     }
 
+#ifdef DEBUG_DUMP_FRAME
+    if(buffer->base == 0) {
+        void *vaddr = NULL;
+        MemoryManager* pManager = MemoryManager::getInstance();
+        pManager->lock(buffer, buffer->usage,
+                    0, 0, buffer->width, buffer->height, &vaddr);
+        dump_frame((char *)vaddr, buffer->size);
+        pManager->unlock(buffer);
+    }
+    else
+        dump_frame((char *)buffer->base, buffer->size);
+#endif
+
     struct mxcfb_datainfo mxcbuf;
 
     memset(&mxcbuf, 0, sizeof(mxcbuf));
@@ -512,6 +587,17 @@ int FbDisplay::openFb()
         }
     }
 
+    struct fb_fix_screeninfo finfo;
+    if (ioctl(mFd, FBIOGET_FSCREENINFO, &finfo) == -1) {
+        ALOGE("<%s,%d> FBIOGET_FSCREENINFO failed", __func__, __LINE__);
+        close(mFd);
+        return -errno;
+    }
+    if (!strcmp(EPDC_STR_ID, finfo.id)) {
+        ALOGI("Found EPDC Display panel!");
+        mEPDCDevice = true;
+    }
+
     int ret = setDefaultFormatLocked();
     if (ret != 0) {
         ALOGE("%s setDefaultFormatLocked failed", __func__);
@@ -651,29 +737,38 @@ int FbDisplay::setDefaultFormatLocked()
         return -errno;
     }
 
-    /*
-     * Explicitly request RGBA 8/8/8/8
-     */
-    info.bits_per_pixel   = 32;
-    info.red.offset       = 0;
-    info.red.length       = 8;
-    info.red.msb_right    = 0;
-    info.green.offset     = 8;
-    info.green.length     = 8;
-    info.green.msb_right  = 0;
-    info.blue.offset      = 16;
-    info.blue.length      = 8;
-    info.blue.msb_right   = 0;
-    info.transp.offset    = 24;
-    info.transp.length    = 8;
-    info.transp.msb_right = 0;
-    info.grayscale = V4L2_PIX_FMT_ARGB32;
-    info.reserved[0] = 0;
-    info.reserved[1] = 0;
-    info.reserved[2] = 0;
-    info.xoffset = 0;
-    info.yoffset = 0;
-    info.activate = FB_ACTIVATE_NOW | FB_ACTIVATE_FORCE;
+    if ( mEPDCDevice) {
+        info.bits_per_pixel = 16;
+        info.grayscale = 0;
+        info.yoffset = 0;
+        info.rotate = FB_ROTATE_UR;
+        info.activate = FB_ACTIVATE_FORCE;
+    }
+    else {
+        /*
+         * Explicitly request RGBA 8/8/8/8
+         */
+        info.bits_per_pixel   = 32;
+        info.red.offset       = 0;
+        info.red.length       = 8;
+        info.red.msb_right    = 0;
+        info.green.offset     = 8;
+        info.green.length     = 8;
+        info.green.msb_right  = 0;
+        info.blue.offset      = 16;
+        info.blue.length      = 8;
+        info.blue.msb_right   = 0;
+        info.transp.offset    = 24;
+        info.transp.length    = 8;
+        info.transp.msb_right = 0;
+        info.grayscale = V4L2_PIX_FMT_ARGB32;
+        info.reserved[0] = 0;
+        info.reserved[1] = 0;
+        info.reserved[2] = 0;
+        info.xoffset = 0;
+        info.yoffset = 0;
+        info.activate = FB_ACTIVATE_NOW | FB_ACTIVATE_FORCE;
+    }
 
     char value[PROPERTY_VALUE_MAX];
     memset(value, 0, sizeof(value));
@@ -727,8 +822,6 @@ int FbDisplay::setActiveConfig(int configId)
 
     info.xres = config.mXres;
     info.yres = config.mYres;
-    info.xres_virtual = info.xres;
-    info.yres_virtual = info.yres;
     info.activate = FB_ACTIVATE_NOW | FB_ACTIVATE_FORCE;
     if (ioctl(mFd, FBIOPUT_VSCREENINFO, &info) == -1) {
         ALOGW("setActiveConfig: FBIOPUT_VSCREENINFO failed");

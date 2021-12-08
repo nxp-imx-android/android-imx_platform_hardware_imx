@@ -201,7 +201,7 @@ static void release_buffer(struct resampler_buffer_provider *buffer_provider,
                                   struct resampler_buffer* buffer);
 static int adev_get_format_for_device(struct imx_audio_device *adev, uint32_t devices, unsigned int flag);
 static void in_update_aux_channels(struct imx_stream_in *in, effect_handle_t effect);
-static int pcm_read_wrapper(struct pcm *pcm, const void * buffer, size_t bytes);
+static int pcm_read_wrapper(struct pcm *pcm, const void * buffer, size_t bytes, bool dump);
 static void convert_output_for_esai(const void* buffer, size_t bytes, int channels);
 
 extern "C" int pcm_state(struct pcm *pcm);
@@ -711,6 +711,7 @@ static int start_output_stream(struct imx_stream_out *out)
     }
     out->pcm = pcm_open(card, pcm_device_id, flags, config);
     out->write_flags = flags;
+    out->first_frame_written = false;
 
     success = true;
 
@@ -735,8 +736,7 @@ static int start_output_stream(struct imx_stream_out *out)
 
             if (out->resampler)
                 out->resampler->reset(out->resampler);
-        } else
-            out->written = 0;
+        }
 
         if (passthrough_for_s24) {
             out->buffer_frames = out->config.period_size *
@@ -960,8 +960,21 @@ static int out_standby(struct audio_stream *stream)
     return status;
 }
 
-static int out_dump(const struct audio_stream *stream __unused, int fd __unused)
+static int out_dump(const struct audio_stream *stream, int fd)
 {
+    if ((stream == NULL) || (fd < 0))
+        return 0;
+
+    struct imx_stream_out *out = (struct imx_stream_out *)stream;
+
+    dprintf(fd, "audio write to HAL: rate %d, chns %d, audio format 0x%x\n", out->sample_rate, popcount(out->channel_mask), out->format);
+    dprintf(fd, "audio write to ALSA: rate %d, chns %d, alsa format 0x%x\n", out->config.rate, out->config.channels, out->config.format);
+    dprintf(fd, "device 0x%x, card index %d, frames round %d, total written %llu, first_frame_written %d, writeContiFailCount %d\n",
+        out->device, out->card_index, out->frames_round, out->written, out->first_frame_written, out->writeContiFailCount);
+
+    if (out->pcm)
+      dprintf(fd, "pcm fd %d\n", pcm_get_poll_fd(out->pcm));
+
     return 0;
 }
 
@@ -1293,7 +1306,7 @@ static int pcm_read_convert(struct imx_stream_in *in, struct pcm *pcm, void *dat
                      in->read_tmp_buf, size_in_bytes_tmp);
         }
 
-        in->read_status = pcm_read_wrapper(pcm, (void*)in->read_tmp_buf, size_in_bytes_tmp);
+        in->read_status = pcm_read_wrapper(pcm, (void*)in->read_tmp_buf, size_in_bytes_tmp, in->dump);
 
         if (in->read_status != 0) {
             ALOGE("get_next_buffer() pcm_read_wrapper error %d", in->read_status);
@@ -1303,13 +1316,41 @@ static int pcm_read_convert(struct imx_stream_in *in, struct pcm *pcm, void *dat
         convert_record_data((void *)in->read_tmp_buf, (void *)data, frames_rq, bit_24b_2_16b, bit_32b_2_16b, mono2stereo, stereo2mono);
     }
     else {
-        in->read_status = pcm_read_wrapper(pcm, (void*)data, count);
+        in->read_status = pcm_read_wrapper(pcm, (void*)data, count, in->dump);
+    }
+
+    if ((in->first_frame_read == false) && (in->read_status == 0)) {
+        ALOGI("%s: first frame read, in stream %p", __func__, in);
+        in->first_frame_read = true;
     }
 
     return in->read_status;
 }
 
-static int pcm_read_wrapper(struct pcm *pcm, const void * buffer, size_t bytes)
+#define IN_SRC_FILE "/data/in_src.pcm"
+#define IN_DST_FILE "/data/in_dst.pcm"
+#define OUT_SRC_FILE "/data/out_src.pcm"
+#define OUT_DST_FILE "/data/out_dst.pcm"
+
+static void audio_dump(const void *buffer, size_t bytes, char *name)
+{
+    if ((buffer == NULL) || (bytes == 0) || (name == NULL))
+        return;
+
+    int fdDump = open(name, O_CREAT|O_APPEND|O_WRONLY, S_IRWXU|S_IRWXG);
+    if (fdDump < 0) {
+        ALOGW("%s: file open error, srcFile: %s, fd %d",
+                __func__, name, fdDump);
+        return;
+    }
+
+    write(fdDump, buffer, bytes);
+    close(fdDump);
+
+    return;
+}
+
+static int pcm_read_wrapper(struct pcm *pcm, const void * buffer, size_t bytes, bool dump)
 {
     int ret = 0;
     ret = pcm_read(pcm, (void *)buffer, bytes);
@@ -1330,10 +1371,13 @@ static int pcm_read_wrapper(struct pcm *pcm, const void * buffer, size_t bytes)
          ret = pcm_read(pcm, (void *)buffer, bytes);
     }
 
+    if (dump)
+        audio_dump(buffer, bytes, IN_SRC_FILE);
+
     return ret;
 }
 
-static int pcm_write_wrapper(struct pcm *pcm, const void * buffer, size_t bytes, int flags)
+static int pcm_write_wrapper(struct pcm *pcm, const void * buffer, size_t bytes, int flags, bool dump)
 {
     int ret = 0;
 
@@ -1363,6 +1407,9 @@ static int pcm_write_wrapper(struct pcm *pcm, const void * buffer, size_t bytes,
             ret = pcm_write(pcm, (void *)buffer, bytes);
     }
 
+    if (dump)
+        audio_dump(buffer, bytes, OUT_DST_FILE);
+
     return ret;
 }
 
@@ -1377,6 +1424,9 @@ static ssize_t out_write(struct audio_stream_out *stream, const void* buffer,
     size_t out_frames = in_frames;
     bool force_input_standby = false;
     struct imx_stream_in *in;
+
+    if (out->dump)
+        audio_dump(buffer, bytes, OUT_SRC_FILE);
 
     // In HAL, AUDIO_FORMAT_DSD doesn't have proportional frames, audio_stream_out_frame_size will return 1
     // But in driver, frame_size is 8 byte (DSD_FRAMESIZE_BYTES: 2 channel && 32 bit)
@@ -1438,22 +1488,27 @@ static ssize_t out_write(struct audio_stream_out *stream, const void* buffer,
                 (out->config.rate != DEFAULT_OUTPUT_SAMPLE_RATE)) {
             /* PCM resampled or channel converted.
                For bt-sai HSP case, stereo buffer converted to mono out->buffer */
-            ret = pcm_write_wrapper(out->pcm, (void *)out->buffer, out_frames * frame_size, out->write_flags);
+            ret = pcm_write_wrapper(out->pcm, (void *)out->buffer, out_frames * frame_size, out->write_flags, out->dump);
         } else if (passthrough_for_s24) {
             /* For 8mp passthrough case, audio data is converted from
                PCM_FORMAT_S16_LE buffer to PCM_FORMAT_S24_LE out->buffer,
                so here double the bytes to write */
             ret = pcm_write_wrapper(out->pcm, (void *)out->buffer,
-                    out_frames * frame_size * 2, out->write_flags);
+                    out_frames * frame_size * 2, out->write_flags, out->dump);
         } else {
             /* PCM uses native sample rate */
-            ret = pcm_write_wrapper(out->pcm, (void *)buffer, bytes, out->write_flags);
+            ret = pcm_write_wrapper(out->pcm, (void *)buffer, bytes, out->write_flags, out->dump);
         }
 
         if (ret) {
             out->writeContiFailCount++;
         } else {
             out->writeContiFailCount = 0;
+
+          if (out->first_frame_written == false) {
+              ALOGI("%s: first frame write, out stream %p", __func__, out);
+              out->first_frame_written = true;
+          }
         }
     }
 
@@ -1464,8 +1519,16 @@ static ssize_t out_write(struct audio_stream_out *stream, const void* buffer,
     }
 
 exit:
+    size_t write_frames = bytes / frame_size;
     out->written += bytes / frame_size;
     pthread_mutex_unlock(&out->lock);
+
+    out->frames_round += write_frames;
+    if (out->frames_round >= out->sample_rate) {
+        ALOGV("out frames_round %d", out->frames_round);
+        out->frames_round -= out->sample_rate;
+        out->dump = property_get_bool("vendor.audio.dump", false);
+    }
 
     if (ret != 0) {
         ALOGV("write error, sleep few ms");
@@ -1623,7 +1686,7 @@ static int out_get_presentation_position(const struct audio_stream_out *stream,
 static int spdif_in_rate_check(struct imx_stream_in *in)
 {
     struct imx_audio_device *adev = in->dev;
-    int i = adev->in_card_idx;
+    int i = in->card_index;
     int ret = 0;
 
     if(!strcmp(adev->card_list[i]->driver_name, "imx-spdif")) {
@@ -1719,7 +1782,7 @@ static int start_input_stream(struct imx_stream_in *in)
     for(i = 0; i < adev->audio_card_num; i++) {
         if(adev->in_device & adev->card_list[i]->supported_in_devices) {
             card = adev->card_list[i]->card;
-            adev->in_card_idx = i;
+            in->card_index = i;
             port = 0;
             break;
         }
@@ -1751,7 +1814,7 @@ static int start_input_stream(struct imx_stream_in *in)
                                         in->requested_rate);
 
     /* this assumes routing is done previously */
-    in->pcm = pcm_open(card, port, PCM_IN, &in->config);
+    in->pcm = pcm_open(card, port, PCM_IN | PCM_MONOTONIC, &in->config);
     if (!pcm_is_ready(in->pcm)) {
         ALOGE("cannot open pcm_in driver: %s", pcm_get_error(in->pcm));
         pcm_close(in->pcm);
@@ -1870,8 +1933,21 @@ static int in_standby(struct audio_stream *stream)
     return status;
 }
 
-static int in_dump(const struct audio_stream *stream __unused, int fd __unused)
+static int in_dump(const struct audio_stream *stream, int fd)
 {
+    if ((stream == NULL) || (fd < 0))
+        return 0;
+
+    struct imx_stream_in *in = (struct imx_stream_in *)stream;
+
+    dprintf(fd, "audio read from HAL: rate %d, chns %d, audio format 0x%x\n", in->requested_rate, popcount(in->requested_channel), in->requested_format);
+    dprintf(fd, "audio read from ALSA: rate %d, chns %d, alsa format 0x%x\n", in->config.rate, in->config.channels, in->config.format);
+    dprintf(fd, "device 0x%x, card index %d, frames round %d, first_frame_read %d, read_status %d\n",
+        in->device, in->card_index, in->frames_round, in->first_frame_read, in->read_status);
+
+    if (in->pcm)
+      dprintf(fd, "pcm fd %d\n", pcm_get_poll_fd(in->pcm));
+
     return 0;
 }
 
@@ -2386,6 +2462,19 @@ exit:
                in_get_sample_rate(&stream->common));
     }
     pthread_mutex_unlock(&in->lock);
+    if (bytes > 0) {
+        in->frames_read += frames_rq;
+    }
+
+    if (in->dump)
+        audio_dump(buffer, bytes, IN_DST_FILE);
+
+    in->frames_round += frames_rq;
+    if (in->frames_round >= in->requested_rate) {
+        ALOGV("in frames_round %d", in->frames_round);
+        in->frames_round -= in->requested_rate;
+        in->dump = property_get_bool("vendor.audio.dump", false);
+    }
 
     return bytes;
 }
@@ -2393,6 +2482,35 @@ exit:
 static uint32_t in_get_input_frames_lost(struct audio_stream_in *stream __unused)
 {
     return 0;
+}
+
+static int in_get_capture_position(const struct audio_stream_in *stream,
+                                   int64_t *frames, int64_t *time)
+{
+    if (stream == NULL || frames == NULL || time == NULL) {
+        return -EINVAL;
+    }
+    struct imx_stream_in *in = (struct imx_stream_in *)stream;
+    int ret = -ENOSYS;
+
+    pthread_mutex_lock(&in->lock);
+    if (in->standby) {
+        ALOGE_IF(in->pcm != NULL,
+                 "%s stream in standby but pcm not NULL for non ST session", __func__);
+        goto exit;
+    }
+    if (in->pcm) {
+        struct timespec timestamp;
+        unsigned int avail;
+        if (pcm_get_htimestamp(in->pcm, &avail, &timestamp) == 0) {
+            *frames = in->frames_read + avail;
+            *time = timestamp.tv_sec * 1000000000LL + timestamp.tv_nsec;
+            ret = 0;
+        }
+    }
+exit:
+    pthread_mutex_unlock(&in->lock);
+    return ret;
 }
 
 #define GET_COMMAND_STATUS(status, fct_status, cmd_status) \
@@ -3207,6 +3325,11 @@ static int adev_release_audio_patch(struct audio_hw_device *dev,
     return -EINVAL;
 }
 
+static int adev_get_audio_port(struct audio_hw_device *dev, struct audio_port *port)
+{
+    return 0;
+}
+
 static int adev_open_output_stream(struct audio_hw_device *dev,
                                    audio_io_handle_t handle __unused,
                                    audio_devices_t devices,
@@ -3569,7 +3692,7 @@ static void* sco_rx_task(void *arg)
         out_size = pcm_frames_to_bytes(out_pcm, out_frames);
 
         pthread_mutex_lock(&stream_out->lock);
-        ret = pcm_write_wrapper(out_pcm, sco_rx_out_buffer, out_size, flag);
+        ret = pcm_write_wrapper(out_pcm, sco_rx_out_buffer, out_size, flag, stream_out->dump);
         pthread_mutex_unlock(&stream_out->lock);
         if(ret) {
             ALOGE("sco_rx_task, pcm_write ret %d, size %d, %s",
@@ -4029,6 +4152,7 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
     in->stream.set_gain = in_set_gain;
     in->stream.read = in_read;
     in->stream.get_input_frames_lost = in_get_input_frames_lost;
+    in->stream.get_capture_position = in_get_capture_position;
 #if ANDROID_SDK_VERSION >= 28
     in->stream.get_active_microphones = in_get_active_microphones;
     in->stream.set_microphone_direction = in_set_microphone_direction;
@@ -4094,8 +4218,21 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
     return;
 }
 
-static int adev_dump(const audio_hw_device_t *device __unused, int fd __unused)
+static int adev_dump(const audio_hw_device_t *device, int fd)
 {
+    if ((device == NULL) || (fd < 0))
+        return 0;
+
+    struct imx_audio_device *adev = (struct imx_audio_device *)device;
+
+    dprintf(fd, "Hal dev dump\n");
+    dprintf(fd, "audio card num %d\n", adev->audio_card_num);
+    for (int i = 0; i < adev->audio_card_num && i < MAX_AUDIO_CARD_NUM; i++) {
+        struct audio_card *acard = adev->card_list[i];
+        if (acard)
+            dprintf(fd, "card index %d, name %s, id %d\n", i, acard->driver_name,acard->card);
+    }
+
     return 0;
 }
 
@@ -4350,6 +4487,7 @@ static int adev_open(const hw_module_t* module, const char* name,
     adev->hw_device.set_audio_port_config   = adev_set_audio_port_config;
     adev->hw_device.create_audio_patch      = adev_create_audio_patch;
     adev->hw_device.release_audio_patch     = adev_release_audio_patch;
+    adev->hw_device.get_audio_port          = adev_get_audio_port;
     adev->hw_device.dump                    = adev_dump;
     adev->support_multichannel              = false;
     adev->support_lpa                       = false;

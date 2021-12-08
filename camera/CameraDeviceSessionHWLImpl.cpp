@@ -177,6 +177,7 @@ status_t CameraDeviceSessionHwlImpl::Initialize(
     mCamBlitCopyType = pDev->mCamBlitCopyType;
     mCamBlitCscType = pDev->mCamBlitCscType;
     memcpy(mJpegHw, pDev->mJpegHw, JPEG_HW_NAME_LEN);
+    mUseCpuEncoder = pDev->mUseCpuEncoder;
     mSensorData = pDev->mSensorData;
 
     mPreviewResolutionCount = pDev->mPreviewResolutionCount;
@@ -270,8 +271,12 @@ int CameraDeviceSessionHwlImpl::HandleRequest()
                 continue;
             }
 
+            uint64_t timestamp = 0;
             // notify shutter
-            uint64_t timestamp = systemTime();
+            if (mUseCpuEncoder)
+                timestamp = systemTime(SYSTEM_TIME_MONOTONIC);
+            else
+                timestamp = systemTime(SYSTEM_TIME_BOOTTIME);
 
             if (pInfo->pipeline_callback.notify) {
                 NotifyMessage msg{
@@ -1292,7 +1297,7 @@ void CameraDeviceSessionHwlImpl::DestroyPipelines()
 }
 
 status_t CameraDeviceSessionHwlImpl::SubmitRequests(
-    uint32_t frame_number, const std::vector<HwlPipelineRequest> &requests)
+    uint32_t frame_number, std::vector<HwlPipelineRequest> &requests)
 {
     Mutex::Autolock _l(mLock);
 
@@ -1464,7 +1469,7 @@ uint32_t CameraDeviceSessionHwlImpl::GetCameraId() const
 
 std::vector<uint32_t> CameraDeviceSessionHwlImpl::GetPhysicalCameraIds() const {
     if ((physical_device_map_->empty())) {
-        ALOGW("%s: GetPhysicalCameraIds is empty", __func__);
+        ALOGV("%s: GetPhysicalCameraIds is empty", __func__);
         return std::vector<uint32_t>{};
     }
 

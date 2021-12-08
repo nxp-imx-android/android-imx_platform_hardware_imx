@@ -96,6 +96,7 @@ struct CameraSensorMetadata {
   // max fps and min fps. the value is set 1/30s ~ 0.3s
   long minframeduration;
   long maxframeduration;
+  long minframeduration_blob_5M;
 
   struct OmitFrame omit_frame[OMIT_RESOLUTION_NUM];
   BufferType buffer_type;
@@ -127,6 +128,7 @@ struct CameraDefinition {
   CscHw cam_blit_copy_hw;
   CscHw cam_blit_csc_hw;
   std::string jpeg_hw;
+  int mUseCpuEncoder;
   std::vector<CameraSensorMetadata> camera_metadata_vec;
   std::unordered_map<uint32_t, std::vector<std::pair<CameraDeviceStatus, uint32_t>>> camera_id_map_;
 };

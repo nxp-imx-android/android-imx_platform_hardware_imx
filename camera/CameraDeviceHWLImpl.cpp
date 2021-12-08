@@ -28,7 +28,8 @@ namespace android {
 
 std::unique_ptr<CameraDeviceHwl> CameraDeviceHwlImpl::Create(
     uint32_t camera_id, std::vector<std::shared_ptr<char*>> devPaths,
-    CscHw cam_copy_hw, CscHw cam_csc_hw, const char *hw_jpeg, CameraSensorMetadata *cam_metadata, PhysicalDeviceMapPtr physical_devices, HwlCameraProviderCallback callback)
+    CscHw cam_copy_hw, CscHw cam_csc_hw, const char *hw_jpeg, int use_cpu_encoder, CameraSensorMetadata *cam_metadata,
+    PhysicalDeviceMapPtr physical_devices, HwlCameraProviderCallback &callback)
 {
     ALOGI("%s: id %d, copy hw %d, csc hw %d, hw_jpeg %s",
         __func__, camera_id, cam_copy_hw, cam_csc_hw, hw_jpeg);
@@ -37,10 +38,10 @@ std::unique_ptr<CameraDeviceHwl> CameraDeviceHwlImpl::Create(
 
     if(strstr(cam_metadata->camera_name, ISP_SENSOR_NAME))
         device = new ISPCameraDeviceHwlImpl(camera_id, devPaths, cam_copy_hw, cam_csc_hw,
-                            hw_jpeg, cam_metadata, std::move(physical_devices), callback);
+                            hw_jpeg, use_cpu_encoder, cam_metadata, std::move(physical_devices), callback);
     else
         device = new CameraDeviceHwlImpl(camera_id, devPaths, cam_copy_hw, cam_csc_hw,
-                            hw_jpeg, cam_metadata, std::move(physical_devices), callback);
+                            hw_jpeg, use_cpu_encoder, cam_metadata, std::move(physical_devices), callback);
 
     if (device == nullptr) {
         ALOGE("%s: Creating CameraDeviceHwlImpl failed.", __func__);
@@ -62,11 +63,12 @@ std::unique_ptr<CameraDeviceHwl> CameraDeviceHwlImpl::Create(
 
 CameraDeviceHwlImpl::CameraDeviceHwlImpl(
     uint32_t camera_id, std::vector<std::shared_ptr<char*>> devPaths,
-    CscHw cam_copy_hw, CscHw cam_csc_hw, const char *hw_jpeg, CameraSensorMetadata *cam_metadata,
-    PhysicalDeviceMapPtr physical_devices, HwlCameraProviderCallback callback)
+    CscHw cam_copy_hw, CscHw cam_csc_hw, const char *hw_jpeg, int use_cpu_encoder, CameraSensorMetadata *cam_metadata,
+    PhysicalDeviceMapPtr physical_devices, HwlCameraProviderCallback &callback)
     : camera_id_(camera_id),
         mCamBlitCopyType(cam_copy_hw),
         mCamBlitCscType(cam_csc_hw),
+        mUseCpuEncoder(use_cpu_encoder),
         physical_device_map_(std::move(physical_devices)),
         mCallback(callback)
 {
@@ -312,6 +314,7 @@ status_t CameraDeviceHwlImpl::initSensorStaticData()
 
 status_t CameraDeviceHwlImpl::adjustPreviewResolutions()
 {
+    // Make sure max size is in the first.
     int xTmp, yTmp, xMax, yMax, idx;
     idx = 0;
     xTmp = xMax = mPreviewResolutions[0];
@@ -328,6 +331,25 @@ status_t CameraDeviceHwlImpl::adjustPreviewResolutions()
     mPreviewResolutions[1] = yMax;
     mPreviewResolutions[idx] = xTmp;
     mPreviewResolutions[idx+1] = yTmp;
+
+    // Sequence 1280x720 before 1024x768
+    int idx_720p = -1;
+    int idx_768p = -1;
+
+    for (int i=0; i<MAX_RESOLUTION_SIZE; i+=2) {
+        if ((mPreviewResolutions[i] == 1280) && (mPreviewResolutions[i+1] == 720))
+            idx_720p = i;
+
+        if ((mPreviewResolutions[i] == 1024) && (mPreviewResolutions[i+1] == 768))
+            idx_768p = i;
+    }
+
+    if ((idx_720p > 0) && (idx_768p > 0) && (idx_720p > idx_768p)) {
+        mPreviewResolutions[idx_768p] = 1280;
+        mPreviewResolutions[idx_768p + 1] = 720;
+        mPreviewResolutions[idx_720p] = 1024;
+        mPreviewResolutions[idx_720p + 1] = 768;
+    }
 
     return 0;
 }

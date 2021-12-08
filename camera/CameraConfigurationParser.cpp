@@ -93,6 +93,7 @@ const char* const kCameraDefinitionHalVersionKey = "hal_version";
 const char* const kCameraBlitCopyKey = "cam_blit_copy";
 const char* const kCameraBlitCscKey = "cam_blit_csc";
 const char* const kCameraHwJpeg = "hw_jpeg_enc";
+const char* const kUseCpuEncoder = "use_cpu_encoder";
 
 const char* const kCameraMetadataKey = "camera_metadata";
 const char* const kCameraTypeKey = "camera_type";
@@ -112,6 +113,7 @@ const char* const kFocalLengthKey = "FocalLength";
 const char* const kMaxJpegSizeKey = "MaxJpegSize";
 const char* const kMinFrameDurationKey = "MinFrameDuration";
 const char* const kMaxFrameDurationKey = "MaxFrameDuration";
+const char* const kMinFrameDurationKey_blob_5M = "MinFrameDurationBlob5M";
 const char* const kOmitFrameKey = "OmitFrame";
 const char* const kOmitFrameWidthKey = "width";
 const char* const kOmitFrameHeightKey = "height";
@@ -231,6 +233,13 @@ bool ConfigureCameras(const Json::Value& value,
     if (value.isMember(kCameraHwJpeg)) {
         camera->jpeg_hw = value[kCameraHwJpeg].asString();
     }
+
+    if(value.isMember(kUseCpuEncoder))
+        camera->mUseCpuEncoder = strtol(value[kUseCpuEncoder].asString().c_str(), NULL, 10);
+    else
+        camera->mUseCpuEncoder = 0;
+
+    ALOGI("%s: mUseCpuEncoder %d", __func__, camera->mUseCpuEncoder);
 
     int camera_id = 0;
     size_t meta_size = value[kCameraMetadataKey].size();
@@ -387,6 +396,17 @@ bool ParseCharacteristics(CameraDefinition* camera,const Json::Value& root, size
     if (*endptr != '\0') {
         ALOGE("%s: Invalid camera MaxFrameDuration. got %s.", __func__, kMaxFrameDurationData);
     }
+
+    if(root.isMember(kMinFrameDurationKey_blob_5M)) {
+        std::string kMinFrameDurationStr_blob_5M = root[kMinFrameDurationKey_blob_5M].asString();
+        const char *kMinFrameDurationData_blob_5M = kMinFrameDurationStr_blob_5M.c_str ();
+        static_meta[cam_index].minframeduration_blob_5M = strtol(kMinFrameDurationData_blob_5M, &endptr, 10);
+        if (*endptr != '\0') {
+            ALOGE("%s: Invalid camera MinFrameDuration. got %s.", __func__, kMinFrameDurationData_blob_5M);
+            static_meta[cam_index].minframeduration_blob_5M = 0;
+        }
+    } else
+       static_meta[cam_index].minframeduration_blob_5M = 0;
 
     std::string kPhysicalWidthStr = root[kPhysicalWidthKey].asString();
     const char *kPhysicalWidthData = kPhysicalWidthStr.c_str ();

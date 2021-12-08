@@ -62,7 +62,6 @@ struct imx_audio_device {
     pthread_mutex_t lock;       /* see note below on mutex acquisition order */
     int mode;
     int in_device;
-    int in_card_idx; /* the index for array card_list and mixer */
     int out_device;
     int in_call;
     float voice_volume;
@@ -126,6 +125,9 @@ struct imx_stream_out {
     audio_patch_handle_t patch_handle;
 
     struct listnode stream_node; // linked to imx_audio_device->out_streams
+    uint32_t frames_round;
+    bool dump;
+    bool first_frame_written;
 };
 
 #define MAX_PREPROCESSORS 3 /* maximum one AGC + one NS + one AEC per input stream */
@@ -185,11 +187,16 @@ struct imx_stream_in {
     audio_channel_mask_t main_channels;
     uint32_t aux_channels;
     char* address;
+    int64_t frames_read;
 
     audio_io_handle_t handle;
     audio_patch_handle_t patch_handle;
 
     struct listnode stream_node; // linked to imx_audio_device->in_streams
+    uint32_t frames_round;
+    bool dump;
+    int card_index;
+    bool first_frame_read;
 };
 #define STRING_TO_ENUM(string) { #string, string }
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
