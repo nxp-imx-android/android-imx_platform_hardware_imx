@@ -15,7 +15,7 @@ allow imx_evs_app ion_device:chr_file r_file_perms;
 type imx_evs_app_files, file_type, system_file_type;
 allow imx_evs_app imx_evs_app_files:file { getattr open read };
 allow imx_evs_app imx_evs_app_files:dir search;
-get_prop(imx_evs_app, vendor_default_prop)
+#TODOget_prop(imx_evs_app, vendor_default_prop)
 get_prop(imx_evs_app, vendor_evs_prop)
 
 allow imx_evs_app system_file:dir { read open };
