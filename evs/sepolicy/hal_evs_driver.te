@@ -1,4 +1,4 @@
-#TODOget_prop(hal_evs_driver, vendor_default_prop)
+get_prop(hal_evs_driver, vendor_default_prop)
 get_prop(hal_evs_driver, vendor_evs_prop)
 
 allow hal_evs_driver ion_device:chr_file { read open ioctl };
@@ -18,3 +18,4 @@ allow hal_evs_driver hal_graphics_composer_hwservice:hwservice_manager { find };
 allow hal_evs_driver hal_graphics_composer_default:binder { call };
 allow hal_evs_driver device:dir { watch };
 allow hal_evs_driver sysfs:dir { read open };
+allow hal_evs_driver dmabuf_heap_device:chr_file { read open ioctl };
