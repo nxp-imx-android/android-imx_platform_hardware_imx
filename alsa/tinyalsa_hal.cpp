@@ -1015,7 +1015,7 @@ static int out_pause(struct audio_stream_out* stream)
     ALOGI("%s", __func__);
 
     pthread_mutex_lock(&out->lock);
-    if (!out->paused) {
+    if ((!out->paused) && (out->pcm)) {
         status = pcm_ioctl(out->pcm, SNDRV_PCM_IOCTL_PAUSE, PCM_IOCTL_PAUSE);
         if (!status)
             out->paused = true;
@@ -1033,7 +1033,7 @@ static int out_resume(struct audio_stream_out* stream)
     ALOGI("%s", __func__);
 
     pthread_mutex_lock(&out->lock);
-    if (out->paused) {
+    if ((out->paused) && (out->pcm)) {
         status= pcm_ioctl(out->pcm, SNDRV_PCM_IOCTL_PAUSE, PCM_IOCTL_RESUME);
         if (!status)
             out->paused = false;
@@ -2456,12 +2456,12 @@ static ssize_t in_read(struct audio_stream_in *stream, void* buffer,
     }
 
 exit:
+    pthread_mutex_unlock(&in->lock);
     if (ret < 0) {
         memset(buffer, 0, bytes);
         usleep(bytes * 1000000 / audio_stream_in_frame_size((const struct audio_stream_in *)&stream->common) /
                in_get_sample_rate(&stream->common));
     }
-    pthread_mutex_unlock(&in->lock);
     if (bytes > 0) {
         in->frames_read += frames_rq;
     }

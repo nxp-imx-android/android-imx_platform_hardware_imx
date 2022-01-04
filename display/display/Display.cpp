@@ -18,6 +18,9 @@
 #include <cutils/log.h>
 #include <sync/sync.h>
 #include <dlfcn.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/stat.h>
 
 #include "Memory.h"
 #include "MemoryDesc.h"
@@ -73,6 +76,7 @@ Display::Display()
     mListener = NULL;
     mTotalLayerNum = 0;
     mMaxBrightness = -1;
+    mOverlay = NULL;
 
     mNextSyncPoint = 1;
     mTimelineFd = -1;
@@ -489,6 +493,20 @@ int Display::getReleaseFences(uint32_t* outNumElements, uint64_t* outLayers,
 
         if (mLayers[i]->releaseFence != -1) {
             if (outLayers != NULL && outFences != NULL) {
+                if (mLayers[i]->releaseFence > 0) { // check if such release fence valid or not
+                    int fd = mLayers[i]->releaseFence;
+                    struct stat _stat;
+                    int ret = -1;
+                    if (!fcntl(fd, F_GETFL))
+                        if (!fstat(fd, &_stat))
+                            if (_stat.st_nlink >= 1)
+                                ret = 0;
+
+                    if (ret == -1) { // mark invalid release fence as -1
+                        mLayers[i]->releaseFence = -1;
+                        continue;
+                    }
+                }
                 outLayers[numElements] = (uint64_t)mLayers[i]->index;
                 outFences[numElements] = (int32_t)mLayers[i]->releaseFence;
             }
@@ -680,6 +698,7 @@ bool Display::verifyLayers()
     }
 
     // set device compose flags.
+    int ovIdx = -1, idx;
     mComposeFlag &= OVERLAY_COMPOSE_MASK;
     mComposeFlag = mComposeFlag << (LAST_OVERLAY_BIT - OVERLAY_COMPOSE_BIT);
     for (size_t i=0; i<MAX_LAYERS; i++) {
@@ -688,34 +707,55 @@ bool Display::verifyLayers()
         }
 
         // handle overlay.
+        idx = i;
         if (checkOverlay(mLayers[i])) {
-            mLayers[i]->type = LAYER_TYPE_DEVICE;
-            mComposeFlag |= 1 << OVERLAY_COMPOSE_BIT;
-            continue;
+            if (ovIdx == -1) {
+                ovIdx = i;
+                continue;
+            }
+#ifdef HAVE_UNMAPPED_HEAP
+            else {
+                Memory *ov_hnd = mLayers[ovIdx]->handle;
+                Memory *hnd = mLayers[i]->handle;
+                if (hnd != NULL && (hnd->usage & USAGE_PROTECTED)
+                    && ov_hnd != NULL && !(ov_hnd->usage & USAGE_PROTECTED)) {
+                    mLayers[ovIdx]->isOverlay = false;
+                    idx = ovIdx; // previous overlay layer restore to CLIENT type
+                    ovIdx = i;
+                }
+            }
+#endif
         }
 
         if (!deviceCompose) {
-            mLayers[i]->type = LAYER_TYPE_CLIENT;
+            mLayers[idx]->type = LAYER_TYPE_CLIENT;
             mComposeFlag |= 1 << CLIENT_COMPOSE_BIT;
             mTotalLayerNum++;
 
             // Here compare current layer info with previous one to determine
             // whether UI has update. IF no update,won't commit to framebuffer
             // to avoid UI re-composition.
-            if (mLayers[i]->handle != mLayers[i]->lastHandle ||
-                    mLayers[i]->lastSourceCrop != mLayers[i]->sourceCrop ||
-                    mLayers[i]->lastDisplayFrame != mLayers[i]->displayFrame){
+            if (mLayers[idx]->handle != mLayers[idx]->lastHandle ||
+                    mLayers[idx]->lastSourceCrop != mLayers[idx]->sourceCrop ||
+                    mLayers[idx]->lastDisplayFrame != mLayers[idx]->displayFrame){
                 mUiUpdate = true;
             }
 
-            mLayers[i]->lastHandle = mLayers[i]->handle;
-            mLayers[i]->lastSourceCrop = mLayers[i]->sourceCrop;
-            mLayers[i]->lastDisplayFrame = mLayers[i]->displayFrame;
+            mLayers[idx]->lastHandle = mLayers[idx]->handle;
+            mLayers[idx]->lastSourceCrop = mLayers[idx]->sourceCrop;
+            mLayers[idx]->lastDisplayFrame = mLayers[idx]->displayFrame;
             continue;
         }
-        mLayerVector.add(mLayers[i]);
+        mLayerVector.add(mLayers[idx]);
         mTotalLayerNum++;
     }
+    if (ovIdx >= 0) {
+        mOverlay = mLayers[ovIdx];
+        mOverlay->isOverlay = true;
+        mOverlay->type = LAYER_TYPE_DEVICE;
+        mComposeFlag |= 1 << OVERLAY_COMPOSE_BIT;
+    }
+
     if (mTotalLayerNum != lastTotalLayerNum) {
         mUiUpdate = true;
     }
