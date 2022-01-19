@@ -81,31 +81,24 @@ string Imx3DView::getEGLError(void) {
 Imx3DView::Imx3DView()
 {
     current_prog = 0;
-    //glBlendFunc(GL_ONE_MINUS_DST_ALPHA, GL_DST_ALPHA);
-    //glBlendFunc(GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDisable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
-    //glEnable(GL_CULL_FACE);
-    //glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    mInitial = false;
+    mGrid = nullptr;
+    dpy = EGL_NO_DISPLAY;
+    surface = EGL_NO_SURFACE;
 }
 
 Imx3DView::Imx3DView(vector<Vector3d> &evsRotations, vector<Vector3d> &evsTransforms,
                      vector<Matrix<double, 3, 3>> &Ks, vector<Matrix<double, 1, 4>> &Ds)
 {
     current_prog = 0;
-    //glBlendFunc(GL_ONE_MINUS_DST_ALPHA, GL_DST_ALPHA);
-    //glBlendFunc(GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDisable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
     mInitial = false;
-    //glEnable(GL_CULL_FACE);
-    //glBindFramebuffer(GL_FRAMEBUFFER, 0);
     mEvsRotations = evsRotations;
     mEvsTransforms = evsTransforms;
     mKs = Ks;
     mDs = Ds;
+    mGrid = nullptr;
+    dpy = EGL_NO_DISPLAY;
+    surface = EGL_NO_SURFACE;
 }
 
 
@@ -117,10 +110,28 @@ Imx3DView::~Imx3DView()
 	{
 		glDeleteTextures(1, &v_obj[i].tex);
 		glDeleteBuffers(1, &v_obj[i].vbo);
+		glDeleteVertexArrays(1, &v_obj[i].vao);
 	}
 	for (int i = render_prog.size() - 1; i >= 0; i--)
 		render_prog[i].destroyShaders();
 
+	if (dpy != EGL_NO_DISPLAY) {
+		if (!eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT)) {
+			ALOGE("Failed to release OpenGL ES context %s", getEGLError().c_str());
+		}
+		if (!eglDestroyContext(dpy, context)) {
+			ALOGE("Failed to desctroy EGL context %s", getEGLError().c_str());
+		}
+		if(!eglDestroySurface(dpy, surface)) {
+			ALOGE("Failed to destroy EGL surface: %s", getEGLError().c_str());
+		}
+		if(!eglTerminate(dpy)) {
+			ALOGE("Failed to terminate EGL: %s", getEGLError().c_str());
+		}
+	}
+	if (mGrid != nullptr) {
+		delete mGrid;
+	}
 }
 
 
@@ -132,7 +143,7 @@ int Imx3DView::addProgram(const char* v_shader, const char* f_shader)
 	Programs new_prog;
 	if (new_prog.loadShaders(v_shader, f_shader) == -1) // Non-overlap regions
 	{
-		cout << "Render program was not loaded" << endl;
+		ALOGE("Render program was not loaded for shaders");
 		return (-1);
 	}
 	render_prog.push_back(new_prog);
@@ -146,7 +157,7 @@ int Imx3DView::setProgram(uint index)
 {
 	if (index >= render_prog.size())
 	{
-		cout << "A program with index " << index << " doesn't exist" << endl;
+		ALOGE("A program with index %d doesn't exist", index);
 		return (-1);
 	}
 	current_prog = index;
@@ -266,7 +277,7 @@ void Imx3DView::vLoad(GLfloat** vert, int* num, string filename)
 	*vert = NULL;
 	*vert = (GLfloat*)malloc((*num) * SV_ATTRIBUTE_NUM * sizeof(GLfloat));
 	if (*vert == NULL) {
-		cout << "Memory allocation did not complete successfully" << endl;
+		ALOGE("Memory allocation did not complete successfully");
 	}
 	for (int k = 0; k < (*num) * SV_ATTRIBUTE_NUM; k++)
 	{
@@ -365,11 +376,11 @@ void Imx3DView::updateBuffer(int buf_num, GLfloat* buf, int num)
 
 /***************************************************************************************
 ***************************************************************************************/
-void Imx3DView::renderView(shared_ptr<unsigned char> distort,
+void Imx3DView::renderView(const shared_ptr<unsigned char>& distort,
 	                  uint32_t w, uint32_t h,
 	                  int mesh)
 {
-	ALOGI("renderView with w %d, h %d", w, h);
+	ALOGI("renderView with w %d, h %d, mesh %d", w, h, mesh);
 
 	glBindVertexArray(v_obj[mesh].vao);
 
@@ -391,8 +402,6 @@ void Imx3DView::renderView(shared_ptr<unsigned char> distort,
 }
 
 bool Imx3DView::prepareGL(uint32_t output_w, uint32_t output_h) {
-    EGLDisplay dpy;
-    EGLSurface surface;
     dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (dpy == EGL_NO_DISPLAY) {
         ALOGE("Failed to get egl display: %s", getEGLError().c_str());
@@ -410,6 +419,7 @@ bool Imx3DView::prepareGL(uint32_t output_w, uint32_t output_h) {
     const EGLint config_attribs[] = {
         // Tag                  Value
         EGL_RENDERABLE_TYPE,    EGL_OPENGL_ES2_BIT,
+        EGL_SURFACE_TYPE,       EGL_PBUFFER_BIT,
         EGL_RED_SIZE,           8,
         EGL_GREEN_SIZE,         8,
         EGL_BLUE_SIZE,          8,
@@ -435,7 +445,7 @@ bool Imx3DView::prepareGL(uint32_t output_w, uint32_t output_h) {
         return false;
     }
 
-    EGLContext context = eglCreateContext(dpy, egl_config,
+    context = eglCreateContext(dpy, egl_config,
             EGL_NO_CONTEXT, context_attribs);
     if (context == EGL_NO_CONTEXT) {
         ALOGE("Failed to create OpenGL ES Context %s", getEGLError().c_str());
@@ -460,9 +470,16 @@ bool Imx3DView::prepareGL(uint32_t output_w, uint32_t output_h) {
     if (setProgram(0) == -1)
         return false;
 
+    //glBlendFunc(GL_ONE_MINUS_DST_ALPHA, GL_DST_ALPHA);
+    //glBlendFunc(GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    //glEnable(GL_CULL_FACE);
+    //glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
     mGrid = new CurvilinearGrid(SV_ANGLES_IN_PI, SV_Z_NOP, SV_X_STEP,
                                 output_w, output_h, mEvsRotations, mEvsTransforms, mKs, mDs);
-
     mGrid->createGrid(SV_RADIUS); // Calculate grid points
     cleanView();
 
@@ -494,7 +511,7 @@ bool Imx3DView::prepareGL(uint32_t output_w, uint32_t output_h) {
     return true;
 }
 
-bool Imx3DView::renderSV(vector<shared_ptr<unsigned char>> images, char *outbuf,
+bool Imx3DView::renderSV(const vector<shared_ptr<unsigned char>>& images, char *outbuf,
                            uint32_t input_w, uint32_t input_h,
                            uint32_t output_w, uint32_t output_h) {
 

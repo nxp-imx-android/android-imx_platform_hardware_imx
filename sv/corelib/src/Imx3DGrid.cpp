@@ -61,6 +61,7 @@ CurvilinearGrid::CurvilinearGrid(uint angles, uint nop_z, double step_x,
 	mEvsTransforms = evsTransforms;
 	mKs = Ks;
 	mDs = Ds;
+	mLookupPtr = nullptr;
 }
 
 /**************************************************************************************************************
@@ -103,7 +104,7 @@ bool CurvilinearGrid::createGrid(float radius)
 	                    pow(i * mParameters.step_x, 2)));
 		}
 	}
-	ALOGI("3D point size=%u", mGlobalP3d.size());
+	ALOGI("3D point size=%lu", mGlobalP3d.size());
 	shared_ptr<PixelMap> LUT_ptr(new PixelMap[mGlobalP3d.size()],
 	            std::default_delete<PixelMap[]>());
 	if(LUT_ptr != nullptr) {
@@ -242,7 +243,7 @@ int CurvilinearGrid::getGrids(float** points) {
 	 *   							|_|
 	 *   						 p+1    p+3
 	 *******************************************************************************************************/
-	ALOGI("Valid Grid point size %u, angles %d NoP %d",
+	ALOGI("Valid Grid point size %lu, angles %d NoP %d",
 	        mGlobalP3d.size(), mParameters.angles, mNoP);
 
 	auto norXY = mRadius + mParameters.nop_z * mParameters.step_x;

@@ -332,6 +332,7 @@ Return<EvsResult> EvsCamera::startVideoStream(
             std::lock_guard<std::mutex> lock(mLock);
             // No need to hold onto this if we failed to start.
             mStream = nullptr;
+            mStream_1_1 = nullptr;
             mEvsAppRecipient = nullptr;
         }
         shutdown();
@@ -414,6 +415,8 @@ Return<void> EvsCamera::stopVideoStream()
             ALOGE("Error delivering end of stream marker");
         }
     }
+    mStream = nullptr;
+    mStream_1_1 = nullptr;
 
     return Void();
 }

@@ -71,7 +71,7 @@ struct ImxSV2DParams {
 
 class Imx2DSV {
     public:
-    virtual ~Imx2DSV() = default;
+    ~Imx2DSV() {}
     Imx2DSV();
     
     bool startSV();
@@ -82,6 +82,8 @@ class Imx2DSV {
     bool GetSVBuffer(vector<shared_ptr<char>> &distorts, void *flat_outbuf,
             uint32_t bpp);
     void Update2dOutputResolution(int width, int heigh);
+    bool GetCameraPoint(uint32_t cam_x, uint32_t cam_y, uint32_t cam_index,
+            uint32_t* flat_x, uint32_t* flat_y);
 
     private:
     bool updateLUT();

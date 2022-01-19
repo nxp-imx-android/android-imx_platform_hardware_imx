@@ -22,6 +22,7 @@
 * DEALINGS IN THE SOFTWARE.
 */
 
+#include <cutils/log.h>
 #include "gl_shaders.hpp"
 
 /**************************************************************************************************************
@@ -66,16 +67,20 @@ int Programs::loadShaders(const char* v_shader, const char* p_shader)
 	program.pixelShaderNum = glCreateShader(GL_FRAGMENT_SHADER);
 	
 	if (compileShader(v_shader, program.vertShaderNum) == -1) {
+		glDeleteShader(program.vertShaderNum);
+		ALOGE("Shader compilation failed: %d", program.vertShaderNum);
 		return(-1);
 	}
 	
 	if (compileShader(p_shader, program.pixelShaderNum) == -1) {
+		glDeleteShader(program.pixelShaderNum);
+		ALOGE("Shader compilation failed: %d", program.pixelShaderNum);
 		return(-1);
 	}
 
 	program.programHandle = glCreateProgram();
 	if(program.programHandle == 0) {
-		cout << "Error creating shader program object" << endl;
+		ALOGE("Error creating shader program object: %d", program.programHandle);
 		return(-1);
 	}
 
@@ -95,10 +100,11 @@ int Programs::loadShaders(const char* v_shader, const char* p_shader)
 			if (infoLog != NULL) {
 				// Retrieve error.
 				glGetProgramInfoLog(program.programHandle, errorBufSize, &errorLength, infoLog);
-				cout << infoLog << endl;
-				if (infoLog) free(infoLog);
+				ALOGE("Program error log: %s", infoLog);
+				free(infoLog);
 			}
 		}
+		glDeleteProgram(program.programHandle);
 		return(-1);
 	}	
 	return(0);
@@ -132,8 +138,8 @@ int Programs::compileShader(const char* source, GLuint num)
 		if (infoLog) {
 		    // Retrieve error.
 			glGetShaderInfoLog(num, errorBufSize, &errorLength, infoLog);
-			cout << infoLog << endl;
-			if(infoLog) free(infoLog);
+			ALOGE("Shader %d log: %s", num, infoLog);
+			free(infoLog);
 		}
 		return(-1);
 	}

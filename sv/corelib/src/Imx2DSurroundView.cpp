@@ -32,6 +32,10 @@ Imx2DSV::Imx2DSV(): mLookupPtr(nullptr) {
 bool Imx2DSV::startSV() {
     int flatw = m2DParams.resolution.width;
     int flath = m2DParams.resolution.height;
+    if ((flatw == 0) || (flath == 0)) {
+        ALOGE("Invalid target resolution!");
+        return false;
+    }
     shared_ptr<PixelMap> LUT_ptr(new PixelMap[flath * flatw],
                 std::default_delete<PixelMap[]>());
     if(LUT_ptr != nullptr) {
@@ -70,8 +74,16 @@ void Imx2DSV::Update2dOutputResolution(int width, int heigh) {
     m2DParams.resolution.height =heigh;
 }
 
+bool Imx2DSV::GetCameraPoint(uint32_t cam_x, uint32_t cam_y, uint32_t cam_index,
+        uint32_t* flat_x, uint32_t* flat_y) {
+/*To be implemented - conversion from particular camera (cam_index) pixel location (cam_x, cam_y)
+  to output scene pixel location (flat_x, flat_y)
+*/
+        return false;
+}
+
 //Assume the input and out buffer share the same format/bpp
-bool Imx2DSV::GetSVBuffer(vector<shared_ptr<char>> &distorts, 
+bool Imx2DSV::GetSVBuffer(vector<shared_ptr<char>> &distorts,
         void *flat_outbuf, uint32_t bpp) {
     uint32_t flatw = m2DParams.resolution.width;
     uint32_t flath = m2DParams.resolution.height;
@@ -98,8 +110,15 @@ bool Imx2DSV::GetSVBuffer(vector<shared_ptr<char>> &distorts,
                 unsigned char G = alpha *(color0 & 0xff00 >> 8) + (1- alpha)*((color1 & 0xff00) >> 8);
                 unsigned char B = alpha *(color0 & 0xff) + (1- alpha)*(color1 & 0xff);
                 color0 = (R << 16) | (G << 8) | B;
-                *(int *)((char *)flat_outbuf + fstride * ((int)v) + ((int)u)*bpp) =
-                    color0;
+                if (bpp == 4) {
+                    *(int *)((char *)flat_outbuf + fstride * ((int)v) + ((int)u)*bpp) = color0;
+                } else if (bpp == 3) {
+                    *((char *)flat_outbuf + fstride * ((int)v) + ((int)u)*bpp) = B;
+                    *((char *)flat_outbuf + 1 + fstride * ((int)v) + ((int)u)*bpp) = G;
+                    *((char *)flat_outbuf + 2 + fstride * ((int)v) + ((int)u)*bpp) = R;
+                } else {
+                    ALOGE("Unsupported color format depth %d !", bpp);
+                }
             }
             else if(pMap->index0 >= 0) {
                 int index = pMap->index0;
