@@ -1,0 +1,3 @@
+allow shell hal_evs_driver:binder transfer;
+allow shell hal_evs_driver:binder { call transfer };
+allow shell hal_evs_driver:fd use;
