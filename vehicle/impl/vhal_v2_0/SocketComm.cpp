@@ -181,9 +181,11 @@ int SocketConn::write(const std::vector<uint8_t>& data) {
     ret = sendto(mSockFd, nlh, nlh->nlmsg_len, 0, (struct sockaddr *)&daddr, sizeof(struct sockaddr_nl));
     if(!ret) {
         ALOGE("send message failed.\n");
+        free(nlh);
         return -1;
     }
 
+    free(nlh);
     return 0;
 }
 
