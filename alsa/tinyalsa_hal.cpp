@@ -695,8 +695,19 @@ static int start_output_stream(struct imx_stream_out *out)
         ((out->device & AUDIO_DEVICE_OUT_AUX_DIGITAL) == 0))
         flags |= PCM_MMAP;
 
-    if (out->device == AUDIO_DEVICE_OUT_BUS)
+    if (out->device == AUDIO_DEVICE_OUT_BUS) {
+        /* FIXME: Some VtsHalAudioV7_0TargetTest test cases provide empty string "". */
+        if (out->address && out->address[0] == 0) {
+            /* Call free because we created using strdup */
+            free(out->address);
+            out->address = NULL;
+        }
+        if (out->address == NULL) {
+            out->address = (char *)calloc(strlen("bus0_media_out") + 1, sizeof(char));
+            strcpy(out->address, "bus0_media_out");
+        }
         card = get_card_for_bus(adev, out->address, NULL, &pcm_device_id);
+    }
     else if (out->format == AUDIO_FORMAT_DSD)
         card = get_card_for_dsd(adev, &out->card_index);
     else
@@ -3490,8 +3501,9 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
         out->channel_mask = DEFAULT_OUTPUT_CHANNEL_MASK;
         out->format = DEFAULT_OUTPUT_FORMAT;
     }
-
-    if (address) {
+    /* FIXME: Does it make sense in case address is empty string "" ?
+       Some VtsHalAudioV7_0TargetTest test cases provide empty string */
+    if (out->address) {
         hashmapPut(ladev->out_bus_stream_map, out->address, out);
         if (strcmp(out->address, "bus0_media_out") == 0) {
             // gain_stage should align with audio_policy_configuration.xml
