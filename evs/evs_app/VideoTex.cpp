@@ -93,7 +93,7 @@ bool VideoTex::refresh() {
                                                      pDesc->height,
                                                      pDesc->format,
                                                      1,//pDesc->layers,
-                                                     GRALLOC_USAGE_HW_TEXTURE,
+                                                     GRALLOC_USAGE_HW_TEXTURE | GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_VIDEO_ENCODER,
                                                      pDesc->stride);
     if (pGfxBuffer.get() == nullptr) {
         LOG(ERROR) << "Failed to allocate GraphicBuffer to wrap image handle";
