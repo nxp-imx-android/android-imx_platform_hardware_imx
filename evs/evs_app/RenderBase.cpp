@@ -154,7 +154,7 @@ bool RenderBase::attachRenderTarget(const BufferDesc& tgtBuffer) {
                                                      pDesc->height,
                                                      pDesc->format,
                                                      1, //pDesc->layers,
-                                                     GRALLOC_USAGE_HW_RENDER,
+                                                     GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_VIDEO_ENCODER | GRALLOC_USAGE_HW_TEXTURE,
                                                      pDesc->stride);
     if (pGfxBuffer.get() == nullptr) {
         LOG(ERROR) << "Failed to allocate GraphicBuffer to wrap image handle";
