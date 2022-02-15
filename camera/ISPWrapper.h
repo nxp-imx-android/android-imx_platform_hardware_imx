@@ -100,6 +100,36 @@ struct viv_caps_mode_s {
 #define IF_LSC_S_EN         "lsc.s.en"
 #define LSC_ENABLE_PARAMS   "enable"
 
+#define IF_GC_G_CFG         "gc.g.cfg"
+#define IF_GC_S_CURVE       "gc.s.curve"
+#define GC_MODE_PARAMS      "gc.mode"
+#define GC_CURVE_PARAMS     "gc.curve"
+
+#define IF_CPROC_G_CFG              "cproc.g.cfg"
+#define IF_CPROC_S_CFG              "cproc.s.cfg"
+#define CPROC_BRIGHTNESS_PARAMS     "brightness"
+#define CPROC_CONTRAST_PARAMS       "contrast"
+#define CPROC_SATURATION_PARAMS     "saturation"
+#define CPROC_HUE_PARAMS            "hue"
+
+#define BRIGHTNESS_MIN      (int)(-127)
+#define BRIGHTNESS_MAX      (int)(127)
+#define CONTRAST_MIN        (float)(0.0)
+#define CONTRAST_MAX        (float)(1.99)
+#define SATURATION_MIN      (float)(0.0)
+#define SATURATION_MAX      (float)(1.99)
+#define HUE_MIN             (int)(-127)
+#define HUE_MAX             (int)(127)
+
+#define IF_FILTER_G_CFG           "filter.g.cfg"
+#define IF_FILTER_S_CFG           "filter.s.cfg"
+#define FILTER_SHARPEN_PARAMS     "sharpen"
+#define SHARP_LEVEL_MIN           (uint8_t)1
+#define SHARP_LEVEL_MAX           (uint8_t)10
+
+
+
+
 namespace android {
 
 using google_camera_hal::HalCameraMetadata;
@@ -128,6 +158,12 @@ private:
     int processHFlip(bool bEnable);
     int processVFlip(bool bEnable);
     int processLSC(bool bEnable);
+    int processGamma(float gamma);
+    int processBrightness(int brightness);
+    int processContrast(float contrast);
+    int processSaturation(float saturation);
+    int processHue(int hue);
+    int processSharpLevel(uint8_t level);
 
     int EnableDWE(bool on);
 
@@ -144,6 +180,14 @@ private:
     double m_ec_gain_min;
     double m_ec_gain_max;
     bool mLSCEnable;
+    float m_gamma;
+
+    int m_brightness;
+    float m_contrast;
+    float m_saturation;
+    int m_hue;
+
+    uint8_t m_sharp_level;
 };
 
 } // namespace android

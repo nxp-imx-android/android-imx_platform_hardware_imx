@@ -20,6 +20,7 @@
 
 #include <android/hardware/camera/device/3.2/ICameraDevice.h>
 #include <android/hardware/camera/device/3.4/ICameraDeviceSession.h>
+#include <android-base/properties.h>
 #include <fmq/MessageQueue.h>
 #include <hidl/MQDescriptor.h>
 #include <hidl/Status.h>
@@ -85,6 +86,9 @@ using ::android::hardware::hidl_string;
 using ::android::sp;
 using ::android::Mutex;
 using ::android::base::unique_fd;
+using ::android::base::GetProperty;
+
+constexpr char kCameraMjpegDecoderType[] = "vendor.camera.mjpg.decoder";
 
 struct ExternalCameraDeviceSession : public virtual RefBase,
         public virtual OutputThreadInterface {
@@ -133,6 +137,8 @@ struct ExternalCameraDeviceSession : public virtual RefBase,
         // The remaining request list is returned for offline processing
         std::list<std::shared_ptr<HalRequest>> switchToOffline();
 
+        void setMjpegDecoderType(bool type);
+
         HwDecoder* mDecoder;
         int initVpuThread();
 
@@ -146,6 +152,7 @@ struct ExternalCameraDeviceSession : public virtual RefBase,
         static const int kFlushWaitTimeoutSec = 3; // 3 sec
         static const int kReqWaitTimeoutMs = 33;   // 33ms
         static const int kReqWaitTimesMax = 90;    // 33ms * 90 ~= 3 sec
+        static const int kDecWaitTimeoutMs = 100;   // 100ms
 
         void waitForNextRequest(std::shared_ptr<HalRequest>* out);
         void signalRequestDone();
@@ -172,8 +179,6 @@ struct ExternalCameraDeviceSession : public virtual RefBase,
         std::condition_variable mRequestCond;     // signaled when a new request is submitted
         std::condition_variable mRequestDoneCond; // signaled when a request is done processing
 
-        mutable std::mutex mFramesSignalLock;
-        std::condition_variable mFramesSignal;
 
         std::list<std::shared_ptr<HalRequest>> mRequestList;
         bool mProcessingRequest = false;
@@ -197,6 +202,11 @@ struct ExternalCameraDeviceSession : public virtual RefBase,
 
         std::string mExifMake;
         std::string mExifModel;
+
+        bool mHardwareDecoder;
+
+    private:
+        int VpuDecAndCsc(uint8_t* inData, size_t inDataSize, YCbCrLayout& cropAndScaled);
     };
 
 protected:
@@ -399,6 +409,8 @@ protected:
 
     std::string mExifMake;
     std::string mExifModel;
+
+    bool mHardwareDecoder;
     /* End of members not changed after initialize() */
 
 private:

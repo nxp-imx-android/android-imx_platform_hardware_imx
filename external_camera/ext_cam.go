@@ -32,12 +32,11 @@ func extCamDefaultsFactory() (android.Module) {
 }
 
 func extCamDefaults(ctx android.LoadHookContext) {
-    var Cflags []string
     type props struct {
         Target struct {
                 Android struct {
                         Enabled *bool
-                        Cflags []string
+                        Cppflags []string
                 }
         }
     }
@@ -49,14 +48,9 @@ func extCamDefaults(ctx android.LoadHookContext) {
         p.Target.Android.Enabled = proptools.BoolPtr(false)
     }
 
-    var board string = ctx.Config().VendorConfig("IMXPLUGIN").String("BOARD_SOC_TYPE")
-    if (strings.Contains(board, "IMX8Q") || strings.Contains(board, "IMX8MP") || strings.Contains(board, "IMX8MQ") || strings.Contains(board, "IMX8MM")) {
-        if (strings.Contains(board, "IMX8Q")) {
-            Cflags = append(Cflags, "-DAMPHION_V4L2")
-        } else if (strings.Contains(board, "IMX8MQ")) {
-            Cflags = append(Cflags, "-DHANTRO_V4L2")
-        }
+    if ctx.Config().VendorConfig("IMXPLUGIN").String("TARGET_GRALLOC_VERSION") == "v4" {
+        p.Target.Android.Cppflags = append(p.Target.Android.Cppflags, "-DGRALLOC_VERSION=4")
     }
-    p.Target.Android.Cflags = Cflags
+
     ctx.AppendProperties(p)
 }

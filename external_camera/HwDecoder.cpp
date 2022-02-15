@@ -39,15 +39,13 @@ namespace android {
 #define HANTRO_FRAME_ALIGN_WIDTH (HANTRO_FRAME_ALIGN*2)
 #define HANTRO_FRAME_ALIGN_HEIGHT (HANTRO_FRAME_ALIGN_WIDTH)
 
-HwDecoder::HwDecoder(const char* mime, std::condition_variable * FramesSignal):
+HwDecoder::HwDecoder(const char* mime):
     mPollThread(0),
     mFetchThread(0),
     pDev(NULL),
     mFd(-1),
     mOutBufType(V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE),
     mCapBufType(V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
-
-    mFramesSignal = FramesSignal;
 
     mDecState = UNINITIALIZED;
     mPollState = UNINITIALIZED;
@@ -60,14 +58,9 @@ HwDecoder::HwDecoder(const char* mime, std::condition_variable * FramesSignal):
 
     bNeedPostProcess = false;
 
-// TODO: use pDev->GetFormatFrameInfo to get align size
-#ifdef AMPHION_V4L2
-    mFrameAlignW = AMPHION_FRAME_ALIGN;
-    mFrameAlignH = AMPHION_FRAME_ALIGN;
-#else
     mFrameAlignW = HANTRO_FRAME_ALIGN_WIDTH;
     mFrameAlignH = HANTRO_FRAME_ALIGN_HEIGHT;
-#endif
+
 
     mInputFormat.bufferNum = DEFAULT_INPUT_BUFFER_COUNT;
     mInputFormat.bufferSize = DEFAULT_INPUT_BUFFER_SIZE_4K;
@@ -1110,13 +1103,6 @@ status_t HwDecoder::handleFormatChanged() {
         mOutputFormat.pixelFormat = static_cast<int>(pixel_format);
         mData.format = mOutputFormat.pixelFormat;
 
-#ifdef AMPHION_V4L2
-        if(mOutputFormat.pixelFormat == HAL_PIXEL_FORMAT_P010_TILED) {
-            bNeedPostProcess = true;
-            ALOGV("%s: 10bit video stride=%d", __FUNCTION__, newBytesperline);
-        }
-#endif
-
         mOutputFormat.width = Align(newWidth, mFrameAlignW);
         mOutputFormat.height = Align(newHeight, mFrameAlignH);
         mOutputFormat.stride = mOutputFormat.width;
@@ -1136,14 +1122,7 @@ status_t HwDecoder::handleFormatChanged() {
         }
 
         mOutputFormat.bufferNum = ctl.value;
-
-#ifdef AMPHION_V4L2
-        mOutputFormat.bufferNum += AMPHION_FRAME_PLUS;
-#endif
-#ifdef HANTRO_V4L2
         mOutputFormat.bufferNum += HANTRO_FRAME_PLUS;
-#endif
-
 
         struct v4l2_selection sel;
         sel.type = mCapBufType;
@@ -1453,18 +1432,35 @@ void HwDecoder::notifyDecodeReady(int32_t mOutbufId) {
         return;
     }
 
+    std::unique_lock<std::mutex> mlk(mFramesSignalLock);
+
     mData.fd= info->mDMABufFd;
     mData.data = (uint8_t *)info->mVirtAddr;
     mData.width = mOutputFormat.width;
     mData.height = mOutputFormat.height;
+    mData.bufId = mOutbufId;
 
-    SetDecoderBufferState(mOutbufId, false);
-
-    mFramesSignal->notify_all();
+    mFramesSignal.notify_all();
 }
 
-DecodedData HwDecoder::exportDecodedBuf() {
-    return mData;
+int HwDecoder::exportDecodedBuf(DecodedData &data, int32_t timeoutMs) {
+    std::unique_lock<std::mutex> mlk(mFramesSignalLock);
+
+    if (timeoutMs == -1) {
+        mFramesSignal.wait(mlk);
+        data = mData;
+        return OK;
+    }
+
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(timeoutMs);
+    auto st = mFramesSignal.wait_for(mlk, timeout);
+    if (st == std::cv_status::timeout) {
+        ALOGW("%s: wait decoder output timeout!", __FUNCTION__);
+        return BAD_VALUE;
+    }
+
+    data = mData;
+    return OK;
 }
 
 }

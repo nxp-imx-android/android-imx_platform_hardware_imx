@@ -96,6 +96,7 @@ typedef struct {
         int width = 0;
         int height = 0;
         uint32_t format = 0x103; // HAL_PIXEL_FORMAT_YCbCr_420_SP
+        int32_t bufId;
 } DecodedData;
 
 struct DecoderInputBuffer {
@@ -106,7 +107,7 @@ struct DecoderInputBuffer {
 
 class HwDecoder {
 public:
-    HwDecoder(const char* mime, std::condition_variable * mFramesSignal);
+    HwDecoder(const char* mime);
     virtual ~HwDecoder();
 
     status_t Init();
@@ -120,11 +121,12 @@ public:
     status_t freeOutputBuffers();
 
     void notifyDecodeReady(int32_t mOutbufId);
-    DecodedData exportDecodedBuf();
+    int exportDecodedBuf(DecodedData &data, int32_t timeoutMs);
+    void returnOutputBufferToDecoder(int32_t bufId);
 
     DecodedData mData;
-
-    std::condition_variable * mFramesSignal;
+    mutable std::mutex mFramesSignalLock;
+    std::condition_variable mFramesSignal;
 
 private:
     //const char* mMime;
@@ -167,7 +169,7 @@ private:
 
     std::vector<DecoderBufferInfo> mDecoderBuffers;
 
-    bool bNeedPostProcess; // For HANTRO_V4L2
+    bool bNeedPostProcess;
 
     status_t SetInputFormats();
     status_t allocateInputBuffers();
@@ -177,8 +179,6 @@ private:
     status_t allocateOutputBuffers();
     status_t allocateOutputBuffer(int bufId);
     status_t destroyOutputBuffers();
-
-    void returnOutputBufferToDecoder(int32_t bufId);
 
     status_t createPollThread();
     status_t destroyPollThread();

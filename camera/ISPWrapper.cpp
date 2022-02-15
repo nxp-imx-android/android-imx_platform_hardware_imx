@@ -55,6 +55,14 @@ ISPWrapper::ISPWrapper(CameraSensorMetadata *pSensorData)
     m_ec_gain_min = EXP_GAIN_MIN_DFT;
     m_ec_gain_max = EXP_GAIN_MAX_DFT;
     mLSCEnable = false;
+    m_gamma = 0.0;
+
+    m_brightness =  BRIGHTNESS_MAX + 1;
+    m_contrast = CONTRAST_MAX + 1;
+    m_saturation = SATURATION_MAX + 1;
+    m_hue = HUE_MAX + 1;
+
+    m_sharp_level = SHARP_LEVEL_MAX +1;
 }
 
 ISPWrapper::~ISPWrapper()
@@ -229,6 +237,30 @@ int ISPWrapper::process(HalCameraMetadata *pMeta, uint32_t format)
     ret = pMeta->Get(VSI_LSC, &entry);
     if(ret == 0)
         processLSC(entry.data.i32[0]);
+
+    ret = pMeta->Get(ANDROID_TONEMAP_GAMMA, &entry);
+    if(ret == 0)
+        processGamma(entry.data.f[0]);
+
+    ret = pMeta->Get(VSI_BRIGHTNESS, &entry);
+    if(ret == 0)
+        processBrightness(entry.data.i32[0]);
+
+    ret = pMeta->Get(VSI_CONTRAST, &entry);
+    if(ret == 0)
+        processContrast(entry.data.f[0]);
+
+    ret = pMeta->Get(VSI_SATURATION, &entry);
+    if(ret == 0)
+        processSaturation(entry.data.f[0]);
+
+    ret = pMeta->Get(VSI_HUE, &entry);
+    if(ret == 0)
+        processHue(entry.data.i32[0]);
+
+    ret = pMeta->Get(VSI_SHARP_LEVEL, &entry);
+    if(ret == 0)
+        processSharpLevel(entry.data.u8[0]);
 
 #if 0
     // The com.intermedia.hd.camera.professional.fbnps_8730133319.apk enalbes aec right
@@ -597,6 +629,229 @@ int ISPWrapper::processLSC(bool bEnable)
     }
 
     mLSCEnable = bEnable;
+    return 0;
+}
+
+template<typename T>
+void writeArrayToNode(const T *array, Json::Value& node, const char *section, int size) {
+    for (int i = 0; i < size; i ++) {
+        node[section][i] = array[i];
+    }
+}
+#define JH_GET_TYPE(x) std::remove_reference<decltype((x))>::type
+#define addArray(x, y, z) writeArrayToNode<JH_GET_TYPE((x)[0])>(x, y, z, sizeof(x)/sizeof((x)[0]));
+#define GAMMA_MIN   (float)1.0
+#define GAMMA_MAX   (float)5.0
+
+int ISPWrapper::processGamma(float gamma)
+{
+    int ret = 0;
+
+    if ((gamma < GAMMA_MIN) || (gamma > GAMMA_MAX)) {
+        ALOGW("%s: unsupported gamma %f", __func__, gamma);
+        return BAD_VALUE;
+    }
+
+    if (gamma == m_gamma)
+        return 0;
+
+    uint16_t curve[17] = {0};
+    uint16_t gamma_x_equ[16] = {256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256};
+    uint16_t gamma_x_log[16] = {64, 64, 64, 64, 128, 128, 128, 128, 256, 256, 256, 256, 512, 512, 512, 512};
+    uint16_t *pTable;
+
+    Json::Value jRequest, jResponse;
+    ret = viv_private_ioctl(IF_GC_G_CFG, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: viv_private_ioctl IF_GC_G_CFG failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    int mode = 0;
+    Json::Value item = jResponse[GC_MODE_PARAMS];
+    if (!item.isNull())
+        mode = item.asInt();
+
+    jRequest = jResponse;
+    float dinvgamma = 1.0f/gamma;
+    float sumx = 0;
+    pTable = mode == 1 ? gamma_x_log : gamma_x_equ;
+
+    for(int i = 0; i < 16; i++) {
+        sumx += pTable[i];
+        curve[i+1]= std::min(1023.0f, std::max(0.f, pow(((float)sumx)/4096.0f, dinvgamma) * 1024));
+    }
+
+    addArray(curve, jRequest, GC_CURVE_PARAMS);
+    ret = viv_private_ioctl(IF_GC_S_CURVE, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: viv_private_ioctl IF_GC_S_CURVE failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    m_gamma = gamma;
+
+		return 0;
+}
+
+
+int ISPWrapper::processBrightness(int brightness)
+{
+    int ret = 0;
+
+    if ((brightness < BRIGHTNESS_MIN) || (brightness > BRIGHTNESS_MAX)) {
+        ALOGW("%s: unsupported brightness %d", __func__, brightness);
+        return BAD_VALUE;
+    }
+
+    if (brightness == m_brightness)
+        return 0;
+
+    Json::Value jRequest, jResponse;
+    ret = viv_private_ioctl(IF_CPROC_G_CFG, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: viv_private_ioctl IF_CPROC_G_CFG failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    jRequest = jResponse;
+    jRequest[CPROC_BRIGHTNESS_PARAMS] = brightness;
+    ret = viv_private_ioctl(IF_CPROC_S_CFG, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: viv_private_ioctl IF_CPROC_S_CFG failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    m_brightness = brightness;
+
+    return 0;
+}
+
+int ISPWrapper::processContrast(float contrast)
+{
+    int ret = 0;
+
+    if ((contrast < CONTRAST_MIN) || (contrast > CONTRAST_MAX)) {
+        ALOGW("%s: unsupported contrast %f", __func__, contrast);
+        return BAD_VALUE;
+    }
+
+    if (contrast == m_contrast)
+        return 0;
+
+    Json::Value jRequest, jResponse;
+    ret = viv_private_ioctl(IF_CPROC_G_CFG, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: viv_private_ioctl IF_CPROC_G_CFG failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    jRequest = jResponse;
+    jRequest[CPROC_CONTRAST_PARAMS] = contrast;
+    ret = viv_private_ioctl(IF_CPROC_S_CFG, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: viv_private_ioctl IF_CPROC_S_CFG failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    m_contrast = contrast;
+
+    return 0;
+}
+
+int ISPWrapper::processSaturation(float saturation)
+{
+    int ret = 0;
+
+    if ((saturation < SATURATION_MIN) || (saturation > SATURATION_MAX)) {
+        ALOGW("%s: unsupported saturation %f", __func__, saturation);
+        return BAD_VALUE;
+    }
+
+    if (saturation == m_saturation)
+        return 0;
+
+    Json::Value jRequest, jResponse;
+    ret = viv_private_ioctl(IF_CPROC_G_CFG, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: viv_private_ioctl IF_CPROC_G_CFG failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    jRequest = jResponse;
+    jRequest[CPROC_SATURATION_PARAMS] = saturation;
+    ret = viv_private_ioctl(IF_CPROC_S_CFG, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: viv_private_ioctl IF_CPROC_S_CFG failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    m_saturation = saturation;
+
+    return 0;
+}
+
+int ISPWrapper::processHue(int hue)
+{
+    int ret = 0;
+
+    if ((hue < HUE_MIN) || (hue > HUE_MAX)) {
+        ALOGW("%s: unsupported hue %d", __func__, hue);
+        return BAD_VALUE;
+    }
+
+    if (hue == m_hue)
+        return 0;
+
+    Json::Value jRequest, jResponse;
+    ret = viv_private_ioctl(IF_CPROC_G_CFG, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: viv_private_ioctl IF_CPROC_G_CFG failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    jRequest = jResponse;
+    jRequest[CPROC_HUE_PARAMS] = hue;
+    ret = viv_private_ioctl(IF_CPROC_S_CFG, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: viv_private_ioctl IF_CPROC_S_CFG failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    m_hue = hue;
+
+    return 0;
+}
+
+int ISPWrapper::processSharpLevel(uint8_t level)
+{
+    int ret = 0;
+
+    if ((level < SHARP_LEVEL_MIN) || (level > SHARP_LEVEL_MAX)) {
+        ALOGW("%s: unsupported sharp level %d", __func__, level);
+        return BAD_VALUE;
+    }
+
+    if (level == m_sharp_level)
+        return 0;
+
+    Json::Value jRequest, jResponse;
+    ret = viv_private_ioctl(IF_FILTER_G_CFG, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: viv_private_ioctl IF_FILTER_G_CFG failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    jRequest = jResponse;
+    jRequest[FILTER_SHARPEN_PARAMS] = level;
+    ret = viv_private_ioctl(IF_FILTER_S_CFG, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: viv_private_ioctl IF_FILTER_S_CFG failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    m_sharp_level = level;
+
     return 0;
 }
 
