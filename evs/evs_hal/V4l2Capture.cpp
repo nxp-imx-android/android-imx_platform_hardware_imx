@@ -53,6 +53,8 @@ V4l2Capture::V4l2Capture(const char *deviceName, const char *videoName,
 
 V4l2Capture::~V4l2Capture()
 {
+    // Correctly exit. Otherwise v4l2 can get into "busy state".
+    onClose();
 }
 
 int V4l2Capture::getCaptureMode(int fd, int width, int height)
