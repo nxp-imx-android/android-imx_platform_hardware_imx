@@ -61,6 +61,13 @@ LOCAL_SRC_FILES := $(LOCAL_MODULE)
 include $(BUILD_PREBUILT)
 
 include $(CLEAR_VARS)
+LOCAL_MODULE := ImxFakeCamConfig.json
+LOCAL_MODULE_CLASS := ETC
+LOCAL_MODULE_PATH := $(TARGET_OUT_ETC)/automotive/evs
+LOCAL_SRC_FILES := $(LOCAL_MODULE)
+include $(BUILD_PREBUILT)
+
+include $(CLEAR_VARS)
 LOCAL_MODULE := ImxCarFromTop.png
 LOCAL_MODULE_CLASS := ETC
 LOCAL_MODULE_PATH := $(TARGET_OUT_ETC)/automotive/evs
@@ -78,6 +85,7 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := imx_evs_app_default_resources
 LOCAL_REQUIRED_MODULES := \
     ImxConfig.json \
+    ImxFakeCamConfig.json \
     ImxCarFromTop.png \
     ImxLabeledChecker.png
 include $(BUILD_PHONY_PACKAGE)

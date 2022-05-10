@@ -31,7 +31,7 @@
 #include <utils/Errors.h>
 #include <utils/StrongPointer.h>
 #include <utils/Log.h>
-
+#include <cutils/properties.h>
 
 
 // libhidl:
@@ -134,6 +134,12 @@ int main(int argc, char** argv)
 
     // Load our configuration information
     ConfigManager config;
+    if (property_get_int32("vendor.evs.fake.enable", 0)) {
+        if (!config.initialize("/system/etc/automotive/evs/ImxFakeCamConfig.json")) {
+            LOG(ERROR) << "Missing or improper configuration for the EVS application.  Exiting.";
+            return EXIT_FAILURE;
+        }
+    }
     if (!config.initialize("/system/etc/automotive/evs/ImxConfig.json")) {
         LOG(ERROR) << "Missing or improper configuration for the EVS application.  Exiting.";
         return EXIT_FAILURE;
