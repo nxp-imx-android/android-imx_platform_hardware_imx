@@ -28,3 +28,4 @@ allow imx_evs_app hal_configstore_ISurfaceFlingerConfigs:hwservice_manager { fin
 allow imx_evs_app gpu_device:chr_file { map };
 allow imx_evs_app hal_evs_hwservice:hwservice_manager { find };
 allow imx_evs_app system_data_file:dir search;
+dontaudit imx_evs_app vendor_default_prop:file { open read map getattr };
