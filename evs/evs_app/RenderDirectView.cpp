@@ -89,7 +89,7 @@ bool RenderDirectView::activate() {
                                                 pixShader_reverseLine,
                                                 "reverseLine");
         if (!mLineShaderProgram) {
-            ALOGE("Failed to build line shader program");
+            LOG(ERROR) << "Failed to build line shader program";
         }
     }
     bool foundCfg = false;

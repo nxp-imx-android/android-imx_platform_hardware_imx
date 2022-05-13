@@ -139,6 +139,9 @@ void StreamHandler::doneWithFrame(const BufferDesc_1_1& bufDesc_1_1) {
 Return<void> StreamHandler::deliverFrame(const BufferDesc_1_0& bufDesc_1_0) {
     LOG(INFO) << "Ignores a frame delivered from v1.0 EVS service.";
     auto ret = mCamera->doneWithFrame(bufDesc_1_0);
+    if (!ret.isOk()) {
+        LOG(WARNING) << __FUNCTION__ << " fails to return a buffer";
+    }
 
     return Void();
 }

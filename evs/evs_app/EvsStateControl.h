@@ -17,14 +17,15 @@
 #ifndef CAR_EVS_APP_EVSSTATECONTROL_H
 #define CAR_EVS_APP_EVSSTATECONTROL_H
 
-#include "StreamHandler.h"
 #include "ConfigManager.h"
+#include "EvsStats.h"
 #include "RenderBase.h"
+#include "StreamHandler.h"
 
-#include <android/hardware/automotive/vehicle/2.0/IVehicle.h>
-#include <android/hardware/automotive/evs/1.1/IEvsEnumerator.h>
-#include <android/hardware/automotive/evs/1.1/IEvsDisplay.h>
 #include <android/hardware/automotive/evs/1.1/IEvsCamera.h>
+#include <android/hardware/automotive/evs/1.1/IEvsDisplay.h>
+#include <android/hardware/automotive/evs/1.1/IEvsEnumerator.h>
+#include <android/hardware/automotive/vehicle/2.0/IVehicle.h>
 
 #include <thread>
 
@@ -110,6 +111,12 @@ private:
     std::mutex                  mLock;
     std::condition_variable     mWakeSignal;
     std::queue<Command>         mCommandQueue;
+
+    EvsStats                    mEvsStats;  // Not thread-safe
+
+    // True if the first frame displayed on the mCurrentRenderer. Resets to false when
+    // mCurrentRenderer changes.
+    bool                        mFirstFrameIsDisplayed;
 };
 
 

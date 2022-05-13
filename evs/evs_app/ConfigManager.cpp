@@ -58,9 +58,9 @@ bool ConfigManager::initialize(const char* configFileName)
 
     // Parse the stream into JSON objects
     Json::CharReaderBuilder builder;
-
-    Json::Value rootNode;
+    builder["collectComments"] = false;
     std::string errorMessage;
+    Json::Value rootNode;
     bool parseOk = Json::parseFromStream(builder, configStream,  &rootNode, &errorMessage);
     if (!parseOk) {
         printf("Failed to read configuration file %s\n", configFileName);
