@@ -18,6 +18,7 @@
 #include <utils/Timers.h>
 #include "CameraMetadata.h"
 #include "CameraDeviceHWLImpl.h"
+#include "ISPCameraDeviceHWLImpl.h"
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
 #define MAX_RESOLUTION_SIZE 64
@@ -243,7 +244,7 @@ status_t CameraMetadata::createMetadata(CameraDeviceHwlImpl *pDev, CameraSensorM
         static const int32_t maxLatency = ANDROID_SYNC_MAX_LATENCY_PER_FRAME_CONTROL;
         m_static_meta->Set(ANDROID_SYNC_MAX_LATENCY, &maxLatency, 1);
 
-        uint8_t color_arrange = ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_GRBG;
+        const uint8_t color_arrange = ((ISPCameraDeviceHwlImpl*)pDev)->m_color_arrange;
         m_static_meta->Set(ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT, &color_arrange, 1);
 
         // Ref "blsData" in DAA3840_30MC_1080P.xml

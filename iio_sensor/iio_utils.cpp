@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#define LOG_TAG "iio_utils"
 
 #include "iio_utils.h"
 #include <errno.h>
@@ -31,6 +30,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <dirent.h>
+#include <android-base/unique_fd.h>
+
+using android::base::unique_fd;
 
 static const char* IIO_DEVICE_BASE = "iio:device";
 static const char* DEVICE_IIO_DIR = "/sys/bus/iio/devices/";
@@ -45,23 +47,12 @@ static const char* IIO_MAX_RANGE_FILENAME = "sensor_max_range";
 static const char* IIO_RESOLUTION_FILENAME = "sensor_resolution";
 static const char* IIO_STEPCOUNTER_INPUT = "/events/in_steps_change_value";
 static const char* IIO_LIGHT_INPUT = "in_illuminance0_input";
-static const char* IIO_ACC_X_RAW = "in_accel_x_raw";
-static const char* IIO_ACC_Y_RAW = "in_accel_y_raw";
-static const char* IIO_ACC_Z_RAW = "in_accel_z_raw";
-static const char* IIO_MAG_X_RAW = "in_magn_x_raw";
-static const char* IIO_MAG_Y_RAW = "in_magn_y_raw";
-static const char* IIO_MAG_Z_RAW = "in_magn_z_raw";
 static const char* IIO_TRIGGER = "/sys/devices/iio_sysfs_trigger/";
 static const char* IIO_HRTIMER_TRIGGER = "/config/iio/triggers/hrtimer/";
 static const char* IIO_CURRENT_TRIGGER = "/trigger/current_trigger";
 static const char* IIO_DATA_TRIGGER = "/sys/bus/iio/devices/iio_sysfs_trigger/";
 
-namespace android {
-namespace hardware {
-namespace sensors {
-namespace V2_0 {
-namespace subhal {
-namespace implementation {
+namespace nxp_sensors_subhal {
 
 using DirPtr = std::unique_ptr<DIR, decltype(&closedir)>;
 using FilePtr = std::unique_ptr<FILE, decltype(&fclose)>;
@@ -166,10 +157,6 @@ static int sysfs_read_float(const std::string& file, float* val) {
 
 static int sysfs_read_int64(const std::string& file, int64_t* val) {
     return sysfs_read_val(file, "%lld\n", val);
-}
-
-static int sysfs_read_int(const std::string& file, int* val) {
-    return sysfs_read_val(file, "%d\n", val);
 }
 
 static int sysfs_read_str(const std::string& file, std::string* str) {
@@ -416,24 +403,10 @@ int get_sensor_stepcounter(const std::string& device_dir, unsigned int* stepcoun
     return sysfs_read_uint(filename, stepcounter);
 }
 
-int get_sensor_acc(const std::string& device_dir, struct iio_acc_mac_data* data) {
-    const std::string x_filename = device_dir + "/" + IIO_ACC_X_RAW;
-    const std::string y_filename = device_dir + "/" + IIO_ACC_Y_RAW;
-    const std::string z_filename = device_dir + "/" + IIO_ACC_Z_RAW;
-    sysfs_read_int(x_filename, &data->x_raw);
-    sysfs_read_int(y_filename, &data->y_raw);
-    sysfs_read_int(z_filename, &data->z_raw);
-    return 0;
-}
+int get_sensor_stepcounter(const std::string& device_dir, unsigned int* stepcounter) {
+    const std::string filename = device_dir + "/" + IIO_STEPCOUNTER_INPUT;
 
-int get_sensor_mag(const std::string& device_dir, struct iio_acc_mac_data* data) {
-    const std::string x_filename = device_dir + "/" + IIO_MAG_X_RAW;
-    const std::string y_filename = device_dir + "/" + IIO_MAG_Y_RAW;
-    const std::string z_filename = device_dir + "/" + IIO_MAG_Z_RAW;
-    sysfs_read_int(x_filename, &data->x_raw);
-    sysfs_read_int(y_filename, &data->y_raw);
-    sysfs_read_int(z_filename, &data->z_raw);
-    return 0;
+    return sysfs_read_uint(filename, stepcounter);
 }
 
 int64_t get_timestamp(){
@@ -621,9 +594,4 @@ int scan_elements(const std::string& device_dir, struct iio_device_data* iio_dat
     return ret;
 }
 
-}  // namespace implementation
-}  // namespace subhal
-}  // namespace V2_0
-}  // namespace sensors
-}  // namespace hardware
-}  // namespace android
+}  // namespace nxp_sensors_subhal

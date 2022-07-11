@@ -212,6 +212,17 @@ int Display::getConfigNum()
     return mConfigs.size();
 }
 
+bool Display::isOverlayEnabled()
+{
+    char value[PROPERTY_VALUE_MAX];
+    property_get("vendor.hwc.enable.overlay", value, "0");
+    int useOverlay = atoi(value);
+    if (useOverlay == 1) {
+        return true;
+    }
+    return false;
+}
+
 bool Display::isHdrSupported()
 {
     Mutex::Autolock _l(mLock);
@@ -226,6 +237,14 @@ int Display::getHdrMetaData(HdrMetaData* hdrMetaData)
     if(mEdid == NULL)
         return -EINVAL;
     return mEdid->getHdrMetaData(hdrMetaData);
+}
+
+int Display::getHdrSupportTypes(uint32_t* numTypes, int32_t* hdrTypes)
+{
+    Mutex::Autolock _l(mLock);
+    if(mEdid == NULL)
+        return -EINVAL;
+    return mEdid->getHdrSupportTypes(numTypes, hdrTypes);
 }
 
 const DisplayConfig& Display::getConfig(int config)

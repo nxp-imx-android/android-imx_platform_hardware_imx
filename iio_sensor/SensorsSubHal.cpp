@@ -14,29 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#define LOG_TAG "SensorsSubHal"
 
 #include "SensorsSubHal.h"
-#include <android/hardware/sensors/2.0/types.h>
 #include <log/log.h>
 
-ISensorsSubHal* sensorsHalGetSubHal(uint32_t* version) {
-    static ::android::hardware::sensors::V2_0::subhal::implementation::SensorsSubHal subHal;
-    *version = SUB_HAL_2_0_VERSION;
+using ::android::hardware::sensors::V2_1::implementation::ISensorsSubHal;
+
+ISensorsSubHal* sensorsHalGetSubHal_2_1(uint32_t* version) {
+    static ::nxp_sensors_subhal::SensorsSubHal subHal;
+    *version = SUB_HAL_2_1_VERSION;
     return &subHal;
 }
 
-namespace android {
-namespace hardware {
-namespace sensors {
-namespace V2_0 {
-namespace subhal {
-namespace implementation {
+namespace nxp_sensors_subhal {
 
 using ::android::hardware::Void;
-using ::android::hardware::sensors::V1_0::Event;
-using ::android::hardware::sensors::V1_0::RateLevel;
-using ::android::hardware::sensors::V1_0::SharedMemInfo;
 using ::android::hardware::sensors::V2_0::SensorTimeout;
 using ::android::hardware::sensors::V2_0::WakeLockQueueFlagBits;
 using ::android::hardware::sensors::V2_0::implementation::ScopedWakelock;
@@ -51,7 +43,7 @@ static const char* gSensorConfigLocationList[] = {"/odm/etc/sensors/", "/vendor/
 static const int gSensorConfigLocationListSize =
         (sizeof(gSensorConfigLocationList) / sizeof(gSensorConfigLocationList[0]));
 
-#define MODULE_NAME "android.hardware.sensors@2.0-nxp-IIO-Subhal"
+#define MODULE_NAME "android.hardware.sensors@2.1-nxp-IIO-Subhal"
 
 #ifdef CONFIG_LEGACY_SENSOR
 static const std::vector<sensors_supported_hal> sensors_supported = {
@@ -129,13 +121,18 @@ SensorsSubHal::SensorsSubHal() : mCallback(nullptr), mNextHandle(1) {
     }
 }
 
-// Methods from ::android::hardware::sensors::V2_0::ISensors follow.
-Return<void> SensorsSubHal::getSensorsList(getSensorsList_cb _hidl_cb) {
+SensorsSubHal::~SensorsSubHal() {
+    for (auto& sensor : mSensors) {
+        sensor.second->activate(false);
+    }
+}
+
+Return<void> SensorsSubHal::getSensorsList_2_1(getSensorsList_2_1_cb _hidl_cb) {
     std::vector<SensorInfo> sensors;
     for (const auto& sensor : mSensors) {
         SensorInfo sensorInfo = sensor.second->getSensorInfo();
-        sensorInfo.flags &= ~static_cast<uint32_t>(V1_0::SensorFlagBits::MASK_DIRECT_CHANNEL);
-        sensorInfo.flags &= ~static_cast<uint32_t>(V1_0::SensorFlagBits::MASK_DIRECT_REPORT);
+        sensorInfo.flags &= ~static_cast<uint32_t>(SensorFlagBits::MASK_DIRECT_CHANNEL);
+        sensorInfo.flags &= ~static_cast<uint32_t>(SensorFlagBits::MASK_DIRECT_REPORT);
         sensors.push_back(sensorInfo);
     }
 
@@ -178,7 +175,7 @@ Return<Result> SensorsSubHal::flush(int32_t sensorHandle) {
     return Result::BAD_VALUE;
 }
 
-Return<Result> SensorsSubHal::injectSensorData(const Event& event) {
+Return<Result> SensorsSubHal::injectSensorData_2_1(const Event& event) {
     auto sensor = mSensors.find(event.sensorHandle);
     if (sensor != mSensors.end()) {
         return sensor->second->injectEvent(event);
@@ -258,9 +255,4 @@ void SensorsSubHal::AddSensor(struct iio_device_data& iio_data,
         ALOGE("Unable to add sensor %s as buildSensor returned null", iio_data.name.c_str());
 }
 
-}  // namespace implementation
-}  // namespace subhal
-}  // namespace V2_0
-}  // namespace sensors
-}  // namespace hardware
-}  // namespace android
+}  // namespace nxp_sensors_subhal

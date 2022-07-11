@@ -14,17 +14,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef ANDROID_HARDWARE_SENSORS_V2_0_SENSOR_H
-#define ANDROID_HARDWARE_SENSORS_V2_0_SENSOR_H
-
-#include <android/hardware/sensors/1.0/types.h>
+#pragma once
+#include <android/hardware/sensors/2.1/types.h>
 #include <poll.h>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <android-base/properties.h>
+#include <hardware/sensors.h>
+#include <log/log.h>
+#include <utils/SystemClock.h>
+#include <cmath>
+#include <sys/socket.h>
+#include <inttypes.h>
 #include "iio_utils.h"
+
 #include "sensor_hal_configuration_V1_0.h"
 
 #define NUM_OF_CHANNEL_SUPPORTED 4
@@ -32,19 +38,22 @@
 #define NUM_OF_DATA_CHANNELS NUM_OF_CHANNEL_SUPPORTED - 1
 
 using ::android::hardware::sensors::V1_0::AdditionalInfo;
-using ::android::hardware::sensors::V1_0::Event;
 using ::android::hardware::sensors::V1_0::OperationMode;
 using ::android::hardware::sensors::V1_0::Result;
-using ::android::hardware::sensors::V1_0::SensorInfo;
-using ::android::hardware::sensors::V1_0::SensorType;
+using ::android::hardware::sensors::V1_0::SensorFlagBits;
+using ::android::hardware::sensors::V1_0::MetaDataEventType;
+using ::android::hardware::sensors::V2_1::SensorInfo;
+using ::android::hardware::sensors::V2_1::SensorType;
+using ::android::hardware::sensors::V2_1::Event;
+using ::android::hardware::sensors::V1_0::SensorStatus;
+
+using ::android::hardware::Return;
+using ::android::status_t;
+using ::android::base::GetProperty;
+
 using ::sensor::hal::configuration::V1_0::Configuration;
 
-namespace android {
-namespace hardware {
-namespace sensors {
-namespace V2_0 {
-namespace subhal {
-namespace implementation {
+namespace nxp_sensors_subhal {
 
 static constexpr unsigned int frequency_to_us(unsigned int x) {
     return (1E6 / x);
@@ -123,20 +132,14 @@ class HWSensorBase : public SensorBase {
     bool mXNegate, mYNegate, mZNegate;
     std::vector<AdditionalInfo> mAdditionalInfoFrames;
 
-    ssize_t calculateScanSize();
     void setOrientation(std::optional<std::vector<Configuration>> config);
-    void processScanData(uint8_t* data, Event* evt);
     void setAxisDefaultValues();
     status_t setAdditionalInfoFrames(const std::optional<std::vector<Configuration>>& config);
     void sendAdditionalInfoReport();
     status_t getSensorPlacement(AdditionalInfo* sensorPlacement,
                                 const std::optional<std::vector<Configuration>>& config);
+    ssize_t calculateScanSize();
+    void processScanData(uint8_t* data, Event* evt);
 };
 
 }  // namespace implementation
-}  // namespace subhal
-}  // namespace V2_0
-}  // namespace sensors
-}  // namespace hardware
-}  // namespace android
-#endif  // ANDROID_HARDWARE_SENSORS_V2_0_SENSOR_H

@@ -17,21 +17,16 @@
 #ifndef ANDROID_SENSORS_IIO_UTILS_H
 #define ANDROID_SENSORS_IIO_UTILS_H
 
-#include <android/hardware/sensors/1.0/types.h>
+#include <android/hardware/sensors/2.1/types.h>
 #include <dirent.h>
 #include <linux/ioctl.h>
 #include <linux/types.h>
 #include <stdint.h>
 #include <sys/ioctl.h>
 
-namespace android {
-namespace hardware {
-namespace sensors {
-namespace V2_0 {
-namespace subhal {
-namespace implementation {
+namespace nxp_sensors_subhal {
 
-using ::android::hardware::sensors::V1_0::SensorType;
+using ::android::hardware::sensors::V2_1::SensorType;
 
 static constexpr auto DEFAULT_IIO_BUFFER_LEN = 2;
 static constexpr auto DISABLE_CHANNEL = 0;
@@ -85,8 +80,6 @@ int get_sampling_time_available(const std::string& file,
 int get_sampling_frequency_available(const std::string& file,
                                           std::vector<double>* sfa);
 int get_sensor_light(const std::string& device_dir, unsigned int* light);
-int get_sensor_acc(const std::string& device_dir, struct iio_acc_mac_data* acc_mag);
-int get_sensor_mag(const std::string& device_dir, struct iio_acc_mac_data* acc_mag);
 int get_sensor_stepcounter(const std::string& device_dir, unsigned int* stepcounter);
 int add_trigger(const std::string& device_dir,uint8_t dev_num, const bool enable);
 int add_hrtimer_trigger(const std::string& device_dir,uint8_t dev_num, const bool enable);
@@ -94,10 +87,5 @@ int trigger_data(int dev_num);
 int64_t get_timestamp();
 int get_pressure_scale(const std::string& file, float* scale);
 
-}  // namespace implementation
-}  // namespace subhal
-}  // namespace V2_0
-}  // namespace sensors
-}  // namespace hardware
-}  // namespace android
+}  // namespace nxp_sensors_subhal
 #endif

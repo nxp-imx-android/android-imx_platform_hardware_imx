@@ -89,7 +89,7 @@ class KmsDisplay : public Display
 public:
     KmsDisplay();
     virtual ~KmsDisplay();
-
+    int setSecureDisplayEnable(bool enable, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
     // set display power on/off.
     virtual int setPowerMode(int mode);
     // enable display vsync thread.
@@ -159,7 +159,11 @@ private:
 #ifdef HAVE_UNMAPPED_HEAP
     int checkSecureLayers();
 #endif
-
+    bool mSecureDisplay;
+    bool mForceModeSet;
+    Memory* mDummyTarget;
+    Layer* mDummylayer;
+    bool mUseOverlayAndroidUI;
 protected:
     int mDrmFd;
     int mPowerMode;
@@ -173,12 +177,14 @@ protected:
 #endif
     bool mHDCPMode;
     int mHDCPDisableCnt;
+    bool mHDCPEnable;
 
     struct {
         uint32_t mode_id;
         uint32_t active;
         uint32_t fence_ptr;
         uint32_t present_fence_ptr;
+        uint32_t force_modeset_id;
     } mCrtc;
     uint32_t mCrtcID;
     int mCrtcIndex;

@@ -233,10 +233,13 @@ public:
     int findDisplayConfig(int width, int height, float fps, int format);
     // get display config number.
     int getConfigNum();
+    // check whether display enable overlay or not
+    bool isOverlayEnabled();
     // check whether display support HDR or not
     virtual bool isHdrSupported();
     // get HDR metadata
     int getHdrMetaData(HdrMetaData* hdrMetaData);
+    int getHdrSupportTypes(uint32_t* numTypes, int32_t* hdrTypes);
     bool triggerComposition();
     // init display brightness check
     void initBrightness();

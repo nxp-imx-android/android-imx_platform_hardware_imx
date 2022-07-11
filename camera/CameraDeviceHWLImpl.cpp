@@ -87,6 +87,8 @@ CameraDeviceHwlImpl::CameraDeviceHwlImpl(
 
     memset(mPreviewResolutions, 0, sizeof(mPreviewResolutions));
     memset(mPictureResolutions, 0, sizeof(mPictureResolutions));
+    memset(&caps_supports, 0, sizeof(caps_supports));
+    m_raw_v4l2_format = -1;
 }
 
 CameraDeviceHwlImpl::~CameraDeviceHwlImpl()
@@ -261,6 +263,12 @@ status_t CameraDeviceHwlImpl::initSensorStaticData()
             cam_frmsize.discrete.height == 0) {
             continue;
         }
+
+        if (cam_frmsize.discrete.width <= 160 ||
+            cam_frmsize.discrete.height <= 120) {
+            continue;
+        }
+
         vid_frmval.index = 0;
         vid_frmval.pixel_format = cam_frmsize.pixel_format;
         vid_frmval.width = cam_frmsize.discrete.width;

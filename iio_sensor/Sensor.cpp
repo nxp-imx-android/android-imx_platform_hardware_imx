@@ -14,33 +14,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#define LOG_TAG "Sensor"
+
+#define LOG_TAG "android.hardware.sensors@2.1-nxp-IIO-Subhal"
 
 #include "Sensor.h"
+#ifdef CONFIG_LEGACY_SENSOR
 #include "LightSensor.h"
 #include "PressureSensor.h"
 #include "AnglvelSensor.h"
 #include "StepCounterSensor.h"
 #include "AccMagSensor.h"
-#include <hardware/sensors.h>
-#include <log/log.h>
-#include <utils/SystemClock.h>
-#include <cmath>
-#include "SensorsSubHal.h"
+#else
+#include "StepCounterSensor.h"
+#endif
 
-namespace android {
-namespace hardware {
-namespace sensors {
-namespace V2_0 {
-namespace subhal {
-namespace implementation {
+namespace nxp_sensors_subhal {
 
 using ::android::hardware::sensors::V1_0::AdditionalInfoType;
-using ::android::hardware::sensors::V1_0::MetaDataEventType;
-using ::android::hardware::sensors::V1_0::SensorFlagBits;
-using ::android::hardware::sensors::V1_0::SensorStatus;
 using ::sensor::hal::configuration::V1_0::Location;
 using ::sensor::hal::configuration::V1_0::Orientation;
+using ::android::OK;
+using ::android::BAD_VALUE;
 
 SensorBase::SensorBase(int32_t sensorHandle, ISensorsEventCallback* callback, SensorType type)
     : mIsEnabled(false), mSamplingPeriodNs(0), mCallback(callback), mMode(OperationMode::NORMAL) {
@@ -129,8 +123,6 @@ void HWSensorBase::activate(bool enable) {
     if (mIsEnabled != enable) {
         mIsEnabled = enable;
         enable_sensor(mIioData.sysfspath, enable);
-        if (enable)
-            sendAdditionalInfoReport();
         mWaitCV.notify_all();
     }
 }
@@ -155,7 +147,6 @@ Result SensorBase::flush() {
 
 Result HWSensorBase::flush() {
     SensorBase::flush();
-    sendAdditionalInfoReport();
     return Result::OK;
 }
 
@@ -275,6 +266,7 @@ void HWSensorBase::setAxisDefaultValues() {
     mZMap = 2;
     mXNegate = mYNegate = mZNegate = false;
 }
+
 void HWSensorBase::setOrientation(std::optional<std::vector<Configuration>> config) {
     std::optional<std::vector<Orientation>> sensorOrientationList = getOrientation(config);
 
@@ -468,8 +460,3 @@ HWSensorBase::HWSensorBase(int32_t sensorHandle, ISensorsEventCallback* callback
 }
 
 }  // namespace implementation
-}  // namespace subhal
-}  // namespace V2_0
-}  // namespace sensors
-}  // namespace hardware
-}  // namespace android

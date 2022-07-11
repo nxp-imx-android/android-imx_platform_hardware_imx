@@ -42,6 +42,7 @@ VideoStream::VideoStream(CameraDeviceSessionHwlImpl *pSession)
     mSession = pSession;
     mRecoverCount = 0;
     memset(mBuffers, 0, sizeof(mBuffers));
+    mV4l2Format = -1;
 
     property_get("ro.boot.soc_type", soc_type, "");
 }
@@ -120,6 +121,8 @@ int32_t VideoStream::onFlushLocked() {
 }
 
 
+
+
 #define ISP_CONTROL "vendor.rw.camera.isp.control"
 int32_t VideoStream::ConfigAndStart(uint32_t format, uint32_t width, uint32_t height, uint32_t fps, uint8_t intent, uint8_t sceneMode, bool recover)
 {
@@ -173,9 +176,7 @@ int32_t VideoStream::ConfigAndStart(uint32_t format, uint32_t width, uint32_t he
     }
 
     if (strstr(mSession->getSensorData()->camera_name, ISP_SENSOR_NAME)) {
-        // set sensor mode
-        int sensorMode = (sceneMode == ANDROID_CONTROL_SCENE_MODE_DISABLED) ? \
-            SENSOR_MODE_1080P_LINEAR : SENSOR_MODE_1080P_HDR;
+        int sensorMode = mSession->getCapsMode(sceneMode);
 
         struct viv_caps_mode_s caps_mode;
         memset(&caps_mode,0,sizeof(caps_mode));
@@ -214,10 +215,13 @@ int32_t VideoStream::ConfigAndStart(uint32_t format, uint32_t width, uint32_t he
     if (strstr(mSession->getSensorData()->camera_name, ISP_SENSOR_NAME)) {
         // get the default dwe para.
         Json::Value jRequest, jResponse;
-        ((ISPCameraMMAPStream *)this)->getIspWrapper()->viv_private_ioctl(IF_DWE_G_PARAMS, jRequest, jResponse);
-        ((ISPCameraMMAPStream *)this)->getIspWrapper()->parseDewarpParams(jResponse["dwe"]);
-        ((ISPCameraMMAPStream *)this)->getIspWrapper()->getExpGainBoundary();
-
+        ret = ((ISPCameraMMAPStream *)this)->getIspWrapper()->viv_private_ioctl(IF_DWE_G_PARAMS, jRequest, jResponse);
+        if (ret == 0) {
+            ((ISPCameraMMAPStream *)this)->getIspWrapper()->parseDewarpParams(jResponse["dwe"]);
+            ((ISPCameraMMAPStream *)this)->getIspWrapper()->getExpGainBoundary();
+        } else {
+            ALOGW("%s: IF_DWE_G_PARAMS failed, ret %d", __func__, ret);
+        }
     }
 
     // save mode
@@ -252,12 +256,13 @@ int32_t VideoStream::Stop()
     return 0;
 }
 
-int32_t VideoStream::postConfigure(uint32_t format, uint32_t width, uint32_t height, uint32_t fps)
+int32_t VideoStream::postConfigure(uint32_t format, uint32_t width, uint32_t height, uint32_t fps, int32_t v4l2Format)
 {
     mWidth = width;
     mHeight = height;
     mFps = fps;
     mFormat = format;
+    mV4l2Format = v4l2Format;
     mFrames = 0;
 
     setOmitFrameCount(0);

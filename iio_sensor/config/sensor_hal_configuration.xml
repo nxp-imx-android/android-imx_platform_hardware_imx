@@ -16,7 +16,7 @@
 
 <sensorHalConfiguration version="1.0" xmlns:xi="http://www.w3.org/2001/XInclude">
     <modules>
-        <module halName="android.hardware.sensors@2.0-nxp-IIO-Subhal" halVersion="2.0">
+        <module halName="android.hardware.sensors@2.1-nxp-IIO-Subhal" halVersion="2.1">
             <sensors>
                 <sensor name="fxos8700" type="1">
                     <configuration>

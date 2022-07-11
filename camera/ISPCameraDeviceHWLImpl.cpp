@@ -26,6 +26,7 @@
 
 namespace android {
 
+#define PROP_CAMERA_LAYOUT "ro.boot.camera.layout"
 status_t ISPCameraDeviceHwlImpl::initSensorStaticData()
 {
     int32_t fd = open(*mDevPath[0], O_RDWR);
@@ -139,16 +140,147 @@ status_t ISPCameraDeviceHwlImpl::initSensorStaticData()
         ALOGI("SupportedPreviewSizes: %d x %d", mPreviewResolutions[i], mPreviewResolutions[i + 1]);
     }
 
-    int fpsRange[] = {15, 30, 30, 30, 15, 60, 60, 60};
-    int rangeCount = ARRAY_SIZE(fpsRange);
-    mFpsRangeCount = rangeCount <= MAX_FPS_RANGE ? rangeCount : MAX_FPS_RANGE;
-    memcpy(mTargetFpsRange, fpsRange, mFpsRangeCount*sizeof(int));
+    char layout[PROPERTY_VALUE_MAX] = {0};
+    property_get(PROP_CAMERA_LAYOUT, layout, "");
+
+    int fpsRangeBasler[] = {15, 30, 30, 30, 15, 60, 60, 60};
+    int fpsRangeOs08a20[] = {20, 20, 15, 30, 30, 30, 15, 60, 60, 60};
+
+    if (strstr(layout, "os08a20")) {
+        int rangeCount = ARRAY_SIZE(fpsRangeOs08a20);
+        mFpsRangeCount = rangeCount <= MAX_FPS_RANGE ? rangeCount : MAX_FPS_RANGE;
+        memcpy(mTargetFpsRange, fpsRangeOs08a20, mFpsRangeCount*sizeof(int));
+    } else {
+        int rangeCount = ARRAY_SIZE(fpsRangeBasler);
+        mFpsRangeCount = rangeCount <= MAX_FPS_RANGE ? rangeCount : MAX_FPS_RANGE;
+        memcpy(mTargetFpsRange, fpsRangeBasler, mFpsRangeCount*sizeof(int));
+    }
 
     setMaxPictureResolutions();
     ALOGI("mMaxWidth:%d, mMaxHeight:%d", mMaxWidth, mMaxHeight);
 
+    /* get caps */
+    ret = ioctl(fd, VIV_VIDIOC_GET_CAPS_SUPPORTS, &caps_supports);
+    if (ret) {
+        ALOGE("%s: Get Caps Supports Failed, ret %d", __func__, ret);
+        close(fd);
+        return BAD_VALUE;
+    }
+
+    ALOGI("%s: caps supports:{", __func__);
+    ALOGI("\tcount = %d",caps_supports.count);
+    for(unsigned int i = 0; i < caps_supports.count; i++) {
+        ALOGI("\t{");
+        ALOGI("\tindex            = %d", caps_supports.mode[i].index);
+        ALOGI("\tbounds_width     = %d", caps_supports.mode[i].bounds_width);
+        ALOGI("\tbounds_height    = %d", caps_supports.mode[i].bounds_height);
+        ALOGI("\ttop              = %d", caps_supports.mode[i].top);
+        ALOGI("\tleft             = %d", caps_supports.mode[i].left);
+        ALOGI("\twidth            = %d", caps_supports.mode[i].width);
+        ALOGI("\theight           = %d", caps_supports.mode[i].height);
+        ALOGI("\thdr_mode         = %d", caps_supports.mode[i].hdr_mode);
+        ALOGI("\tstitching_mode   = %d", caps_supports.mode[i].stitching_mode);
+        ALOGI("\tbit_width        = %d", caps_supports.mode[i].bit_width);
+        ALOGI("\tbayer_pattern    = %d", caps_supports.mode[i].bayer_pattern);
+        ALOGI("\tfps              = %d", caps_supports.mode[i].fps);
+        ALOGI("\t}");
+    }
+    ALOGI("}");
+
+    if ( ((strcmp(layout, "") == 0) || strstr(layout, "basler")) &&
+         (caps_supports.count >= 4) ) {
+        ALOGI("%s: hard code basler mode 2, 3 to hdr mode", __func__);
+        caps_supports.mode[2].hdr_mode = 1;
+        caps_supports.mode[3].hdr_mode = 1;
+    }
+
+    /* get raw format */
+    ret = GetRawFormat(fd);
+    if (ret) {
+        ALOGE("%s: GetRawFormat Failed, ret %d", __func__, ret);
+        close(fd);
+        return BAD_VALUE;
+    }
+
     close(fd);
     return NO_ERROR;
+}
+
+int32_t ISPCameraDeviceHwlImpl::GetRawFormat(int fd)
+{
+    if (fd < 0)
+      return BAD_VALUE;
+
+    v4l2_fmtdesc formatDescriptions;
+    formatDescriptions.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    for (int i=0; true; i++) {
+        formatDescriptions.index = i;
+        if (ioctl(fd, VIDIOC_ENUM_FMT, &formatDescriptions) != 0)
+            break;
+
+        ALOGI("format %2d: %s 0x%08X 0x%X",
+              i,
+              formatDescriptions.description,
+              formatDescriptions.pixelformat,
+              formatDescriptions.flags
+        );
+
+        /* bits */
+        switch(formatDescriptions.pixelformat)
+        {
+            case V4L2_PIX_FMT_SBGGR10:
+            case V4L2_PIX_FMT_SGBRG10:
+            case V4L2_PIX_FMT_SGRBG10:
+            case V4L2_PIX_FMT_SRGGB10:
+            case V4L2_PIX_FMT_SBGGR12:
+            case V4L2_PIX_FMT_SGBRG12:
+            case V4L2_PIX_FMT_SGRBG12:
+            case V4L2_PIX_FMT_SRGGB12:
+            case V4L2_PIX_FMT_SBGGR16:
+            case V4L2_PIX_FMT_SGBRG16:
+            case V4L2_PIX_FMT_SGRBG16:
+            case V4L2_PIX_FMT_SRGGB16:
+                m_raw_v4l2_format = formatDescriptions.pixelformat;
+                break;
+            default:
+                break;
+        }
+
+        /* color arrange */
+        switch(formatDescriptions.pixelformat)
+        {
+            case V4L2_PIX_FMT_SBGGR10:
+            case V4L2_PIX_FMT_SBGGR12:
+            case V4L2_PIX_FMT_SBGGR16:
+                m_color_arrange = ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_BGGR;
+                break;
+            case V4L2_PIX_FMT_SGBRG10:
+            case V4L2_PIX_FMT_SGBRG12:
+            case V4L2_PIX_FMT_SGBRG16:
+                m_color_arrange = ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_GBRG;
+                break;
+            case V4L2_PIX_FMT_SGRBG10:
+            case V4L2_PIX_FMT_SGRBG12:
+            case V4L2_PIX_FMT_SGRBG16:
+                m_color_arrange = ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_GRBG;
+                break;
+            case V4L2_PIX_FMT_SRGGB10:
+            case V4L2_PIX_FMT_SRGGB12:
+            case V4L2_PIX_FMT_SRGGB16:
+                m_color_arrange = ANDROID_SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_RGGB;
+                break;
+            default:
+                break;
+        }
+    }
+
+    ALOGI("%s: m_raw_v4l2_format 0x%x, m_color_arrange %d", __func__, m_raw_v4l2_format, m_color_arrange);
+
+    if ((m_raw_v4l2_format == -1) || (m_color_arrange == -1)) {
+        return BAD_VALUE;
+    }
+
+    return 0;
 }
 
 int32_t ISPCameraMMAPStream::onDeviceConfigureLocked(uint32_t format, uint32_t width, uint32_t height, uint32_t fps)
@@ -161,7 +293,10 @@ int32_t ISPCameraMMAPStream::onDeviceConfigureLocked(uint32_t format, uint32_t w
     }
 
     int32_t vformat;
-    vformat = convertPixelFormatToV4L2Format(format);
+    if (format == HAL_PIXEL_FORMAT_RAW16)
+        vformat = mSession->getRawV4l2Format();
+    else
+        vformat = convertPixelFormatToV4L2Format(format);
 
     ALOGI("%s, Width * Height %d x %d format %c%c%c%c, fps: %d", __func__, width, height,
         vformat & 0xFF, (vformat >> 8) & 0xFF, (vformat >> 16) & 0xFF, (vformat >> 24) & 0xFF, fps);
@@ -191,7 +326,7 @@ int32_t ISPCameraMMAPStream::onDeviceConfigureLocked(uint32_t format, uint32_t w
         return ret;
     }
 
-    ret = postConfigure(format, width, height, fps);
+    ret = postConfigure(format, width, height, fps, vformat);
 
     return ret;
 }

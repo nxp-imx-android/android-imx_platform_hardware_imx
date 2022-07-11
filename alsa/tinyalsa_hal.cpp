@@ -138,6 +138,7 @@ struct pcm_config pcm_config_esai_multi = {
 };
 
 int lpa_enable = 0;
+bool passthrough_enabled = false;
 bool passthrough_for_s24 = false;
 
 struct pcm_config pcm_config_dsd = {
@@ -627,6 +628,15 @@ static int refine_input_parameters(uint32_t *sample_rate, audio_format_t *format
     return 0;
 }
 
+static void update_passthrough_status(void)
+{
+    if (property_get_int32(PASSTHROUGH_PROPERTY, 0) ==
+            PASSTHROUGH_PROPERTY_ENABLE)
+        passthrough_enabled = true;
+    else
+        passthrough_enabled = false;
+}
+
 /* must be called with hw device and output stream mutexes locked */
 static int start_output_stream(struct imx_stream_out *out)
 {
@@ -677,6 +687,16 @@ static int start_output_stream(struct imx_stream_out *out)
                 return -EBUSY;
             }
         }
+    }
+    update_passthrough_status();
+    if (passthrough_enabled && !(out->flags & AUDIO_OUTPUT_FLAG_DIRECT)) {
+        if (first) {
+            first = 0;
+            ALOGI("%s: disable non-direct stream(%p) while " \
+                    "passthrough enabled", __func__, out);
+        }
+        usleep(2000);
+        return -EBUSY;
     }
     first = 1;
 
@@ -952,6 +972,10 @@ static int do_output_standby(struct imx_stream_out *out, int force_standby)
             out->echo_reference->write(out->echo_reference, NULL);
             out->echo_reference = NULL;
         }
+
+        /* Clear written for passthrough only */
+        if (passthrough_enabled)
+            out->written = 0;
 
         out->standby = 1;
     }
@@ -2960,81 +2984,73 @@ static int in_set_microphone_field_dimension(const struct audio_stream_in *strea
 
 static int out_read_hdmi_channel_masks(struct imx_audio_device *adev, struct imx_stream_out *out) {
 
-    int count = 0;
-    int sup_channels[MAX_SUP_CHANNEL_NUM]; //temp buffer for supported channels
     int card = -1;
     int i = 0;
-    int j = 0;
-    struct mixer *mixer_hdmi = NULL;
 
     for (i = 0; i < adev->audio_card_num; i ++) {
         if(adev->card_list[i]->is_hdmi_card) {
-             mixer_hdmi = adev->mixer[i];
              card = adev->card_list[i]->card;
              break;
          }
     }
 
-    if (mixer_hdmi) {
-        struct mixer_ctl *ctl;
-        ctl = mixer_get_ctl_by_name(mixer_hdmi, "HDMI Support Channels");
-        if (ctl) {
-            count = mixer_ctl_get_num_values(ctl);
-            for(i = 0; i < count; i ++) {
-                sup_channels[i] = mixer_ctl_get_value(ctl, i);
-                ALOGW("out_read_hdmi_channel_masks() card %d got %d sup channels", card, sup_channels[i]);
-            }
-        }
-    } else {
-        return 0;
+    struct pcm_params *params = pcm_params_get(card, 0, PCM_OUT);
+    if (params == NULL) {
+        ALOGE("%s: failed to get pcm params for card %d", __func__, card);
+        return -ENOSYS;
     }
 
-    /*when channel is 6, the mask is 5.1,when channel is 8, the mask is 7.1*/
-    for(i = 0; i < count; i++ ) {
-       if(sup_channels[i] == 2) {
-          out->sup_channel_masks[j]   = AUDIO_CHANNEL_OUT_STEREO;
-          j++;
-       }
-       if(sup_channels[i] == 6) {
-          out->sup_channel_masks[j]   = AUDIO_CHANNEL_OUT_5POINT1;
-          j++;
-       }
-       if(sup_channels[i] == 8) {
-          out->sup_channel_masks[j]   = AUDIO_CHANNEL_OUT_7POINT1;
-          j++;
-       }
+    int channels = pcm_params_get_max(params, PCM_PARAM_CHANNELS);
+    ALOGI("%s: card %d got %d max channels", __func__, card, channels);
+    pcm_params_free(params);
+
+    switch (channels) {
+        case 6:
+            out->sup_channel_masks[0] = AUDIO_CHANNEL_OUT_STEREO;
+            out->sup_channel_masks[1] = AUDIO_CHANNEL_OUT_5POINT1;
+            break;
+        case 8:
+            out->sup_channel_masks[0] = AUDIO_CHANNEL_OUT_STEREO;
+            out->sup_channel_masks[1] = AUDIO_CHANNEL_OUT_5POINT1;
+            out->sup_channel_masks[2] = AUDIO_CHANNEL_OUT_7POINT1;
+            break;
+        default:
+            out->sup_channel_masks[0] = AUDIO_CHANNEL_OUT_STEREO;
+            break;
     }
-    /*if HDMI device does not support 2,6,8 channels, then return error*/
-    if (j == 0) return -ENOSYS;
 
     return 0;
 }
+
+const unsigned int hdmi_supported_rates[] = {32000, 44100, 48000, 88200, 96000, 176400, 192000};
 
 static int out_read_hdmi_rates(struct imx_audio_device *adev, struct imx_stream_out *out) {
 
     int count = 0;
     int card = -1;
     int i = 0;
-    struct mixer *mixer_hdmi = NULL;
 
     for (i = 0; i < adev->audio_card_num; i ++) {
          if(adev->card_list[i]->is_hdmi_card) {
-             mixer_hdmi = adev->mixer[i];
              card = adev->card_list[i]->card;
              break;
          }
     }
 
-    if (mixer_hdmi) {
-        struct mixer_ctl *ctl;
-        ctl = mixer_get_ctl_by_name(mixer_hdmi, "HDMI Support Rates");
-        if (ctl) {
-            count = mixer_ctl_get_num_values(ctl);
-            for(i = 0; i < count; i ++) {
-                out->sup_rates[i] = mixer_ctl_get_value(ctl, i);
-                ALOGW("out_read_hdmi_rates() card %d got %d sup rates", card, out->sup_rates[i]);
-            }
-        }
+    struct pcm_params *params = pcm_params_get(card, 0, PCM_OUT);
+    if (params == NULL) {
+        ALOGE("%s: failed to get pcm params for card %d", __func__, card);
+        return -ENOSYS;
+    }
+
+    int min = pcm_params_get_min(params, PCM_PARAM_RATE);
+    int max = pcm_params_get_max(params, PCM_PARAM_RATE);
+    ALOGI("%s: card %d got sample rates: (%d-%d)", __func__, card, min, max);
+    pcm_params_free(params);
+
+    for (i = 0; i < sizeof(hdmi_supported_rates)/sizeof(unsigned int); i ++) {
+        if (hdmi_supported_rates[i] >= min && hdmi_supported_rates[i] <= max)
+            out->sup_rates[count++] = hdmi_supported_rates[i];
     }
 
     return 0;
@@ -3408,10 +3424,11 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
         out->config = pcm_config_hdmi_multi;
         out->config.rate = config->sample_rate;
         out->config.channels = popcount(config->channel_mask);
+
+        update_passthrough_status();
         if (strcmp(ladev->device_name, "evk_8mp") == 0) {
             out->config.format = PCM_FORMAT_S24_LE;
-            if (property_get_int32(PASSTHROUGH_PROPERTY, 0) ==
-                    PASSTHROUGH_PROPERTY_ENABLE) {
+            if (passthrough_enabled) {
                 passthrough_for_s24 = true;
                 ALOGI("%s, passthrough is enabled on evk_8mp", __func__);
             }
@@ -4335,7 +4352,7 @@ static void audio_card_refine_config(struct audio_card *audio_card, struct imx_a
 
     int card = audio_card->card;
 
-    if(strstr(audio_card->driver_name, "bt-sco-audio"))
+    if(strstr(audio_card->driver_name, "sco-audio"))
         g_hsp_chns = 1;
 
     if(audio_card->support_multi_chn) {

@@ -141,6 +141,26 @@ KmsDisplay::KmsDisplay()
 #endif
     mHDCPMode = false;
     mHDCPDisableCnt = 0;
+    mSecureDisplay = false;
+    mForceModeSet = false;
+    mDummyTarget = NULL;
+
+    char prop[PROPERTY_VALUE_MAX] = {};
+    property_get("ro.boot.androidui.overlay", prop, "");
+    if((prop[0] != '\0') && (strcmp(prop, "enable") == 0)) {
+        mUseOverlayAndroidUI = true;
+    } else {
+        mUseOverlayAndroidUI = false;
+    }
+
+    memset(prop, 0, PROPERTY_VALUE_MAX);
+    property_get("ro.boot.support_hdcp", prop, "");
+    if((prop[0] != '\0') && (strcmp(prop, "enable") == 0)) {
+        mHDCPEnable = true;
+    } else {
+        mHDCPEnable = false;
+    }
+    mDummylayer = NULL;
 }
 
 KmsDisplay::~KmsDisplay()
@@ -170,8 +190,65 @@ KmsDisplay::~KmsDisplay()
     if (mEdid != NULL) {
         delete mEdid;
     }
+    if(mDummylayer != NULL) {
+        delete mDummylayer;
+    }
 }
+int KmsDisplay::setSecureDisplayEnable(bool enable, uint32_t x, uint32_t y, uint32_t w, uint32_t h) {
+    mSecureDisplay = enable;
+    if (!enable && mUseOverlayAndroidUI) {
+        mForceModeSet = true;
+    }
+    if (mSecureDisplay) {
+      // create one dummy memory
+      MemoryDesc desc;
+      desc.mWidth = w;
+      desc.mHeight = h;
+      desc.mFormat = FORMAT_RGBA8888;
+      desc.mFslFormat = FORMAT_RGBA8888;
+      desc.mProduceUsage |= (USAGE_SW_READ_OFTEN | USAGE_SW_WRITE_OFTEN | USAGE_HW_RENDER | USAGE_HW_TEXTURE);
+      desc.mFlag = FLAGS_FRAMEBUFFER;
+      desc.checkFormat();
+      {
+          Mutex::Autolock _l(mLock);
+          if (mDummyTarget == NULL) {
+              int ret = mMemoryManager->allocMemory(desc, &mDummyTarget);
+              if (ret == 0 && mDummyTarget != NULL) {
+                      ALOGI("allocate dummy memory ok stride is %d",mDummyTarget->stride);
+              } else {
+                      ALOGE("allocate dummy buffer failed");
+                      return -1;
+              }
+              void *vaddr = NULL;
+              mMemoryManager->lock(mDummyTarget, mDummyTarget->usage,
+                      0, 0, mDummyTarget->width, mDummyTarget->height, &vaddr);
+              mMemoryManager->unlock(mDummyTarget);
+              mDummyTarget->base = (uintptr_t)vaddr;
 
+              if (mDummyTarget->base != 0) {
+                  memset((void*)mDummyTarget->base, 0xff, mDummyTarget->size);
+              }
+          }
+          mDummylayer = new Layer();
+          mDummylayer->sourceCrop.left = 0;
+          mDummylayer->sourceCrop.top = 0;
+          mDummylayer->sourceCrop.right = w;
+          mDummylayer->sourceCrop.bottom = h;
+          mDummylayer->displayFrame.left = x;
+          mDummylayer->displayFrame.top = y;
+          mDummylayer->displayFrame.right = x + w;
+          mDummylayer->displayFrame.bottom = y + h;
+          mDummylayer->handle = mDummyTarget;
+      }
+    } else {
+        if (mDummyTarget != NULL) {
+            mMemoryManager->releaseMemory(mDummyTarget);
+            mDummyTarget = NULL;
+            delete mDummylayer;
+        }
+    }
+    return 0;
+}
 /*
  * Find the property IDs and value that match its name.
  */
@@ -272,6 +349,7 @@ void KmsDisplay::getKmsProperty()
         {"ACTIVE",  &mCrtc.active},
         {"ANDROID_OUT_FENCE_PTR", &mCrtc.fence_ptr},
         {"OUT_FENCE_PTR", &mCrtc.present_fence_ptr},
+        {"force_modeset", &mCrtc.force_modeset_id},
     };
 
     struct TableProperty connectorTable[] = {
@@ -513,10 +591,12 @@ void KmsDisplay::setFakeVSync(bool enable)
 
 bool KmsDisplay::checkOverlay(Layer* layer)
 {
-    char value[PROPERTY_VALUE_MAX];
-    property_get("vendor.hwc.enable.overlay", value, "1");
-    int useOverlay = atoi(value);
-    if (useOverlay == 0) {
+    if (mUseOverlayAndroidUI) {
+        if (mSecureDisplay) {
+            return false;
+        }
+    }
+    if (!isOverlayEnabled()) {
         return false;
     }
 
@@ -527,6 +607,10 @@ bool KmsDisplay::checkOverlay(Layer* layer)
 
     if (layer == NULL || layer->handle == NULL) {
         ALOGV("updateOverlay: invalid layer or handle");
+        return false;
+    }
+
+    if (layer->transform != 0) {
         return false;
     }
 
@@ -593,10 +677,19 @@ bool KmsDisplay::veritySourceSize(Layer* layer)
 
 int KmsDisplay::performOverlay()
 {
-    Layer* layer = mOverlay;
+    Layer* layer = NULL;
+    uint8_t gloable_stride = 1;
+    int overlay_plane_index = mKmsPlaneNum - 1;
+    if (mUseOverlayAndroidUI && mSecureDisplay) {
+        layer = mDummylayer;
+        gloable_stride = 4;
+        overlay_plane_index = 0;
+    } else {
+        layer = mOverlay;
+    }
     if (layer == NULL || layer->handle == NULL) {
 #ifdef HAVE_UNMAPPED_HEAP
-        if (mHDCPMode) {
+        if (mHDCPMode && mHDCPEnable) {
             mHDCPDisableCnt++;
             if (mHDCPDisableCnt > 10) { // no overlay for more than 10 frames, disable HDCP
                 ALOGI("Disable HDCP");
@@ -633,28 +726,30 @@ int KmsDisplay::performOverlay()
     }
 
 #ifdef HAVE_UNMAPPED_HEAP
-    bool enable = false;
-    Memory *ov_hnd = layer->handle;
-    if ((ov_hnd->usage & USAGE_PROTECTED) && (mConnector.protection_id > 0)) {
-        enable = true;
-    }
-    if (mHDCPMode != enable) {
-        ALOGI("%s HDCP feature", enable ? "Enable" : "Disable");
-        int val = enable? 1 : 0;
-        int err = drmModeConnectorSetProperty(mDrmFd, mConnectorID,
-                      mConnector.protection_id, val);
-        if (err != 0) {
-            ALOGE("failed to set HDCP property:%d", val);
+    if (mHDCPEnable) {
+        bool enable = false;
+        Memory *ov_hnd = layer->handle;
+        if ((ov_hnd->usage & USAGE_PROTECTED) && (mConnector.protection_id > 0)) {
+            enable = true;
         }
-        mModeset = true;
-        mHDCPMode = enable;
+        if (mHDCPMode != enable) {
+            ALOGI("%s HDCP feature", enable ? "Enable" : "Disable");
+            int val = enable? 1 : 0;
+            int err = drmModeConnectorSetProperty(mDrmFd, mConnectorID,
+                          mConnector.protection_id, val);
+            if (err != 0) {
+                ALOGE("failed to set HDCP property:%d", val);
+            }
+            mModeset = true;
+            mHDCPMode = enable;
+        }
     }
 #endif
     Memory* buffer = layer->handle;
     const DisplayConfig& config = mConfigs[mActiveConfig];
     if (buffer->fbId == 0) {
         int format = convertFormatToDrm(buffer->fslFormat);
-        int stride = buffer->stride * 1;
+        int stride = buffer->stride * gloable_stride;
         uint32_t bo_handles[4] = {0};
         uint32_t pitches[4] = {0};
         uint32_t offsets[4] = {0};
@@ -678,13 +773,19 @@ int KmsDisplay::performOverlay()
             modifiers[0] = DRM_FORMAT_MOD_VSI_G2_TILED_COMPRESSED;
             modifiers[1] = DRM_FORMAT_MOD_VSI_G2_TILED_COMPRESSED;
         }
-        pitches[0] = stride;
-        pitches[1] = stride;
-        offsets[0] = 0;
-        offsets[1] = stride * buffer->height;
         drmPrimeFDToHandle(mDrmFd, buffer->fd, (uint32_t*)&buffer->fbHandle);
-        bo_handles[0] = buffer->fbHandle;
-        bo_handles[1] = buffer->fbHandle;
+        if (mSecureDisplay) {
+            pitches[0] = stride;
+            bo_handles[0] = buffer->fbHandle;
+            offsets[0] = 0;
+        } else if(!mSecureDisplay) {
+            pitches[0] = stride;
+            pitches[1] = stride;
+            offsets[0] = 0;
+            offsets[1] = stride * buffer->height;
+            bo_handles[0] = buffer->fbHandle;
+            bo_handles[1] = buffer->fbHandle;
+        }
         if (buffer->fslFormat == FORMAT_NV12_TILED ||
             buffer->fslFormat == FORMAT_NV12_G1_TILED ||
             buffer->fslFormat == FORMAT_NV12_G2_TILED ||
@@ -708,54 +809,58 @@ int KmsDisplay::performOverlay()
         mOverlay = NULL;
         return 0;
     }
-
-    bindOutFence(mPset);
-    if (memcmp(&mLastHdrMetaData,&layer->hdrMetadata,sizeof(hdr_output_metadata))) {
-        // Only pass HDR metadata and flag on HDR supported display.
-        if (mEdid != NULL && mEdid->isHdrSupported()) {
-            setHdrMetaData(mPset,layer->hdrMetadata);
-            layer->isHdrMode = true;
-            mLastHdrMetaData = layer->hdrMetadata;
+    if (!mSecureDisplay) {
+        bindOutFence(mPset);
+        if (memcmp(&mLastHdrMetaData,&layer->hdrMetadata,sizeof(hdr_output_metadata))) {
+            // Only pass HDR metadata and flag on HDR supported display.
+            if (mEdid != NULL && mEdid->isHdrSupported()) {
+                setHdrMetaData(mPset,layer->hdrMetadata);
+                layer->isHdrMode = true;
+                mLastHdrMetaData = layer->hdrMetadata;
+            }
         }
+        MetaData * meta = MemoryManager::getInstance()->getMetaData(buffer);
+        if (meta != NULL && meta->mFlags & FLAGS_COMPRESSED_OFFSET) {
+            mKmsPlanes[overlay_plane_index].setTableOffset(mPset, meta);
+            meta->mFlags &= ~FLAGS_COMPRESSED_OFFSET;
+        }
+    } else {
+        bindOutFence(mPset);
     }
-    MetaData * meta = MemoryManager::getInstance()->getMetaData(buffer);
-    if (meta != NULL && meta->mFlags & FLAGS_COMPRESSED_OFFSET) {
-        mKmsPlanes[mKmsPlaneNum - 1].setTableOffset(mPset, meta);
-        meta->mFlags &= ~FLAGS_COMPRESSED_OFFSET;
-    }
-    mKmsPlanes[mKmsPlaneNum - 1].connectCrtc(mPset, mCrtcID, buffer->fbId);
+    mKmsPlanes[overlay_plane_index].connectCrtc(mPset, mCrtcID, buffer->fbId);
 
     Rect *rect = &layer->displayFrame;
     int x = rect->left * mMode.hdisplay / config.mXres;
     int y = rect->top * mMode.vdisplay / config.mYres;
     int w = (rect->right - rect->left) * mMode.hdisplay / config.mXres;
     int h = (rect->bottom - rect->top) * mMode.vdisplay / config.mYres;
+    if (!mSecureDisplay) {
 #if defined(WORKAROUND_DOWNSCALE_LIMITATION) || defined(WORKAROUND_DOWNSCALE_LIMITATION_DCSS)
-    mKmsPlanes[mKmsPlaneNum - 1].setDisplayFrame(mPset, x, y, ALIGN_PIXEL_2(w-1), ALIGN_PIXEL_2(h-1));
+        mKmsPlanes[overlay_plane_index].setDisplayFrame(mPset, x, y, ALIGN_PIXEL_2(w-1), ALIGN_PIXEL_2(h-1));
 #else
-    mKmsPlanes[mKmsPlaneNum - 1].setDisplayFrame(mPset, x, y, w, h);
+        mKmsPlanes[overlay_plane_index].setDisplayFrame(mPset, x, y, w, h);
 #endif
-
+    } else {
+        mKmsPlanes[overlay_plane_index].setDisplayFrame(mPset, rect->left, rect->top, rect->right - rect->left, rect->bottom - rect->top);
+    }
     rect = &layer->sourceCrop;
+    if (!mSecureDisplay) {
 #ifdef WORKAROUND_DOWNSCALE_LIMITATION
-    int srcW = rect->right - rect->left;
-    int srcH = rect->bottom - rect->top;
-    if (srcW < w) w = srcW;
-    if (srcH < h) h = srcH;
-    mKmsPlanes[mKmsPlaneNum - 1].setSourceSurface(mPset, 0, 0,
-                    ALIGN_PIXEL_2(w-1), ALIGN_PIXEL_2(h-1));
+        int srcW = rect->right - rect->left;
+        int srcH = rect->bottom - rect->top;
+        if (srcW < w) w = srcW;
+        if (srcH < h) h = srcH;
+        mKmsPlanes[overlay_plane_index].setSourceSurface(mPset, 0, 0, ALIGN_PIXEL_2(w-1), ALIGN_PIXEL_2(h-1));
 #elif defined(WORKAROUND_DOWNSCALE_LIMITATION_DCSS)
-    mKmsPlanes[mKmsPlaneNum - 1].setSourceSurface(mPset, rect->left, rect->top,
-                    ALIGN_PIXEL_2(rect->right - rect->left -1),
-                    ALIGN_PIXEL_2(rect->bottom - rect->top -1));
+        mKmsPlanes[overlay_plane_index].setSourceSurface(mPset, rect->left, rect->top, ALIGN_PIXEL_2(rect->right - rect->left -1), ALIGN_PIXEL_2(rect->bottom - rect->top -1));
 #else
-    mKmsPlanes[mKmsPlaneNum - 1].setSourceSurface(mPset, rect->left, rect->top,
-                    rect->right - rect->left, rect->bottom - rect->top);
+        mKmsPlanes[overlay_plane_index].setSourceSurface(mPset, rect->left, rect->top, rect->right - rect->left, rect->bottom - rect->top);
 #endif
-
+    } else {
+        mKmsPlanes[overlay_plane_index].setSourceSurface(mPset, rect->left, rect->top, rect->right - rect->left, rect->bottom - rect->top);
+    }
     return true;
 }
-
 
 
 int KmsDisplay::updateScreen()
@@ -767,6 +872,8 @@ int KmsDisplay::updateScreen()
     }
 
     int drmfd = -1;
+    int primary_plane_index = 0;
+
     Memory* buffer = NULL;
     {
         Mutex::Autolock _l(mLock);
@@ -775,7 +882,26 @@ int KmsDisplay::updateScreen()
             ALOGE("%s failed because not power on:%d", __func__, mPowerMode);
             return -EINVAL;
         }
-        buffer = mRenderTarget;
+
+        if (mUseOverlayAndroidUI) {
+            if (mSecureDisplay) {
+                primary_plane_index = mKmsPlaneNum - 1;
+            }
+            if (mForceModeSet) {
+                 mForceModeSet  = false;
+                 bool var = true;
+                 drmModeObjectSetProperty(mDrmFd, mCrtcID, DRM_MODE_OBJECT_CRTC,
+                                  mCrtc.force_modeset_id, var);
+                 mModeset = true;
+            }
+            buffer = mRenderTarget;
+        } else {
+            if (mSecureDisplay)
+                buffer = mDummyTarget;
+            else
+                buffer = mRenderTarget;
+        }
+
         drmfd = mDrmFd;
     }
 
@@ -807,15 +933,28 @@ int KmsDisplay::updateScreen()
         uint32_t offsets[4] = {0};
         uint64_t modifiers[4] = {0};
 
-        mNoResolve = mAllowModifier && (buffer->usage &
+        if (!mUseOverlayAndroidUI) {
+            mNoResolve = mAllowModifier && (buffer->usage &
                 (USAGE_GPU_TILED_VIV | USAGE_GPU_TS_VIV));
-        if (mNoResolve) {
+            if (mNoResolve) {
+
 #ifdef FRAMEBUFFER_COMPRESSION
-            if (buffer->usage & USAGE_GPU_TS_VIV)
-                modifiers[0] = DRM_FORMAT_MOD_VIVANTE_SUPER_TILED_FC;
-            else
+                if (buffer->usage & USAGE_GPU_TS_VIV)
+                    modifiers[0] = DRM_FORMAT_MOD_VIVANTE_SUPER_TILED_FC;
+                else
 #endif
-            {
+                {
+#ifdef WORKAROUND_DISPLAY_UNDERRUN
+                    modifiers[0] = DRM_FORMAT_MOD_VIVANTE_TILED;
+#else
+                    modifiers[0] = DRM_FORMAT_MOD_VIVANTE_SUPER_TILED;
+#endif
+                }
+            }
+        } else {
+            mNoResolve = mAllowModifier && (buffer->usage &
+                USAGE_GPU_TILED_VIV);
+            if (mNoResolve) {
 #ifdef WORKAROUND_DISPLAY_UNDERRUN
                 modifiers[0] = DRM_FORMAT_MOD_VIVANTE_TILED;
 #else
@@ -927,11 +1066,11 @@ int KmsDisplay::updateScreen()
 #endif
 
     bindCrtc(mPset, modeID);
-    mKmsPlanes[0].connectCrtc(mPset, mCrtcID, buffer->fbId);
-    mKmsPlanes[0].setSourceSurface(mPset, 0, 0, config.mXres, config.mYres);
-    mKmsPlanes[0].setDisplayFrame(mPset, 0, 0, mMode.hdisplay, mMode.vdisplay);
+    mKmsPlanes[primary_plane_index].connectCrtc(mPset, mCrtcID, buffer->fbId);
+    mKmsPlanes[primary_plane_index].setSourceSurface(mPset, 0, 0, config.mXres, config.mYres);
+    mKmsPlanes[primary_plane_index].setDisplayFrame(mPset, 0, 0, mMode.hdisplay, mMode.vdisplay);
     if (mAcquireFence != -1) {
-        mKmsPlanes[0].setClientFence(mPset, mAcquireFence);
+        mKmsPlanes[primary_plane_index].setClientFence(mPset, mAcquireFence);
     }
 
 #ifdef DEBUG_DUMP_REFRESH_RATE
@@ -1438,11 +1577,15 @@ int KmsDisplay::getPrimaryPlane()
 
 bool KmsDisplay::isHdrSupported()
 {
+#ifdef ENABLE_HDR_CHECK
     // Android framework will check whether display support HDR10 or not.
     // And force ClientComposition without passing layer to HWC if not support.
     // Here if display suport overlay,return HDR10 is supported to framework.
     // Then HWC can handle this layer.
-    return Display::isHdrSupported() || (mKmsPlaneNum > 1);
+    return Display::isHdrSupported() || isOverlayEnabled();
+#else
+    return false;
+#endif
 }
 
 int KmsDisplay::closeKms()
