@@ -110,6 +110,7 @@ void HealthImpl::UpdateHealthInfo(HealthInfo* health_info) {
   battery_props->chargerAcOnline = true;
   battery_props->batteryPresent = false;
   battery_props->batteryLevel = 0;
+  battery_props->batteryCurrent = 0;
 }
 
 Return<void> HealthImpl::getChargeCounter(getChargeCounter_cb _hidl_cb) {
