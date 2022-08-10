@@ -1,5 +1,5 @@
 /*
- *  Copyright 2021 NXP.
+ *  Copyright 2021-2022 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -110,7 +110,7 @@ public:
     HwDecoder(const char* mime);
     virtual ~HwDecoder();
 
-    status_t Init();
+    status_t Init(const char* socType);
     status_t Start();
     status_t Flush();
     status_t Stop();
@@ -170,6 +170,8 @@ private:
     std::vector<DecoderBufferInfo> mDecoderBuffers;
 
     bool bNeedPostProcess;
+    uint8_t mTableSize;
+    COLOR_FORMAT_TABLE *color_format_table;
 
     status_t SetInputFormats();
     status_t allocateInputBuffers();

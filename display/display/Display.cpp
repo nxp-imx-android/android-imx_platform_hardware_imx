@@ -45,6 +45,8 @@ Display::Display()
 {
     mConfigs.clear();
     mActiveConfig = -1;
+    mFirstConfigId = 0;
+    memset(&mBackupConfig, 0, sizeof(mBackupConfig));
     mRefreshRequired = false;
 
     for (size_t i=0; i<MAX_LAYERS; i++) {
@@ -171,7 +173,7 @@ int Display::findDisplayConfig(int width, int height, float fps, int format)
 {
     int i;
     for (i=0; i<mConfigs.size(); i++) {
-        const DisplayConfig& cfg = mConfigs.itemAt(i);
+        const DisplayConfig& cfg = mConfigs[mFirstConfigId + i];
         // if not specify the format(0), only compare the resolution
         // if the foramt is not 0, both format and resolution need to compare
         if ((((format != -1) && (cfg.mFormat == format)) || (format == -1))
@@ -179,15 +181,15 @@ int Display::findDisplayConfig(int width, int height, float fps, int format)
             break;
     }
 
-    return i >= mConfigs.size() ? -1 : i;
+    return i >= mConfigs.size() ? -1 : mFirstConfigId + i;
 }
 
 int Display::createDisplayConfig(int width, int height, float fps, int format)
 {
     Mutex::Autolock _l(mLock);
 
-    int index = findDisplayConfig(width, height, fps, format);
-    if (index < 0) {
+    int id = findDisplayConfig(width, height, fps, format);
+    if (id < 0) {
         DisplayConfig config;
         config.mXres = width;
         config.mYres = height;
@@ -199,17 +201,23 @@ int Display::createDisplayConfig(int width, int height, float fps, int format)
         else
             config.mFps = DEFAULT_REFRESH_RATE;
 
-        index = mConfigs.add(config);
+        mConfigs.emplace(mFirstConfigId, config);
+        id = mFirstConfigId;
     }
-    mActiveConfig = index;
+    mActiveConfig = id;
 
-    return index;
+    return id;
 }
 
 int Display::getConfigNum()
 {
     Mutex::Autolock _l(mLock);
     return mConfigs.size();
+}
+
+int Display::getFirstConfigId()
+{
+    return mFirstConfigId;
 }
 
 bool Display::isOverlayEnabled()
@@ -264,23 +272,6 @@ int Display::setActiveConfig(int config)
     Mutex::Autolock _l(mLock);
     mActiveConfig = config;
     return 0;
-}
-
-int Display::CopyAsActiveConfig(int srcId, int dstId)
-{
-    Mutex::Autolock _l(mLock);
-    return CopyAsActiveConfigLocked(srcId, dstId);
-}
-
-int Display::CopyAsActiveConfigLocked(int srcId, int dstId)
-{
-    if (mActiveConfig == dstId)
-        return mActiveConfig;
-
-    const DisplayConfig cfg = mConfigs[srcId];
-    mConfigs.insertAt(cfg, dstId, 1);
-    mActiveConfig = dstId;
-    return dstId;
 }
 
 int Display::getActiveId()
@@ -633,6 +624,7 @@ bool Display::verifyLayers()
     // get deviceCompose init value
     deviceCompose = check2DComposition();
 
+    std::vector<int32_t> zorderVector;
     for (size_t i=0; i<MAX_LAYERS; i++) {
         if (!mLayers[i]->busy) {
             continue;
@@ -714,6 +706,7 @@ bool Display::verifyLayers()
             mLayers[idx]->type = LAYER_TYPE_CLIENT;
             mComposeFlag |= 1 << CLIENT_COMPOSE_BIT;
             mTotalLayerNum++;
+            zorderVector.emplace_back(mLayers[idx]->zorder);
 
             // Here compare current layer info with previous one to determine
             // whether UI has update. IF no update,won't commit to framebuffer
@@ -732,11 +725,26 @@ bool Display::verifyLayers()
         mLayerVector.add(mLayers[idx]);
         mTotalLayerNum++;
     }
+
     if (ovIdx >= 0) {
-        mOverlay = mLayers[ovIdx];
-        mOverlay->isOverlay = true;
-        mOverlay->type = LAYER_TYPE_DEVICE;
-        mComposeFlag |= 1 << OVERLAY_COMPOSE_BIT;
+        bool shouldOverlay = true;
+        for (auto zorder : zorderVector) {
+            if (zorder < mLayers[ovIdx]->zorder) {
+                shouldOverlay = false;
+                break;
+            }
+        }
+
+        if (shouldOverlay) {
+            mOverlay = mLayers[ovIdx];
+            mOverlay->isOverlay = true;
+            mOverlay->type = LAYER_TYPE_DEVICE;
+            mComposeFlag |= 1 << OVERLAY_COMPOSE_BIT;
+        } else {
+            mLayers[ovIdx]->type = LAYER_TYPE_CLIENT;
+            mComposeFlag |= 1 << CLIENT_COMPOSE_BIT;
+            mTotalLayerNum++;
+        }
     }
 
     if (mTotalLayerNum != lastTotalLayerNum) {

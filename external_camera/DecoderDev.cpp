@@ -1,5 +1,5 @@
 /*
- *  Copyright 2021 NXP.
+ *  Copyright 2021-2022 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -41,8 +41,6 @@ const char* kDevicePath = "/dev/";
 constexpr char kPrefix[] = "video";
 constexpr int kPrefixLen = sizeof(kPrefix) - 1;
 
-#define AMPHION_VPU_DEC_NODE "/dev/video12"
-
 DecoderDev::DecoderDev() {
     memset((char*)mDevName, 0, MAX_DEV_NAME_LEN);
     mFd = -1;
@@ -50,6 +48,7 @@ DecoderDev::DecoderDev() {
     mStreamType = V4L2_PIX_FMT_H264;
     mOutBufType = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
     mCapBufType = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    mSocType = IMX8MQ;
 }
 
 int32_t DecoderDev::Open() {
@@ -71,6 +70,11 @@ int32_t DecoderDev::Open() {
         if (ret < 0) {
             ALOGE("%s: VIDIOC_SUBSCRIBE_EVENT Failed: %s", __func__, strerror(errno));
             return ret;
+        }
+
+        if (mSocType == IMX8QM) {
+            // 8qm not support CODEC_ERROR SKIP
+            return mFd;
         }
 
         sub.type = V4L2_EVENT_CODEC_ERROR;
@@ -133,6 +137,7 @@ status_t DecoderDev::GetVideoBufferType(enum v4l2_buf_type *outType, enum v4l2_b
 bool DecoderDev::isDecoderDevice(const char* devName) {
     int32_t ret = -1;
     struct v4l2_capability vidCap;
+    bool isDecNode = false;
 
     base::unique_fd fd(::open(devName, O_RDWR | O_NONBLOCK));
     if (fd.get() < 0) {
@@ -145,9 +150,12 @@ bool DecoderDev::isDecoderDevice(const char* devName) {
         ALOGE("%s QUERYCAP dev path:%s failed", __func__, devName);
         return false;
     }
-    ALOGV("%s: name=%s, card name=%s\n", __func__, (char*)vidCap.driver, (char*)vidCap.card);
-
-    bool isDecNode = (!strcmp((char*)vidCap.card, "vsi_v4l2dec") || !strcmp((char*)vidCap.card, "vpu B0"));
+    ALOGI("%s: name=%s, card name=%s, bus info %s\n", __func__, (char*)vidCap.driver, (char*)vidCap.card, (char*)vidCap.bus_info);
+    if (mSocType == IMX8QM) {
+        isDecNode = (!strcmp((char*)vidCap.card, "mxc-jpeg codec") && (strstr((char*)vidCap.bus_info, "jpegdec") != NULL));
+    } else {
+        isDecNode = (!strcmp((char*)vidCap.card, "vsi_v4l2dec") || !strcmp((char*)vidCap.card, "vpu B0"));
+    }
     if (isDecNode)
         return true;
 
@@ -170,6 +178,7 @@ status_t DecoderDev::GetNode() {
             char DecoderDevicePath[kMaxDevicePathLen];
             snprintf(DecoderDevicePath, kMaxDevicePathLen, "%s%s", kDevicePath, de->d_name);
             if(isDecoderDevice(DecoderDevicePath)) {
+                ALOGI("%s DecoderDevicePath:%s", __func__, DecoderDevicePath);
                 strcpy((char *)mDevName, DecoderDevicePath);
                 mDecoderGet = true;
                 break;
@@ -198,7 +207,7 @@ status_t DecoderDev::QueryFormats(uint32_t format_type) {
             }
 
             output_formats.push_back(fmt.pixelformat);
-            ALOGV("%s: add output format %x\n", __func__, fmt.pixelformat);
+            ALOGV("%s: add output format %x,  %s\n", __func__, fmt.pixelformat, fmt.description);
             i++;
         }
         if(output_formats.size() > 0)
@@ -214,7 +223,7 @@ status_t DecoderDev::QueryFormats(uint32_t format_type) {
                 break;
 
             capture_formats.push_back(fmt.pixelformat);
-            ALOGV("%s: add capture format %x\n", __func__, fmt.pixelformat);
+            ALOGV("%s: add capture format %x,  %s\n", __func__, fmt.pixelformat, fmt.description);
             i++;
         }
 
@@ -259,15 +268,58 @@ bool DecoderDev::IsCaptureFormatSupported(uint32_t format) {
     return false;
 }
 
-static const COLOR_FORMAT_TABLE color_format_table[] = {
-    { HAL_PIXEL_FORMAT_YCbCr_420_P, V4L2_PIX_FMT_YUV420 },
-    { HAL_PIXEL_FORMAT_YCbCr_422_SP, V4L2_PIX_FMT_NV16 },
-    { HAL_PIXEL_FORMAT_YCbCr_420_SP, V4L2_PIX_FMT_NV12 },
-    { HAL_PIXEL_FORMAT_YCbCr_422_I, V4L2_PIX_FMT_YUYV },
+typedef struct {
+    uint32_t noncontiguous_format;
+    uint32_t contiguous_format;
+} CONTINUGUOUS_FORMAT_TABLE;
+
+//TODO: add android pixel format
+static const CONTINUGUOUS_FORMAT_TABLE contiguous_format_table[]={
+    { V4L2_PIX_FMT_NV12M, V4L2_PIX_FMT_NV12},
+    { V4L2_PIX_FMT_YUV420M, V4L2_PIX_FMT_YUV420},
+    { V4L2_PIX_FMT_YVU420M, V4L2_PIX_FMT_YVU420},
+    { V4L2_PIX_FMT_NV12M_8L128, V4L2_PIX_FMT_NV12_8L128},
+    { V4L2_PIX_FMT_NV12M_10BE_8L128, V4L2_PIX_FMT_NV12_10BE_8L128},
 };
 
-status_t DecoderDev::GetColorFormatByV4l2(uint32_t v4l2_format, uint32_t * color_format) {
-    for( size_t i = 0; i < sizeof(color_format_table) / sizeof(COLOR_FORMAT_TABLE); i++) {
+status_t DecoderDev:: GetContiguousV4l2Format(uint32_t format, uint32_t *contiguous_format)
+{
+    status_t ret = BAD_VALUE;
+    for (size_t i = 0; i < sizeof(contiguous_format_table)/sizeof(CONTINUGUOUS_FORMAT_TABLE); i++) {
+        if (format == contiguous_format_table[i].noncontiguous_format) {
+            *contiguous_format = contiguous_format_table[i].contiguous_format;
+            ret = OK;
+            break;
+        }
+    }
+
+    if (ret)
+        ALOGE("unknown contiguous v4l2 format 0x%x", format);
+
+    return ret;
+}
+
+status_t DecoderDev:: GetCaptureFormat(uint32_t *format, uint32_t i)
+{
+    status_t ret = OK;
+
+    if(capture_formats.empty()){
+        ret = QueryFormats(mCapBufType);
+        if(ret != OK)
+            return ret;
+    }
+
+    if (i >= capture_formats.size())
+        return BAD_VALUE;
+
+    *format = capture_formats.at(i);
+
+    return ret;
+}
+
+status_t DecoderDev::GetColorFormatByV4l2(uint32_t v4l2_format, uint32_t * color_format,
+    COLOR_FORMAT_TABLE *color_format_table, uint8_t tableSize) {
+    for( size_t i = 0; i < tableSize; i++) {
         if (v4l2_format == color_format_table[i].v4l2_format) {
             *color_format = color_format_table[i].color_format;
             return OK;
@@ -277,8 +329,9 @@ status_t DecoderDev::GetColorFormatByV4l2(uint32_t v4l2_format, uint32_t * color
     return ERROR_UNSUPPORTED;
 }
 
-status_t DecoderDev::GetV4l2FormatByColor(uint32_t color_format, uint32_t * v4l2_format) {
-    for( size_t i = 0; i < sizeof(color_format_table) / sizeof(COLOR_FORMAT_TABLE); i++) {
+status_t DecoderDev::GetV4l2FormatByColor(uint32_t color_format, uint32_t * v4l2_format,
+    COLOR_FORMAT_TABLE *color_format_table, uint8_t tableSize) {
+    for( size_t i = 0; i < tableSize; i++) {
         if (color_format == color_format_table[i].color_format) {
             *v4l2_format = color_format_table[i].v4l2_format;
             return OK;

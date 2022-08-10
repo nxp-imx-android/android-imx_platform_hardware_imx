@@ -303,6 +303,9 @@ int CameraDeviceSessionHwlImpl::HandleIntent(HwlPipelineRequest *hwReq)
         pVideoStreams[0]->SetBufferNumber(pipeline_info->hal_streams->at(configIdx).max_buffers + 1);
 
         uint32_t format = HAL_PIXEL_FORMAT_YCbCr_422_I;
+        if (strcmp(mSensorData.v4l2_format, "nv12") == 0)
+            format = HAL_PIXEL_FORMAT_YCbCr_420_SP;
+
         if(pipeline_info->hal_streams->at(configIdx).override_format == HAL_PIXEL_FORMAT_RAW16) {
             format = HAL_PIXEL_FORMAT_RAW16;
         }
@@ -323,12 +326,6 @@ int CameraDeviceSessionHwlImpl::HandleIntent(HwlPipelineRequest *hwReq)
 int CameraDeviceSessionHwlImpl::HandleRequest()
 {
     Mutex::Autolock _l(mLock);
-
-    if(!pipelines_built_) {
-        ALOGV("%s: pipeline not built", __func__);
-        usleep(200);
-        return OK;
-    }
 
     if (map_frame_request.empty()) {
         ALOGV("map_frame_request empty, wait");
@@ -871,6 +868,7 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf, I
             captureSize = alignedw * alignedh + c_stride * alignedh;
             break;
         case HAL_PIXEL_FORMAT_YCbCr_420_SP:
+        case HAL_PIXEL_FORMAT_YCbCr_420_888:
             alignedw = ALIGN_PIXEL_16(capture->mWidth);
             alignedh = ALIGN_PIXEL_16(capture->mHeight);
             captureSize = alignedw * alignedh * 3 / 2;
@@ -893,7 +891,7 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf, I
             break;
 
         default:
-            ALOGE("Error: %s format not supported", __func__);
+            ALOGE("Error: %s format 0x%x not supported", __func__, srcStream->format());
     }
 
     sp<MemoryHeapBase> rawFrame(
@@ -1230,7 +1228,11 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
                 break;
 
             case HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED:
-                hal_stream.override_format = HAL_PIXEL_FORMAT_YCBCR_422_I;
+                if (strcmp(mSensorData.v4l2_format, "nv12") == 0)
+                    hal_stream.override_format = HAL_PIXEL_FORMAT_YCBCR_420_888;
+                else
+                    hal_stream.override_format = HAL_PIXEL_FORMAT_YCBCR_422_I;
+
                 hal_stream.max_buffers = NUM_PREVIEW_BUFFER;
                 usage = CAMERA_GRALLOC_USAGE;
 
@@ -1293,6 +1295,24 @@ int CameraDeviceSessionHwlImpl::PickConfigStream(uint32_t pipeline_id, uint8_t i
     int configIdx = -1;
     if(intent == ANDROID_CONTROL_CAPTURE_INTENT_STILL_CAPTURE)
         configIdx = stillcapIdx;
+
+
+    // In this case, pick max size from callback and stillcap.
+    // Or testAllOutputYUVResolutions will failed due to diff too much
+    // when 320x240 enlarge to 2592x1944 by adding black margin.
+    if ((strcmp(mSensorData.v4l2_format, "nv12") == 0) &&
+        (stillcapIdx >= 0) && (callbackIdx >= 0) && (previewIdx < 0) && (recordIdx < 0) &&
+        (intent == ANDROID_CONTROL_CAPTURE_INTENT_PREVIEW)) {
+        int stillcapWidth = pipeline_info->streams->at(stillcapIdx).width;
+        int stillcapHeight = pipeline_info->streams->at(stillcapIdx).height;
+        int callbackWidth = pipeline_info->streams->at(callbackIdx).width;
+        int callbackHeight = pipeline_info->streams->at(callbackIdx).height;
+
+        if ((callbackWidth > stillcapWidth) && (callbackHeight > stillcapHeight))
+          configIdx = callbackIdx;
+        else
+          configIdx = stillcapIdx;
+    }
 
     if (configIdx == -1) {
         if (previewIdx >= 0)

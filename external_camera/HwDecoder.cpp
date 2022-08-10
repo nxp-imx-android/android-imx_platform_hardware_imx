@@ -1,5 +1,5 @@
 /*
- *  Copyright 2021 NXP.
+ *  Copyright 2021-2022 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -61,7 +61,6 @@ HwDecoder::HwDecoder(const char* mime):
     mFrameAlignW = HANTRO_FRAME_ALIGN_WIDTH;
     mFrameAlignH = HANTRO_FRAME_ALIGN_HEIGHT;
 
-
     mInputFormat.bufferNum = DEFAULT_INPUT_BUFFER_COUNT;
     mInputFormat.bufferSize = DEFAULT_INPUT_BUFFER_SIZE_4K;
     mInputFormat.width = DEFAULT_FRM_WIDTH;
@@ -81,12 +80,27 @@ HwDecoder::HwDecoder(const char* mime):
 
     mInFormat = V4L2_PIX_FMT_JPEG;
     mOutFormat = V4L2_PIX_FMT_NV12;
+    mTableSize = 0;
+    color_format_table = NULL;
 }
 
 HwDecoder::~HwDecoder() {
 }
 
-status_t HwDecoder::Init() {
+static COLOR_FORMAT_TABLE color_format_table_8mq[] = {
+    { HAL_PIXEL_FORMAT_YCbCr_420_P, V4L2_PIX_FMT_YUV420 },
+    { HAL_PIXEL_FORMAT_YCbCr_422_SP, V4L2_PIX_FMT_NV16 },
+    { HAL_PIXEL_FORMAT_YCbCr_420_SP, V4L2_PIX_FMT_NV12 },
+    { HAL_PIXEL_FORMAT_YCbCr_422_I, V4L2_PIX_FMT_YUYV },
+};
+static COLOR_FORMAT_TABLE color_format_table_8qm[] = {
+    { HAL_PIXEL_FORMAT_YCbCr_420_P, V4L2_PIX_FMT_YUV420 },
+    { HAL_PIXEL_FORMAT_YCbCr_422_SP, V4L2_PIX_FMT_NV16 },
+    { HAL_PIXEL_FORMAT_YCbCr_420_SP, V4L2_PIX_FMT_NV12M },
+    { HAL_PIXEL_FORMAT_YCbCr_422_I, V4L2_PIX_FMT_YUYV },
+};
+
+status_t HwDecoder::Init(const char* socType) {
     status_t ret = UNKNOWN_ERROR;
 
     if(pDev == NULL) {
@@ -94,6 +108,19 @@ status_t HwDecoder::Init() {
     }
     if(pDev == NULL)
         return ret;
+
+    if ((strcmp(socType, "imx8qm") == 0) || (strcmp(socType, "imx8qxp") == 0)) {
+        pDev->mSocType = IMX8QM;
+        mOutFormat = V4L2_PIX_FMT_NV12M;
+        mTableSize = sizeof(color_format_table_8qm) / sizeof(color_format_table_8qm[0]);
+        color_format_table = color_format_table_8qm;
+
+    } else {
+        pDev->mSocType = IMX8MQ;
+        mOutFormat = V4L2_PIX_FMT_NV12;
+        mTableSize = sizeof(color_format_table_8mq) / sizeof(color_format_table_8mq[0]);
+        color_format_table = color_format_table_8mq;
+    }
 
     mFd = pDev->Open();
     if(mFd < 0)
@@ -105,6 +132,33 @@ status_t HwDecoder::Init() {
         return ret;
 
     return OK;
+}
+
+static int pxlfmt2bpp(int pxlfmt) {
+    int bpp; // bit per pixel
+    switch(pxlfmt) {
+    case HAL_PIXEL_FORMAT_YCbCr_420_P:
+    case HAL_PIXEL_FORMAT_YCbCr_420_SP:
+    case HAL_PIXEL_FORMAT_YCBCR_420_888:
+    case HAL_PIXEL_FORMAT_NV12_TILED:
+        bpp = 12;
+        break;
+    case HAL_PIXEL_FORMAT_P010:
+    case HAL_PIXEL_FORMAT_P010_TILED:
+    case HAL_PIXEL_FORMAT_P010_TILED_COMPRESSED:
+        bpp = 15;
+        break;
+    case HAL_PIXEL_FORMAT_RGB_565:
+    case HAL_PIXEL_FORMAT_YCbCr_422_P:
+    case HAL_PIXEL_FORMAT_YCbCr_422_SP:
+    case HAL_PIXEL_FORMAT_YCBCR_422_I:
+        bpp = 16;
+        break;
+    default:
+        bpp = 0;
+        break;
+    }
+    return bpp;
 }
 
 status_t HwDecoder::Start() {
@@ -145,32 +199,36 @@ status_t HwDecoder::Start() {
 {
     Mutex::Autolock autoLock(mLock);
 
-    ret = pDev->GetV4l2FormatByColor(mOutputFormat.pixelFormat, &mOutFormat);
-    if(ret != OK)
+    ret = pDev->GetV4l2FormatByColor(mOutputFormat.pixelFormat, &mOutFormat, color_format_table, mTableSize);
+    if(ret != OK) {
+        ALOGE("GetV4l2FormatByColor failed, mOutputFormat.pixelFormat=0x%x", mOutputFormat.pixelFormat);
         return ret;
-
-    ALOGV("%s: pixelFormat=0x%x,mOutFormat=0x%x", __FUNCTION__, mOutputFormat.pixelFormat, mOutFormat);
-
-    if(!pDev->IsCaptureFormatSupported(mOutFormat)) {
-        return UNKNOWN_ERROR;
     }
 
-    if(mOutputFormat.pixelFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP ||
-        mOutputFormat.pixelFormat == HAL_PIXEL_FORMAT_NV12_TILED ) {
-        //update output frame width & height
-        mOutputFormat.width = Align(mOutputFormat.rect.right, mFrameAlignW);
-        mOutputFormat.height = Align(mOutputFormat.rect.bottom, mFrameAlignH);
-
-        if (V4L2_TYPE_IS_MULTIPLANAR(mCapBufType)) {
-            mOutputPlaneSize[0] = mOutputFormat.width * mOutputFormat.height;
-            mOutputPlaneSize[1] = mOutputPlaneSize[0] / 2;
-        } else {
-            mOutputPlaneSize[0] = mOutputFormat.width * mOutputFormat.height * 3 / 2;
+    ALOGD("prepareOutputParams begin pixelFormat=0x%x,mOutFormat=0x%x",mOutputFormat.pixelFormat, mOutFormat);
+    if(!pDev->IsCaptureFormatSupported(mOutFormat)) {
+        for (uint32_t i = 0;;i++) {
+            if (pDev->GetCaptureFormat(&mOutFormat, i) != OK)
+                return BAD_VALUE;
+            else if (pDev->GetColorFormatByV4l2(mOutFormat, (uint32_t*)&mOutputFormat.pixelFormat,
+                color_format_table, mTableSize) != OK
+                             || V4L2_FORMAT_IS_NON_CONTIGUOUS_PLANES(mOutFormat))
+                continue;
+            else
+                break;
         }
+    }
 
-        ALOGV("%s pixel format =0x%x,success", __FUNCTION__, mOutputFormat.pixelFormat);
-    } else
-        return UNKNOWN_ERROR;
+    //update output frame width & height
+    mOutputFormat.width = Align(mOutputFormat.rect.right, mFrameAlignW);
+    mOutputFormat.height = Align(mOutputFormat.rect.bottom, mFrameAlignH);
+
+    ALOGI("prepareOutputParams rect %d/%d, align %d/%d, aligned %d/%d",
+            mOutputFormat.rect.right, mOutputFormat.rect.bottom, mFrameAlignW,mFrameAlignH,
+            mOutputFormat.width , mOutputFormat.height);
+
+    mOutputPlaneSize[0] = mOutputFormat.width * mOutputFormat.height * pxlfmt2bpp(mOutputFormat.pixelFormat) / 8;
+    ALOGV("prepareOutputParams pixel format =0x%x,success",mOutputFormat.pixelFormat);
 }
 
     ret = SetOutputFormats();
@@ -191,29 +249,27 @@ status_t HwDecoder::Start() {
 
 status_t HwDecoder::SetInputFormats() {
     int result = 0;
-    uint32_t alignedWidth;
     Mutex::Autolock autoLock(mLock);
-
-    alignedWidth = Align(mInputFormat.width, mFrameAlignW);
 
     struct v4l2_format format;
     memset(&format, 0, sizeof(format));
     format.type = mOutBufType;
     if (V4L2_TYPE_IS_MULTIPLANAR(mOutBufType)) {
-        format.fmt.pix_mp.num_planes = 1;
+        format.fmt.pix_mp.num_planes = DEFAULT_INPUT_BUFFER_PLANE;
         format.fmt.pix_mp.pixelformat = mInFormat;
-        format.fmt.pix_mp.plane_fmt[0].sizeimage = mInputFormat.bufferSize;
-        format.fmt.pix_mp.plane_fmt[0].bytesperline = alignedWidth;
         format.fmt.pix_mp.width = mInputFormat.width;
         format.fmt.pix_mp.height = mInputFormat.height;
         format.fmt.pix_mp.field = V4L2_FIELD_NONE;
+        format.fmt.pix_mp.plane_fmt[0].sizeimage = mInputFormat.bufferSize;
     } else {
         format.fmt.pix.pixelformat = mInFormat;
-		format.fmt.pix.width = mInputFormat.width;
-		format.fmt.pix.height = mInputFormat.height;
-		format.fmt.pix.bytesperline = mInputFormat.width;
-		format.fmt.pix.sizeimage = mInputFormat.bufferSize;
+        format.fmt.pix.width = mInputFormat.width;
+        format.fmt.pix.height = mInputFormat.height;
+        format.fmt.pix.sizeimage = mInputFormat.bufferSize;
     }
+
+    ALOGV("SetInputFormats width %d, height %d, mOutBufType %d",
+        mInputFormat.width, mInputFormat.height, mOutBufType);
 
     result = ioctl (mFd, VIDIOC_S_FMT, &format);
     if(result != 0) {
@@ -264,13 +320,12 @@ status_t HwDecoder::SetInputFormats() {
 
 status_t HwDecoder::SetOutputFormats() {
     int result = 0;
-    uint32_t alignedWidth;
+    uint32_t alignedWidth, retFormat;
     Mutex::Autolock autoLock(mLock);
 
     struct v4l2_format format;
     memset(&format, 0, sizeof(format));
     format.type = mCapBufType;
-
     alignedWidth = Align(mOutputFormat.width, mFrameAlignW);
 
     mOutputFormat.width = Align(mOutputFormat.width, mFrameAlignW);
@@ -281,20 +336,17 @@ status_t HwDecoder::SetOutputFormats() {
         format.fmt.pix_mp.pixelformat = mOutFormat;
         format.fmt.pix_mp.width = mOutputFormat.width;
         format.fmt.pix_mp.height = mOutputFormat.height;
-        format.fmt.pix_mp.plane_fmt[0].sizeimage = mOutputPlaneSize[0];
         format.fmt.pix_mp.plane_fmt[0].bytesperline = alignedWidth;
-        format.fmt.pix_mp.plane_fmt[1].sizeimage = mOutputPlaneSize[1];
-        format.fmt.pix_mp.plane_fmt[1].bytesperline = alignedWidth;
         format.fmt.pix_mp.field = V4L2_FIELD_NONE;
     } else {
         format.fmt.pix.pixelformat = mOutFormat;
 		format.fmt.pix.width = mOutputFormat.width;
 		format.fmt.pix.height = mOutputFormat.height;
 		format.fmt.pix.bytesperline = alignedWidth;
-		format.fmt.pix.sizeimage = mOutputPlaneSize[0];
     }
 
-    ALOGV("%s: mOutputFormat w=%d,h=%d,fmt=0x%x", __FUNCTION__, mOutputFormat.width, mOutputFormat.height, mOutFormat);
+    ALOGI("SetOutputFormats w=%d,h=%d,alignedWidth=%d,fmt=0x%x, OutputPlaneSize=[%d,%d]",
+        mOutputFormat.width, mOutputFormat.height, alignedWidth,mOutFormat, mOutputPlaneSize[0], mOutputPlaneSize[1]);
 
     result = ioctl (mFd, VIDIOC_S_FMT, &format);
     if(result != 0) {
@@ -309,15 +361,12 @@ status_t HwDecoder::SetOutputFormats() {
     if(result < 0)
         return UNKNOWN_ERROR;
 
-    uint32_t retFormat;
-
     if (V4L2_TYPE_IS_MULTIPLANAR(mCapBufType)) {
         retFormat = format.fmt.pix_mp.pixelformat;
-
-        if(format.fmt.pix_mp.plane_fmt[0].sizeimage !=  mOutputPlaneSize[0] ||
-            format.fmt.pix_mp.plane_fmt[1].sizeimage !=  mOutputPlaneSize[1]) {
-            ALOGE("%s bufferSize mismatch", __FUNCTION__);
-            return UNKNOWN_ERROR;
+        if(format.fmt.pix_mp.plane_fmt[0].sizeimage !=  mOutputPlaneSize[0]) {
+            ALOGW("SetOutputFormats bufferSize mismatch, set %d, get %d",
+                mOutputPlaneSize[0], format.fmt.pix_mp.plane_fmt[0].sizeimage);
+            mOutputPlaneSize[0] = format.fmt.pix_mp.plane_fmt[0].sizeimage;
         }
     } else {
         retFormat = format.fmt.pix.pixelformat;
@@ -452,6 +501,9 @@ status_t HwDecoder::destroyInputBuffers() {
 }
 
 status_t HwDecoder::destroyOutputBuffers() {
+    if (bOutputStreamOn)
+        stopOutputStream();
+
     Mutex::Autolock autoLock(mLock);
     if (mOutputBufferMap.empty())
         return OK;
@@ -747,16 +799,12 @@ status_t HwDecoder::queueOutputBuffer(DecoderBufferInfo* pInfo) {
     }
 
     vaddr[0] = pInfo->mVirtAddr;
-    vaddr[1] = pInfo->mVirtAddr;
 
     paddr[0] = pInfo->mPhysAddr;
-    paddr[1] = pInfo->mPhysAddr;
 
     offset[0] = 0;
-    offset[1] = mOutputPlaneSize[0];
 
     fd[0] = pInfo->mDMABufFd;
-    fd[1] = pInfo->mDMABufFd;
 
     //try to get index
     for(int32_t i = 0; i < mOutputBufferMap.size(); i++) {
@@ -774,11 +822,6 @@ status_t HwDecoder::queueOutputBuffer(DecoderBufferInfo* pInfo) {
                 mOutputBufferMap[i].planes[0].vaddr = vaddr[0];
                 mOutputBufferMap[i].planes[0].paddr = paddr[0];
                 mOutputBufferMap[i].planes[0].offset = offset[0];
-
-                mOutputBufferMap[i].planes[1].fd = fd[1];
-                mOutputBufferMap[i].planes[1].vaddr = vaddr[1];
-                mOutputBufferMap[i].planes[1].paddr = paddr[1];
-                mOutputBufferMap[i].planes[1].offset = offset[1];
 
                 mOutputBufferMap[i].buf_id = pInfo->mDBInfoId;
                 mOutputBufferMap[i].used = false;
@@ -811,18 +854,11 @@ status_t HwDecoder::queueOutputBuffer(DecoderBufferInfo* pInfo) {
     if (V4L2_TYPE_IS_MULTIPLANAR(mCapBufType)) {
         if (mOutMemType == V4L2_MEMORY_DMABUF) {
             planes[0].m.fd = fd[0];
-            planes[1].m.fd = fd[1];
         } else if(mOutMemType == V4L2_MEMORY_USERPTR) {
             planes[0].m.userptr = vaddr[0];
-            planes[1].m.userptr = vaddr[1];
         }
-
         planes[0].length = mOutputBufferMap[index].planes[0].size;
-        planes[1].length = mOutputBufferMap[index].planes[1].size;
-
         planes[0].data_offset = mOutputBufferMap[index].planes[0].offset;
-        planes[1].data_offset = mOutputBufferMap[index].planes[1].offset;
-
         stV4lBuf.m.planes = &planes[0];
         stV4lBuf.length = DEFAULT_OUTPUT_BUFFER_PLANE;
     } else {
@@ -957,7 +993,7 @@ status_t HwDecoder::dequeueOutputBuffer() {
     }
 
     if (V4L2_TYPE_IS_MULTIPLANAR(mCapBufType))
-        bufsize = stV4lBuf.m.planes[0].bytesused + stV4lBuf.m.planes[1].bytesused;
+        bufsize = stV4lBuf.m.planes[0].bytesused;
     else
         bufsize = stV4lBuf.bytesused;
 
@@ -1077,13 +1113,27 @@ status_t HwDecoder::handleFormatChanged() {
             return UNKNOWN_ERROR;
 
         if (V4L2_TYPE_IS_MULTIPLANAR(mCapBufType)) {
+            if (format.fmt.pix_mp.num_planes > 1) {
+                uint32_t contiguous_fmt;
+                if (pDev->GetContiguousV4l2Format(format.fmt.pix_mp.pixelformat, &contiguous_fmt) != OK) {
+                    ALOGE("can't support noncontiguous format 0x%x", format.fmt.pix_mp.pixelformat);
+                    return BAD_VALUE;
+                }
+                format.fmt.pix_mp.num_planes = 1;
+                format.fmt.pix_mp.pixelformat = contiguous_fmt;
+                if (ioctl (mFd, VIDIOC_S_FMT, &format) < 0 || ioctl (mFd, VIDIOC_G_FMT, &format) < 0) {
+                    ALOGE("change to contiguous format failed");
+                    return BAD_VALUE;
+                }
+            }
             v4l2_pixel_format = format.fmt.pix_mp.pixelformat;
             newWidth = format.fmt.pix_mp.width;
             newHeight = format.fmt.pix_mp.height;
             newBytesperline = format.fmt.pix_mp.plane_fmt[0].bytesperline;
             mOutputPlaneSize[0] = format.fmt.pix_mp.plane_fmt[0].sizeimage;
-            mOutputPlaneSize[1] = format.fmt.pix_mp.plane_fmt[1].sizeimage;
-            mOutputFormat.bufferSize = mOutputPlaneSize[0] + mOutputPlaneSize[1];
+            mOutputFormat.bufferSize = mOutputPlaneSize[0];
+            ALOGI("%s: GET width:%d, height:%d, bytesperline:%d,, sizeimage[0]:%d, sizeimage[1]:%d", __FUNCTION__, format.fmt.pix_mp.width, format.fmt.pix_mp.height,
+                    format.fmt.pix_mp.plane_fmt[0].bytesperline, format.fmt.pix_mp.plane_fmt[0].sizeimage, format.fmt.pix_mp.plane_fmt[1].sizeimage);
         } else {
             v4l2_pixel_format = format.fmt.pix.pixelformat;
             newWidth = format.fmt.pix.width;
@@ -1093,7 +1143,7 @@ status_t HwDecoder::handleFormatChanged() {
             mOutputFormat.bufferSize = mOutputPlaneSize[0];
         }
 
-        ret = pDev->GetColorFormatByV4l2(v4l2_pixel_format, &pixel_format);
+        ret = pDev->GetColorFormatByV4l2(v4l2_pixel_format, &pixel_format, color_format_table, mTableSize);
         if(ret != OK) {
             ALOGE("%s GetColorFormatByV4l2 error", __FUNCTION__);
             return ret;
@@ -1103,8 +1153,8 @@ status_t HwDecoder::handleFormatChanged() {
         mOutputFormat.pixelFormat = static_cast<int>(pixel_format);
         mData.format = mOutputFormat.pixelFormat;
 
-        mOutputFormat.width = Align(newWidth, mFrameAlignW);
-        mOutputFormat.height = Align(newHeight, mFrameAlignH);
+        mOutputFormat.width = newWidth;
+        mOutputFormat.height = newHeight;
         mOutputFormat.stride = mOutputFormat.width;
 
         //for 10bit video, stride is larger than width, should use stride to allocate buffer
@@ -1114,27 +1164,36 @@ status_t HwDecoder::handleFormatChanged() {
 
         struct v4l2_control ctl;
         memset(&ctl, 0, sizeof(struct v4l2_control));
-        ctl.id = V4L2_CID_MIN_BUFFERS_FOR_CAPTURE;
-        result = ioctl(mFd, VIDIOC_G_CTRL, &ctl);
-        if(result < 0) {
-            ALOGE("%s VIDIOC_G_CTRL error", __FUNCTION__);
-            return UNKNOWN_ERROR;
-        }
+        if (V4L2_TYPE_IS_OUTPUT(mCapBufType))
+            ctl.id = V4L2_CID_MIN_BUFFERS_FOR_OUTPUT;
+        else
+            ctl.id = V4L2_CID_MIN_BUFFERS_FOR_CAPTURE;
 
+        if (pDev->mSocType == IMX8QM) {
+            ctl.value = 4;          // default value;
+        } else {
+            result = ioctl(mFd, VIDIOC_G_CTRL, &ctl);
+            if(result < 0) {
+                ALOGE("%s VIDIOC_G_CTRL error", __FUNCTION__);
+                return UNKNOWN_ERROR;;
+            }
+        }
         mOutputFormat.bufferNum = ctl.value;
         mOutputFormat.bufferNum += HANTRO_FRAME_PLUS;
 
         struct v4l2_selection sel;
         sel.type = mCapBufType;
         sel.target = V4L2_SEL_TGT_COMPOSE;
+
         result = ioctl (mFd, VIDIOC_G_SELECTION, &sel);
         if(result < 0) {
-            ALOGE("%s VIDIOC_G_CROP error, result=%d", __FUNCTION__, result);
+            ALOGE("g_selection fail, result=%d", result);
             return UNKNOWN_ERROR;
         }
 
-        if(sel.r.width == 0 && sel.r.height == 0) {
-            ALOGE("%s flushed return", __FUNCTION__);
+        //seems decoder just be flushed
+        if(sel.r.width == 0 && sel.r.height == 0){
+            ALOGE("handleFormatChanged flushed return");
             return OK;
         }
 
@@ -1144,18 +1203,9 @@ status_t HwDecoder::handleFormatChanged() {
         mOutputFormat.rect.left = sel.r.left;
     }
 
-    ALOGD("%s: OutputFormat w=%d, h=%d, bufferNum=%d, buffer size[0]=%d, size[1]=%d, pixelFormat=0x%x",
-        __FUNCTION__, mOutputFormat.width, mOutputFormat.height,
-        mOutputFormat.bufferNum, mOutputPlaneSize[0], mOutputPlaneSize[1], mOutputFormat.pixelFormat);
-
-    if (mFetchState == RUNNING) {
-        destroyFetchThread();
-    }
-
-    if (bOutputStreamOn) {
-        stopOutputStream();
-        mOutputBufferMap.clear();
-    }
+    ALOGD("outputFormatChanged w=%d,h=%d,s=%d, bufferNum=%d, mOutputPlaneSize[0]=%d,, pixelFormat=0x%x",
+        mOutputFormat.width, mOutputFormat.height,mOutputFormat.stride,
+        mOutputFormat.bufferNum, mOutputPlaneSize[0], mOutputFormat.pixelFormat);
 
     ret = SetOutputFormats();
     if(ret != OK) {
@@ -1331,14 +1381,15 @@ status_t HwDecoder::allocateOutputBuffer(int bufId) {
     int fd = 0;
     uint64_t phys_addr = 0;
     uint64_t virt_addr = 0;
+    int32_t mbufferSize = mOutputFormat.width * mOutputFormat.height * pxlfmt2bpp(mOutputFormat.pixelFormat) / 8;
 
-    fd = IMXAllocMem(mOutputFormat.bufferSize);
+    fd = IMXAllocMem(mbufferSize);
     if (fd <= 0) {
-        ALOGE("%s: Ion allocate failed bufId=%d,size=%d", __FUNCTION__, bufId, mOutputFormat.bufferSize);
+        ALOGE("%s: Ion allocate failed bufId=%d,size=%d", __FUNCTION__, bufId, mbufferSize);
         return BAD_VALUE;
     }
 
-    int ret = IMXGetBufferAddr(fd, mOutputFormat.bufferSize, phys_addr, false);
+    int ret = IMXGetBufferAddr(fd, mbufferSize, phys_addr, false);
     if (ret != 0) {
         ALOGE("%s: DmaBuffer getPhys failed", __FUNCTION__);
         if (fd > 0)
@@ -1346,7 +1397,7 @@ status_t HwDecoder::allocateOutputBuffer(int bufId) {
         return BAD_VALUE;
     }
 
-    ret = IMXGetBufferAddr(fd, mOutputFormat.bufferSize, virt_addr, true);
+    ret = IMXGetBufferAddr(fd, mbufferSize, virt_addr, true);
     if (ret != 0) {
         ALOGE("%s: DmaBuffer getVaddrs failed", __FUNCTION__);
         if (fd > 0)
@@ -1360,12 +1411,11 @@ status_t HwDecoder::allocateOutputBuffer(int bufId) {
     mInfo.mDMABufFd = fd;
     mInfo.mPhysAddr = phys_addr;
     mInfo.mVirtAddr = virt_addr;
-    mInfo.mCapacity = mOutputFormat.bufferSize;
+    mInfo.mCapacity = mbufferSize;
     mInfo.bInUse = false;
     mDecoderBuffers.push_back(std::move(mInfo));
 
-    ALOGV("%s: Allocated fd=%d phys_addr=%p vaddr=%p", __FUNCTION__, fd, (void*)phys_addr, (void*)virt_addr);
-
+    ALOGI("%s: Allocated fd=%d phys_addr=%p vaddr=%p mInfo.mCapacity:%d", __FUNCTION__, fd, (void*)phys_addr, (void*)virt_addr, mInfo.mCapacity);
     return OK;
 }
 

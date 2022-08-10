@@ -403,12 +403,6 @@ int get_sensor_stepcounter(const std::string& device_dir, unsigned int* stepcoun
     return sysfs_read_uint(filename, stepcounter);
 }
 
-int get_sensor_stepcounter(const std::string& device_dir, unsigned int* stepcounter) {
-    const std::string filename = device_dir + "/" + IIO_STEPCOUNTER_INPUT;
-
-    return sysfs_read_uint(filename, stepcounter);
-}
-
 int64_t get_timestamp(){
     struct timespec ts;
 
