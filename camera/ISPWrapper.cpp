@@ -33,11 +33,12 @@
 
 namespace android {
 
-ISPWrapper::ISPWrapper(CameraSensorMetadata *pSensorData)
+ISPWrapper::ISPWrapper(CameraSensorMetadata *pSensorData, void *stream)
 {
     m_fd = -1;
     m_ctrl_id = 0;
     m_SensorData = pSensorData;
+    m_stream = stream;
 
     // Set ISP feature to it's default value
     m_awb_mode = ANDROID_CONTROL_AWB_MODE_AUTO;
@@ -64,6 +65,14 @@ ISPWrapper::ISPWrapper(CameraSensorMetadata *pSensorData)
     m_hue = HUE_MAX + 1;
 
     m_sharp_level = SHARP_LEVEL_MAX +1;
+
+    m_last_exposure_gain = -1.0;
+    m_last_exposure_time = -1.0;
+
+    m_last_wb_r = -1.0;
+    m_last_wb_gr = -1.0;
+    m_last_wb_gb = -1.0;
+    m_last_wb_b = -1.0;
 }
 
 ISPWrapper::~ISPWrapper()
@@ -166,13 +175,18 @@ int ISPWrapper::enableAWB(bool enable)
 int ISPWrapper::processAWB(uint8_t mode, bool force)
 {
     int ret = 0;
-    char *value = NULL;
 
     ALOGV("%s, mode %d, force %d", __func__, mode, force);
 
     if(mode >= WB_MODE_NUM) {
         ALOGW("%s, unsupported awb mode %d", __func__, mode);
         return BAD_VALUE;
+    }
+
+    ImxStream *imxStream = (ImxStream *)m_stream;
+    if (imxStream->isPictureIntent() && (mode != ANDROID_CONTROL_AWB_MODE_OFF)) {
+        ALOGI("%s: taking picture only support awb off", __func__);
+        return 0;
     }
 
     if((mode == m_awb_mode) && (force == false))
@@ -352,20 +366,18 @@ int ISPWrapper::viv_private_ioctl(const char *cmd, Json::Value& jsonRequest, Jso
 
     ret = ioctl(m_fd, VIDIOC_G_EXT_CTRLS, &ecs);
     if (ret != 0) {
-        ALOGV("==== ret %, line %d", ret, __LINE__);
-  //      goto failed;
+        ALOGV("%s: ret %d, line %d", __func__, ret, __LINE__);
     }
     strcpy(ec.string, jsonRequest.toStyledString().c_str());
 
     ret = ioctl(m_fd, VIDIOC_S_EXT_CTRLS, &ecs);
     if (ret != 0) {
-        ALOGI("==== ret %, line %d", ret, __LINE__);
+        ALOGI("%s: ret %d, line %d", __func__, ret, __LINE__);
         goto failed;
     }
     ret = ioctl(m_fd, VIDIOC_G_EXT_CTRLS, &ecs);
     if (ret != 0) {
-        ALOGV("==== ret %, line %d", ret, __LINE__);
-      //  goto failed;
+        ALOGV("%s: ret %d, line %d", __func__, ret, __LINE__);
     }
 
     if (!reader.parse(ec.string, jsonResponse, true)) {
@@ -385,12 +397,13 @@ failed:
 #define AE_ENABLE_PARAMS    "enable"
 #define IF_AE_S_EN          "ae.s.en"
 
+#ifndef NS_PER_SEC
 #define NS_PER_SEC  1000000000
+#endif
 
 void ISPWrapper::getExpGainBoundary()
 {
     Json::Value jRequest, jResponse;
-    double minGain, maxGain, currentGain, currentInt;
     int ret = viv_private_ioctl(IF_EC_G_CFG, jRequest, jResponse);
     if (ret == 0) {
         m_ec_gain_min = jResponse[EC_GAIN_MIN_PARAMS].asDouble();
@@ -475,7 +488,7 @@ int ISPWrapper::processExposureTime(int64_t exposureNs, bool force)
     jRequest[EC_GAIN_PARAMS] = gain;
     jRequest[EC_TIME_PARAMS] = exposure_second;
 
-    ALOGI("%s: change exposureNs from %d to %d, set exposure gain to %f, exposure time to %f, force %d",
+    ALOGI("%s: change exposureNs from %ld to %ld, set exposure gain to %f, exposure time to %f, force %d",
         __func__, m_exposure_time, exposureNs, gain, exposure_second, force);
 
     ret = viv_private_ioctl(IF_EC_S_CFG, jRequest, jResponse);
@@ -494,6 +507,12 @@ int ISPWrapper::processAeMode(uint8_t mode, bool force)
     if((mode != ANDROID_CONTROL_AE_MODE_OFF) && (mode != ANDROID_CONTROL_AE_MODE_ON)) {
         ALOGW("%s: unsupported ae mode %d", __func__, mode);
         return BAD_VALUE;
+    }
+
+    ImxStream *imxStream = (ImxStream *)m_stream;
+    if (imxStream->isPictureIntent() && (mode != ANDROID_CONTROL_AE_MODE_OFF)) {
+        ALOGW("%s: Taking picture only support ae off", __func__);
+        return 0;
     }
 
     if((mode == m_ae_mode) && (force == false))
@@ -890,6 +909,101 @@ int ISPWrapper::processSharpLevel(uint8_t level)
     }
 
     m_sharp_level = level;
+
+    return 0;
+}
+
+void ISPWrapper::getLatestExpWB()
+{
+    int ret = 0;
+    Json::Value jRequest, jResponse;
+
+    ret = viv_private_ioctl(IF_EC_G_CFG, jRequest, jResponse);
+    if (ret == 0) {
+        m_last_exposure_gain = jResponse[EC_GAIN_PARAMS].asDouble();
+        m_last_exposure_time = jResponse[EC_TIME_PARAMS].asDouble();
+        ALOGI("%s: exposure -- gain %f, time %f", __func__, m_last_exposure_gain, m_last_exposure_time);
+    } else {
+        ALOGE("%s: IF_EC_G_CFG failed, ret %d", __func__, ret);
+    }
+
+    ret = viv_private_ioctl(IF_WB_G_CFG, jRequest, jResponse);
+    if (ret == 0) {
+        m_last_wb_r =  jResponse[WB_RED_PARAMS].asFloat();
+        m_last_wb_gr =  jResponse[WB_GREEN_R_PARAMS].asFloat();
+        m_last_wb_gb =  jResponse[WB_GREEN_B_PARAMS].asFloat();
+        m_last_wb_b =  jResponse[WB_BLUE_PARAMS].asFloat();
+        ALOGI("%s: wb -- r %f, gr %f, gb %f, b %f", __func__, m_last_wb_r, m_last_wb_gr, m_last_wb_gb, m_last_wb_b);
+    } else {
+        ALOGE("%s: IF_WB_G_CFG failed, ret %d", __func__, ret);
+    }
+
+    return;
+}
+
+int ISPWrapper::setExposure(double gain, double time)
+{
+    int ret;
+    Json::Value jRequest, jResponse;
+
+    jRequest[EC_GAIN_PARAMS] = gain;
+    jRequest[EC_TIME_PARAMS] = time;
+
+    ret = viv_private_ioctl(IF_EC_S_CFG, jRequest, jResponse);
+    if(ret) {
+        ALOGI("%s: IF_EC_S_CFG failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    return 0;
+}
+
+int ISPWrapper::setWB(float r, float gr, float gb, float b)
+{
+   Json::Value jRequest, jResponse;
+
+    jRequest[WB_RED_PARAMS]     = r;
+    jRequest[WB_GREEN_R_PARAMS] = gr;
+    jRequest[WB_GREEN_B_PARAMS] = gb;
+    jRequest[WB_BLUE_PARAMS]    = b;
+
+    int ret = viv_private_ioctl(IF_WB_S_GAIN, jRequest, jResponse);
+    if(ret) {
+        ALOGE("%s, IF_WB_S_GAIN ret %d", __func__, ret);
+        return BAD_VALUE;
+    }
+
+    return 0;
+}
+
+int ISPWrapper::recoverExpWB()
+{
+    ALOGI("enter %s", __func__);
+
+    int ret1 = 0;
+    int ret2 = 0;
+    int ret3 = 0;
+    int ret4 = 0;
+
+    if ((m_last_exposure_gain > 0.0) && (m_last_exposure_time > 0.0)) {
+        ret1 = processAeMode(ANDROID_CONTROL_AE_MODE_OFF, true);
+
+        ALOGI("%s: call setExposure, gain %f, time %f", __func__, m_last_exposure_gain, m_last_exposure_time);
+        ret2 = setExposure(m_last_exposure_gain, m_last_exposure_time);
+    }
+
+    if ((m_last_wb_r > 0.0) && (m_last_wb_gr > 0.0)  && (m_last_wb_gb > 0.0)  && (m_last_wb_b > 0.0)) {
+        ret3 = processAWB(ANDROID_CONTROL_AWB_MODE_OFF, true);
+
+        ALOGI("%s: call setWB, r %f, gr %f, gb %f, b %f",
+            __func__, m_last_wb_r, m_last_wb_gr, m_last_wb_gb, m_last_wb_b);
+        ret4 = setWB(m_last_wb_r, m_last_wb_gr, m_last_wb_gb, m_last_wb_b);
+    }
+
+    if (ret1 || ret2 || ret3 || ret4) {
+        ALOGE("%s: failed, ret1 %d, ret2 %d, ret3 %d, ret4 %d", __func__, ret1, ret2, ret3, ret4);
+        return BAD_VALUE;
+    }
 
     return 0;
 }

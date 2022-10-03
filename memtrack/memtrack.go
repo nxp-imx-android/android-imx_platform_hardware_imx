@@ -1,4 +1,4 @@
-// Copyright 2019 NXP
+// Copyright 2019-2022 NXP
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@ func memtrackDefaults(ctx android.LoadHookContext) {
         Target struct {
                 Android struct {
                         Enabled *bool
+                        Shared_libs []string
                 }
         }
     }
@@ -45,6 +46,13 @@ func memtrackDefaults(ctx android.LoadHookContext) {
         p.Target.Android.Enabled = proptools.BoolPtr(true)
     } else {
         p.Target.Android.Enabled = proptools.BoolPtr(false)
+    }
+
+    var version string = ctx.AConfig().PlatformVersionName()
+    if(version == "12") {
+        p.Target.Android.Shared_libs = append(p.Target.Android.Shared_libs, "android.hardware.memtrack-V1-ndk_platform");
+    } else {
+        p.Target.Android.Shared_libs = append(p.Target.Android.Shared_libs, "android.hardware.memtrack-V1-ndk")
     }
     ctx.AppendProperties(p)
 }

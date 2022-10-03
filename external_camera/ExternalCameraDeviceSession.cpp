@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2021 The Android Open Source Project
- * Copyright 2021 NXP
+ * Copyright 2021-2022 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -192,7 +192,7 @@ bool ExternalCameraDeviceSession::initialize() {
         return true;
     }
 
-    if (mHardwareDecoder) {
+    if (mHardwareDecoder && mSessionNeedHardwareDec) {
         status = mOutputThread->initVpuThread();
         if (status != OK) {
             ALOGE("%s: init VPU decoder thread failed!", __FUNCTION__);
@@ -1616,18 +1616,21 @@ int ExternalCameraDeviceSession::OutputThread::VpuDecAndCsc(uint8_t* inData, siz
     int fd = mDecodedData.fd;
 
     void* vaddr = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (mDecodedData.format == HAL_PIXEL_FORMAT_YCbCr_422_SP || mDecodedData.format == HAL_PIXEL_FORMAT_YCbCr_422_I) {
-        dumpStream((uint8_t *)vaddr, mDecodedData.width * mDecodedData.height * 2, 3);
-    } else
-        dumpStream((uint8_t *)vaddr, mDecodedData.width * mDecodedData.height * 3 / 2, 3);
+    dumpStream((uint8_t *)vaddr, size, 3);
+
+    uint64_t srcPhyAddr = 0;
+    IMXGetBufferAddr(fd, size, srcPhyAddr, false);
 
     uint8_t* outData;
     size_t dataSize;
     mYu12Frame->getData(&outData, &dataSize);
     dstBuf = (void *)outData;
 
+    uint64_t dstPhyAddr = 0;
+    ((AllocatedFramePhyMem *)mYu12Frame.get())->getPhyAddr(dstPhyAddr);
+
     imageProcess->handleFrame((uint8_t *)dstBuf, (uint8_t *)vaddr,
-                            mDecodedData.width, mDecodedData.height, src_fmt);
+                            mDecodedData.width, mDecodedData.height, src_fmt, dstPhyAddr, srcPhyAddr);
     mYu12Frame->flush();
     munmap(vaddr, size);
     mDecoder->returnOutputBufferToDecoder(mDecodedData.bufId);
@@ -1642,6 +1645,10 @@ int ExternalCameraDeviceSession::OutputThread::VpuDecAndCsc(uint8_t* inData, siz
     cropAndScaled.chromaStep = 1;
 
     return 0;
+}
+
+bool ExternalCameraDeviceSession::getHardwareDecFlag() const {
+    return mSessionNeedHardwareDec;
 }
 
 bool ExternalCameraDeviceSession::OutputThread::threadLoop() {
@@ -1701,7 +1708,7 @@ bool ExternalCameraDeviceSession::OutputThread::threadLoop() {
     // TODO: in some special case maybe we can decode jpg directly to gralloc output?
     if (req->frameIn->mFourcc == V4L2_PIX_FMT_MJPEG) {
         ATRACE_BEGIN("MJPGtoI420");
-        if (mHardwareDecoder) {
+        if (mHardwareDecoder && parent->getHardwareDecFlag()) {
             res = VpuDecAndCsc(inData, inDataSize, cropAndScaled);
         } else {
             res = libyuv::MJPGToI420(
@@ -1831,7 +1838,7 @@ bool ExternalCameraDeviceSession::OutputThread::threadLoop() {
                         (outputFourcc >> 16) & 0xFF,
                         (outputFourcc >> 24) & 0xFF);
 
-                if (!mHardwareDecoder) {
+                if (!(mHardwareDecoder && parent->getHardwareDecFlag())) {
                     ATRACE_BEGIN("cropAndScaleLocked");
                     int ret = cropAndScaleLocked(
                             mYu12Frame,
@@ -1883,6 +1890,12 @@ Status ExternalCameraDeviceSession::OutputThread::allocateIntermediateBuffers(
         const hidl_vec<Stream>& streams,
         uint32_t blobBufferSize) {
     std::lock_guard<std::mutex> lk(mBufferLock);
+    auto parent = mParent.promote();
+    if (parent == nullptr) {
+        ALOGE("%s: session has been disconnected!", __FUNCTION__);
+        return Status::INTERNAL_ERROR;
+    }
+
     if (mScaledYu12Frames.size() != 0) {
         ALOGE("%s: intermediate buffer pool has %zu inflight buffers! (expect 0)",
                 __FUNCTION__, mScaledYu12Frames.size());
@@ -1894,7 +1907,7 @@ Status ExternalCameraDeviceSession::OutputThread::allocateIntermediateBuffers(
             mYu12Frame->mHeight != v4lSize.height) {
         mYu12Frame.clear();
 
-        if (mHardwareDecoder)
+        if (mHardwareDecoder && parent->getHardwareDecFlag())
             mYu12Frame = new AllocatedFramePhyMem(ALIGN_PIXEL_16(v4lSize.width), ALIGN_PIXEL_16(v4lSize.height));
         else
             mYu12Frame = new AllocatedFrame(v4lSize.width, v4lSize.height);

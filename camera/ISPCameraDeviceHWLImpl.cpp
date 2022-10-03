@@ -62,7 +62,6 @@ status_t ISPCameraDeviceHwlImpl::initSensorStaticData()
     char TmpStr[20];
     int previewCnt = 0, pictureCnt = 0;
     struct v4l2_frmsizeenum cam_frmsize;
-    struct v4l2_frmivalenum vid_frmval;
 
     memset(TmpStr, 0, 20);
     memset(&cam_frmsize, 0, sizeof(struct v4l2_frmsizeenum));
@@ -94,7 +93,7 @@ status_t ISPCameraDeviceHwlImpl::initSensorStaticData()
     uint32_t ispResNum = 0;
 
     // filt out candidate
-    for(int i = 0; i < ispResCandidateNum; i++) {
+    for(uint32_t i = 0; i < ispResCandidateNum; i++) {
         int width = ispResCandidate[i*2];
         int height = ispResCandidate[i*2 + 1];
         if ( (width < w_min) || (width > w_max) || ((width - w_min) % w_step != 0) ||
@@ -114,7 +113,7 @@ status_t ISPCameraDeviceHwlImpl::initSensorStaticData()
         ispResNum++;
     }
 
-    for(int i = 0; i < ispResNum; i++) {
+    for(uint32_t i = 0; i < ispResNum; i++) {
         int w = ispRes[i*2];
         int h = ispRes[i*2 + 1];
 
@@ -333,32 +332,44 @@ int32_t ISPCameraMMAPStream::onDeviceConfigureLocked(uint32_t format, uint32_t w
 
 int32_t ISPCameraMMAPStream::onDeviceStartLocked()
 {
-    int ret = MMAPStream::onDeviceStartLocked();
-    if (ret) {
-        ALOGE("%s: MMAPStream::onDeviceStartLocked failed, ret %d", __func__, ret);
-        return ret;
-    }
-
     // When restart stream (shift between picture and record mode, or shift between APK), need recover to awb,
     // or the image will blurry if previous mode is mwb.
     // awb/aec need to be set after stream on.
     if (mFormat != HAL_PIXEL_FORMAT_RAW16) {
-        m_IspWrapper->processAWB(ANDROID_CONTROL_AWB_MODE_AUTO, true);
-        m_IspWrapper->processAeMode(ANDROID_CONTROL_AE_MODE_ON, true);
+        if (isPictureIntent()) {
+            m_IspWrapper->recoverExpWB();
+        } else {
+            m_IspWrapper->processAWB(ANDROID_CONTROL_AWB_MODE_AUTO, true);
+            m_IspWrapper->processAeMode(ANDROID_CONTROL_AE_MODE_ON, true);
+        }
     } else {
         // For raw data capture, no concept of aec and auto/manual wb.
         // Need manually set exposure gain.
         m_IspWrapper->processExposureGain(0, true);
     }
 
+    int ret = MMAPStream::onDeviceStartLocked();
+    if (ret) {
+        ALOGE("%s: MMAPStream::onDeviceStartLocked failed, ret %d", __func__, ret);
+        return ret;
+    }
+
     return ret;
 }
 
-int32_t ISPCameraMMAPStream::createISPWrapper(char *pDevPath, CameraSensorMetadata *pSensorData)
+int32_t ISPCameraMMAPStream::onDeviceStopLocked()
+{
+    m_IspWrapper->getLatestExpWB();
+
+    int ret = MMAPStream::onDeviceStopLocked();
+    return ret;
+}
+
+int32_t ISPCameraMMAPStream::createISPWrapper(char *pDevPath __unused, CameraSensorMetadata *pSensorData)
 {
     int ret = 0;
 
-    m_IspWrapper = std::make_unique<ISPWrapper>(pSensorData);
+    m_IspWrapper = std::make_unique<ISPWrapper>(pSensorData, (void *)this);
 
     return ret;
 }
