@@ -780,6 +780,7 @@ bool DisplayManager::PollFileThread::threadLoop()
                     EventListener* callback = NULL;
                     callback = mCtx->getCallback();
                     if (callback != NULL) {
+                        callback->onHotplug(DISPLAY_PRIMARY, true);
                         callback->onRefresh(0);
                         for (int i = 1; i < MAX_PHYSICAL_DISPLAY; i++) {
                             pDisplay = mCtx->getPhysicalDisplay(i);
