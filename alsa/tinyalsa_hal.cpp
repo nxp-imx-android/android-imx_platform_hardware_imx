@@ -51,7 +51,7 @@
 
 
 /*align the definition in kernel for hdmi audio*/
-#define HDMI_PERIOD_SIZE       192
+#define HDMI_PERIOD_SIZE       960
 #define PLAYBACK_HDMI_PERIOD_COUNT      8
 
 #define ESAI_PERIOD_SIZE       1024
@@ -1966,7 +1966,6 @@ static int start_input_stream(struct imx_stream_in *in)
 
     // If input device is opened by HFP thread, just return error here
     if (adev->b_sco_tx_running) {
-        usleep(2000);
         return -EBUSY;
     }
     ALOGW("start_input_stream...., mode %d, in->device 0x%x", adev->mode, in->device);
@@ -3625,11 +3624,12 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
         out->config.channels = popcount(config->channel_mask);
 
         update_passthrough_status();
-        if (strcmp(ladev->device_name, "evk_8mp") == 0) {
+        if (strcmp(ladev->device_name, "evk_8mp") == 0 ||
+                strcmp(ladev->device_name, "evk_8ulp") == 0) {
             out->config.format = PCM_FORMAT_S24_LE;
             if (passthrough_enabled) {
                 passthrough_for_s24 = true;
-                ALOGI("%s, passthrough is enabled on evk_8mp", __func__);
+                ALOGI("%s, passthrough is enabled", __func__);
             }
         }
     } else if (flags & AUDIO_OUTPUT_FLAG_DIRECT &&

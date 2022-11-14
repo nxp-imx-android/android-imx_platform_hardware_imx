@@ -1,4 +1,4 @@
-package wv_client
+package hwsecure_client
 
 import (
         "android/soong/android"
@@ -6,16 +6,16 @@ import (
 )
 
 func init() {
-    android.RegisterModuleType("libwvtrustyclient_defaults", libwvtrustyclientDefaultsFactory)
+    android.RegisterModuleType("libhwsecureclient_defaults", libhwsecureclientDefaultsFactory)
 }
 
-func libwvtrustyclientDefaultsFactory() (android.Module) {
+func libhwsecureclientDefaultsFactory() (android.Module) {
     module := cc.DefaultsFactory()
-    android.AddLoadHook(module, libwvtrustyclientsDefault)
+    android.AddLoadHook(module, libhwsecureclientDefault)
     return module
 }
 
-func libwvtrustyclientsDefault(ctx android.LoadHookContext) {
+func libhwsecureclientDefault(ctx android.LoadHookContext) {
     type props struct {
         Target struct {
                 Android struct {
@@ -26,6 +26,9 @@ func libwvtrustyclientsDefault(ctx android.LoadHookContext) {
     p := &props{}
     if ctx.Config().VendorConfig("IMXPLUGIN").String("BOARD_SOC_TYPE") == "IMX8MP" {
          p.Target.Android.Cflags = append(p.Target.Android.Cflags, "-DSUPPORT_WIDEVINE_L1")
+    }
+    if ctx.Config().VendorConfig("IMXPLUGIN").String("BOARD_SOC_TYPE") == "IMX8ULP" {
+         p.Target.Android.Cflags = append(p.Target.Android.Cflags, "-DSUPPORT_SECUREIME")
     }
     ctx.AppendProperties(p)
 }

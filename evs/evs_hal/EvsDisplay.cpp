@@ -407,7 +407,7 @@ Return<void> EvsDisplay::getDisplayInfo_1_1(__attribute__ ((unused))getDisplayIn
 
     displayMode.resolution = ui::Size(mWidth, mHeight);
     displayMode.refreshRate = 60.f;
-    displayState.layerStack = mLayer;
+//    displayState.layerStack = mLayer;
 
     activeConfig.setToExternal((uint8_t*)&displayMode, sizeof(android::ui::DisplayMode));
     activeState.setToExternal((uint8_t*)&displayState, sizeof(android::ui::DisplayState));
