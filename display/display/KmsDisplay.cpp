@@ -537,6 +537,10 @@ int KmsDisplay::setPowerMode(int mode)
         mModeset = true;
     }
 
+    if (!mConnected && (mode == POWER_ON)) {
+        mPowerMode = DRM_MODE_DPMS_OFF;
+        return 0;
+    }
     // Audio/Video share same clock on HDMI interface.
     // Power off HDMI will also break HDMI Audio clock.
     // So HDMI need to keep power on.
@@ -835,7 +839,7 @@ int KmsDisplay::performOverlay()
     int y = rect->top * mMode.vdisplay / config.mYres;
     int w = (rect->right - rect->left) * mMode.hdisplay / config.mXres;
     int h = (rect->bottom - rect->top) * mMode.vdisplay / config.mYres;
-    if (!mSecureDisplay) {
+    if (!mSecureDisplay && (mCustomizeUI == UI_SCALE_NONE)) {
 #if defined(WORKAROUND_DOWNSCALE_LIMITATION) || defined(WORKAROUND_DOWNSCALE_LIMITATION_DCSS)
         mKmsPlanes[overlay_plane_index].setDisplayFrame(mPset, x, y, ALIGN_PIXEL_2(w-1), ALIGN_PIXEL_2(h-1));
 #else
@@ -1068,8 +1072,27 @@ int KmsDisplay::updateScreen()
 
     bindCrtc(mPset, modeID);
     mKmsPlanes[primary_plane_index].connectCrtc(mPset, mCrtcID, buffer->fbId);
-    mKmsPlanes[primary_plane_index].setSourceSurface(mPset, 0, 0, config.mXres, config.mYres);
-    mKmsPlanes[primary_plane_index].setDisplayFrame(mPset, 0, 0, mMode.hdisplay, mMode.vdisplay);
+
+    int sh, sw, dh, dw;
+    if (mCustomizeUI == UI_SCALE_SOFTWARE) {
+        sw = mMode.hdisplay;
+        sh = mMode.vdisplay;
+        dw = mMode.hdisplay;
+        dh = mMode.vdisplay;
+    } else if (mCustomizeUI == UI_SCALE_HARDWARE) {
+        sw = config.mXres;
+        sh = config.mYres;
+        dw = config.mXres;
+        dh = config.mYres;
+    } else {
+        sw = config.mXres;
+        sh = config.mYres;
+        dw = mMode.hdisplay;
+        dh = mMode.vdisplay;
+    }
+    mKmsPlanes[primary_plane_index].setSourceSurface(mPset, 0, 0, sw, sh);
+    mKmsPlanes[primary_plane_index].setDisplayFrame(mPset, 0, 0, dw, dh);
+
     if (mAcquireFence != -1) {
         mKmsPlanes[primary_plane_index].setClientFence(mPset, mAcquireFence);
     }
@@ -1161,31 +1184,46 @@ int KmsDisplay::updateScreen()
 bool KmsDisplay::getGUIResolution(int &width, int &height)
 {
     bool ret = true;
-    // keep resolution if less than 1080p.
-    if (width <= 1920) {
-        return false;
-    }
+    int w = 0, h = 0;
 
     char value[PROPERTY_VALUE_MAX];
+    char w_buf[PROPERTY_VALUE_MAX];
+    char h_buf[PROPERTY_VALUE_MAX];
     memset(value, 0, sizeof(value));
     property_get("ro.boot.gui_resolution", value, "p");
-    if (!strncmp(value, "4k", 2)) {
-        width = 3840;
-        height = 2160;
-    }
-    else if (!strncmp(value, "1080p", 5)) {
-        width = 1920;
-        height = 1080;
-    }
-    else if (!strncmp(value, "720p", 4)) {
-        width = 1280;
-        height = 720;
-    }
-    else if (!strncmp(value, "480p", 4)) {
-        width = 640;
-        height = 480;
+    if (!strncmp(value, "shw", 3) && (sscanf(value, "shw%[0-9]x%[0-9]", w_buf, h_buf) == 2)) {
+        w = atoi(w_buf);
+        h = atoi(h_buf);
+        mCustomizeUI = UI_SCALE_HARDWARE;
+    } else if (!strncmp(value, "ssw", 3) && (sscanf(value, "ssw%[0-9]x%[0-9]", w_buf, h_buf) == 2)) {
+        w = atoi(w_buf);
+        h = atoi(h_buf);
+        mCustomizeUI = UI_SCALE_SOFTWARE;
     } else {
-        ret = false;
+        if (!strncmp(value, "4k", 2)) {
+            w = 3840;
+            h = 2160;
+        }
+        else if (!strncmp(value, "1080p", 5)) {
+            w = 1920;
+            h = 1080;
+        }
+        else if (!strncmp(value, "720p", 4)) {
+            w = 1280;
+            h = 720;
+        }
+        else if (!strncmp(value, "480p", 4)) {
+            w = 640;
+            h = 480;
+        } else {
+            ret = false;
+        }
+    }
+    if (w > 0 && h > 0) {
+        if (w < width)
+            width = w;
+        if (h < height)
+            height = h;
     }
 
     return ret;
@@ -1338,7 +1376,7 @@ int KmsDisplay::openFakeKms()
         width = mBackupConfig.mXres;
         height = mBackupConfig.mYres;
     }
-    ssize_t configId = createDisplayConfig(width, height, vrefresh, -1);
+    int configId = createDisplayConfig(width, height, vrefresh, -1);
     if (configId < 0) {
         ALOGE("can't find config: w:%d, h:%d", width, height);
         return -1;
@@ -1353,12 +1391,14 @@ int KmsDisplay::openFakeKms()
     config.mFormat = FORMAT_RGBA8888;
     config.mBytespixel = 4;
     ALOGW("Placeholder of primary display, config:\n"
+          "configId     = %d \n"
           "xres         = %d px\n"
           "yres         = %d px\n"
           "format       = %d\n"
           "xdpi         = %.2f ppi\n"
           "ydpi         = %.2f ppi\n"
           "fps          = %.2f Hz\n",
+          configId,
           config.mXres, config.mYres, config.mFormat, config.mXdpi / 1000.0f,
           config.mYdpi / 1000.0f, config.mFps);
 
@@ -1595,7 +1635,6 @@ bool KmsDisplay::isHdrSupported()
 int KmsDisplay::closeKms()
 {
     ALOGV("close kms");
-    invalidLayers();
 
     Mutex::Autolock _l(mLock);
 
@@ -1610,8 +1649,8 @@ int KmsDisplay::closeKms()
     mFirstConfigId = mFirstConfigId + mConfigs.size();
     if (mActiveConfig >= 0)
         mBackupConfig = mConfigs[mActiveConfig];
-    mConfigs.clear();
     mActiveConfig = -1;
+    mConfigs.clear();
     mKmsPlaneNum = 1;
     memset(mKmsPlanes, 0, sizeof(mKmsPlanes));
 
@@ -1677,8 +1716,15 @@ void KmsDisplay::prepareTargetsLocked()
 
     MemoryDesc desc;
     const DisplayConfig& config = mConfigs[mActiveConfig];
-    desc.mWidth = config.mXres;
-    desc.mHeight = config.mYres;
+    if (mCustomizeUI == UI_SCALE_SOFTWARE) {
+        // the resoluton of framebuffer should be the same as actual display mode
+        // and GUI is only composed in part of framebuffer in display HAL.
+        desc.mWidth = mMode.hdisplay;
+        desc.mHeight = mMode.vdisplay;
+    } else {
+        desc.mWidth = config.mXres;
+        desc.mHeight = config.mYres;
+    }
     desc.mFormat = config.mFormat;
     desc.mFslFormat = config.mFormat;
     desc.mProduceUsage |= USAGE_HW_COMPOSER |
@@ -1917,6 +1963,9 @@ int KmsDisplay::composeLayers()
             }
 #endif
         }
+
+        if (mRenderTarget == NULL)
+            return 0;
     }
 
     return composeLayersLocked();
@@ -1933,7 +1982,6 @@ void KmsDisplay::handleVsyncEvent(nsecs_t timestamp)
     if (callback == NULL) {
         return;
     }
-    triggerRefresh();
     callback->onVSync(DISPLAY_PRIMARY, timestamp, mConfigs[mActiveConfig].mVsyncPeriod);
 }
 
@@ -2111,8 +2159,13 @@ bool KmsDisplay::VSyncThread::threadLoop()
 
 void KmsDisplay::VSyncThread::performFakeVSync()
 {
-    const DisplayConfig& config = mCtx->getActiveConfig();
-    mRefreshPeriod = config.mVsyncPeriod;
+    int id = mCtx->getActiveId();
+    if (id >= 0) {
+        const DisplayConfig& config = mCtx->getActiveConfig();
+        mRefreshPeriod = config.mVsyncPeriod;
+    } else {
+        mRefreshPeriod = 1000000000 / DEFAULT_REFRESH_RATE;
+    }
     const nsecs_t period = mRefreshPeriod;
     const nsecs_t now = systemTime(CLOCK_MONOTONIC);
     nsecs_t next_vsync = mNextFakeVSync;

@@ -236,6 +236,7 @@ private:
     void DumpRequest();
 
     VideoStream* GetVideoStreamByPhysicalId(uint32_t physical_id);
+    PipelineInfo* GetPipelineInfo(uint32_t id);
 
 private:
     class WorkThread : public Thread
@@ -323,6 +324,9 @@ public:
     uint32_t cameraId() { return camera_id_; }
     sp<ImgProcThread>& getImgProcThread() { return mImgProcThread; }
 
+public:
+    bool mDebug;
+
 private:
     Mutex mLock;
     Condition mCondition;
@@ -385,10 +389,12 @@ private:
     struct viv_caps_supports caps_supports;
     int32_t m_raw_v4l2_format;
 
-    bool mDebug;
     uint64_t mPreHandleImageTime;
     uint64_t mPreCapAndFeedTime;
     uint64_t mPreSubmitRequestTime;
+
+    uint64_t mInQueRequestIdx = 0;
+    uint64_t mDeQueRequestIdx = 0;
 };
 
 }  // namespace android

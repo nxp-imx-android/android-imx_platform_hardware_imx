@@ -48,6 +48,7 @@ Display::Display()
     mFirstConfigId = 0;
     memset(&mBackupConfig, 0, sizeof(mBackupConfig));
     mRefreshRequired = false;
+    mCustomizeUI = UI_SCALE_NONE;
 
     for (size_t i=0; i<MAX_LAYERS; i++) {
         mLayers[i] = new Layer();
@@ -173,6 +174,9 @@ int Display::findDisplayConfig(int width, int height, float fps, int format)
 {
     int i;
     for (i=0; i<mConfigs.size(); i++) {
+        if (mConfigs.count(mFirstConfigId + i) == 0)
+            continue;
+
         const DisplayConfig& cfg = mConfigs[mFirstConfigId + i];
         // if not specify the format(0), only compare the resolution
         // if the foramt is not 0, both format and resolution need to compare
@@ -466,22 +470,20 @@ int Display::getReleaseFences(uint32_t* outNumElements, uint64_t* outLayers,
             continue;
         }
 
-        if (mLayers[i]->releaseFence != -1) {
-            if (outLayers != NULL && outFences != NULL) {
-                if (mLayers[i]->releaseFence > 0) { // check if such release fence valid or not
-                    int fd = mLayers[i]->releaseFence;
-                    struct stat _stat;
-                    int ret = -1;
-                    if (!fcntl(fd, F_GETFL))
-                        if (!fstat(fd, &_stat))
-                            if (_stat.st_nlink >= 1)
-                                ret = 0;
+        if (mLayers[i]->releaseFence >= 0) {
+            int fd = mLayers[i]->releaseFence;
+            struct stat _stat;
+            int ret = -1;
+            if (!fcntl(fd, F_GETFL))
+                if (!fstat(fd, &_stat))
+                    if (_stat.st_nlink >= 1)
+                        ret = 0;
 
-                    if (ret == -1) { // mark invalid release fence as -1
-                        mLayers[i]->releaseFence = -1;
-                        continue;
-                    }
-                }
+            if (ret == -1) { // mark invalid release fence as -1
+                mLayers[i]->releaseFence = -1;
+                continue;
+            }
+            if (outLayers != NULL && outFences != NULL) {
                 outLayers[numElements] = (uint64_t)mLayers[i]->index;
                 outFences[numElements] = (int32_t)mLayers[i]->releaseFence;
             }

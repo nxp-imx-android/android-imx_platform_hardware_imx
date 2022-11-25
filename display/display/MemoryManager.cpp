@@ -128,6 +128,13 @@ bool MemoryManager::isDrmAlloc(int flags, int format, int usage)
     return canHandle;
 }
 
+int MemoryManager::allocSystemMemeory(uint64_t size)
+{
+    int ret = -1;
+    ret = mIonManager->allocSystemMemeory(size);
+    return ret;
+}
+
 int MemoryManager::allocMemory(MemoryDesc& desc, Memory** out)
 {
     Memory *handle = NULL;
@@ -196,18 +203,6 @@ int MemoryManager::releaseMemory(Memory* handle)
         return -EINVAL;
     }
 
-    if (isDrmAlloc(handle->flags, handle->fslFormat, handle->usage)) {
-        if (handle->fd_meta > 0) {
-            ret = close(handle->fd_meta);
-            handle->fd_meta = 0;
-            if(ret != 0){
-                ALOGE("%s: close DRM allocated fd_meta failed as errno %s", __func__,
-                        strerror(errno));
-            }
-        }
-        return mGPUAlloc->free(mGPUAlloc, handle);
-    }
-
     /* kmsFd, fbHandle and fbId are created in KmsDisplay.
      * It is hard to put free memory code to KmsDisplay.
     */
@@ -227,6 +222,18 @@ int MemoryManager::releaseMemory(Memory* handle)
     }
     handle->fbId = 0;
     handle->fbHandle = 0;
+
+    if (isDrmAlloc(handle->flags, handle->fslFormat, handle->usage)) {
+        if (handle->fd_meta > 0) {
+            ret = close(handle->fd_meta);
+            handle->fd_meta = 0;
+            if(ret != 0){
+                ALOGE("%s: close DRM allocated fd_meta failed as errno %s", __func__,
+                        strerror(errno));
+            }
+        }
+        return mGPUAlloc->free(mGPUAlloc, handle);
+    }
 
     if (handle->base != 0) {
         munmap((void*)handle->base, handle->size);

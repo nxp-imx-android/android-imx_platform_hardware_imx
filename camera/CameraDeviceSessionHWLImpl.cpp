@@ -190,6 +190,9 @@ status_t CameraDeviceSessionHwlImpl::Initialize(
         return BAD_VALUE;
     }
 
+    mInQueRequestIdx = 0;
+    mDeQueRequestIdx = 0;
+
     // create image process thread
     mImgProcThread = new ImgProcThread(this);
     if (mImgProcThread == NULL) {
@@ -271,6 +274,15 @@ CameraDeviceSessionHwlImpl::~CameraDeviceSessionHwlImpl()
         mSettings.reset();
 }
 
+PipelineInfo* CameraDeviceSessionHwlImpl::GetPipelineInfo(uint32_t id)
+{
+    auto it = map_pipeline_info.find(id);
+    if (it != map_pipeline_info.end())
+        return it->second;
+
+    return NULL;
+}
+
 int CameraDeviceSessionHwlImpl::HandleIntent(HwlPipelineRequest *hwReq)
 {
     camera_metadata_ro_entry entry;
@@ -315,7 +327,11 @@ int CameraDeviceSessionHwlImpl::HandleIntent(HwlPipelineRequest *hwReq)
     if ((sceneMode == ANDROID_CONTROL_SCENE_MODE_HDR) && (fps > 30))
         fps = 30;
 
-    PipelineInfo *pipeline_info = map_pipeline_info[pipeline_id];
+    PipelineInfo *pipeline_info = GetPipelineInfo(pipeline_id);
+    if (pipeline_info == NULL) {
+        ALOGW("%s: Unexpected, pipeline %d is invalid",__func__, pipeline_id);
+        return 0;
+    }
 
     //TODO need to refine for logical's configIdx ?
     if(is_logical_request_) {
@@ -418,7 +434,7 @@ int CameraDeviceSessionHwlImpl::HandleRequest()
                 (int)hwReq->output_buffers.size(),
                 hwReq->settings.get());
 
-        PipelineInfo *pInfo = map_pipeline_info[pipeline_id];
+        PipelineInfo *pInfo = GetPipelineInfo(pipeline_id);
         if(pInfo == NULL) {
             ALOGW("%s: Unexpected, pipeline %d is invalid",__func__, pipeline_id);
             continue;
@@ -426,9 +442,21 @@ int CameraDeviceSessionHwlImpl::HandleRequest()
 
         HandleIntent(hwReq);
 
+        // ISP process based on meta
+        for (int stream_id = 0; stream_id < (int)pVideoStreams.size(); ++stream_id) {
+            pVideoStreams[stream_id]->ISPProcess(hwReq->settings.get());
+        }
+
         // capture v4l2 buffer and feed to mImageList
         CapAndFeed(frame, frameRequest);
     }
+
+    mLock.lock();
+    mDeQueRequestIdx++;
+    mLock.unlock();
+
+    if (mDebug)
+        ALOGI("%s: mDeQueRequestIdx %lu", __func__, mDeQueRequestIdx);
 
     return OK;
 }
@@ -510,8 +538,7 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
         // tactic, should not return NULL. If so, need handle the request properly.
         // Same for the logical request, may also return valid v4l2Buffer。
         if (pImxStreamBuffer == NULL) {
-            ALOGW("onFrameAcquire failed");
-            goto fail;
+            ALOGE("%s: onFrameAcquire failed", __func__);
         }
     }
 
@@ -585,8 +612,15 @@ void CameraDeviceSessionHwlImpl::ImgProcThread::DumpImage()
 
     for (auto it = mImageList.begin(); it != mImageList.end(); it++) {
         ImageFeed *imgFeed = *it;
-        ALOGI("%s: frame %u, v4l2 buffer addr virt %p, phy 0x%lx",
-            __func__, imgFeed->frame, imgFeed->v4l2Buffer->mVirtAddr, imgFeed->v4l2Buffer->mPhyAddr);
+        if (imgFeed == NULL)
+            continue;
+
+        // If driver has issue, v4l2Buffer can be NULL, ref CapAndFeed().
+        if (imgFeed->v4l2Buffer)
+            ALOGI("%s: frame %u, v4l2 buffer addr virt %p, phy 0x%lx",
+                __func__, imgFeed->frame, imgFeed->v4l2Buffer->mVirtAddr, imgFeed->v4l2Buffer->mPhyAddr);
+        else
+            ALOGI("%s: frame %u", __func__, imgFeed->frame);
     }
 }
 
@@ -614,10 +648,9 @@ int CameraDeviceSessionHwlImpl::HandleImage()
     mImgProcThread->mImageList.pop_front();
     mImgProcThread->mImageListLock.unlock();
 
-    if ((imgFeed == NULL) || (imgFeed->frameRequest == NULL) ||
-        ((imgFeed->v4l2Buffer == NULL) && (is_logical_request_ == false))) {
-        ALOGE("%s: unexpected!!! imgFeed %p, imgFeed->frameRequest %p, imgFeed->v4l2Buffer %p",
-            __func__, imgFeed, imgFeed->frameRequest, imgFeed->v4l2Buffer);
+    if ((imgFeed == NULL) || (imgFeed->frameRequest == NULL)) {
+        ALOGE("%s: unexpected!!! imgFeed %p, or imgFeed->frameRequest is NULL",
+            __func__, imgFeed);
         return 0;
     }
 
@@ -626,7 +659,35 @@ int CameraDeviceSessionHwlImpl::HandleImage()
     HwlPipelineRequest &hwReq = frameRequest->hwlReq;
 
     uint32_t pipeline_id = hwReq.pipeline_id;
-    PipelineInfo *pInfo = map_pipeline_info[pipeline_id];
+    PipelineInfo *pInfo = GetPipelineInfo(pipeline_id);
+    if(pInfo == NULL) {
+        ALOGE("%s: Unexpected, pipeline %d is invalid",__func__, pipeline_id);
+        return 0;
+    }
+
+    // If capture NULL buffer, notify error and return
+    if ((imgFeed->v4l2Buffer == NULL) && (is_logical_request_ == false)) {
+        ALOGE("%s: v4l2Buffer NULL, notify error to framework", __func__);
+
+        mImgProcThread->mImageListLock.lock();
+        mImgProcThread->mProcdImageIdx++;
+        mImgProcThread->mProcdFrame = frame;
+        mImgProcThread->mImageListLock.unlock();
+
+        if (pInfo->pipeline_callback.notify) {
+            NotifyMessage msg{
+                .type = MessageType::kError,
+                .message.error = {
+                .frame_number = frame,
+                .error_stream_id = -1,
+                .error_code = ErrorCode::kErrorDevice}};
+
+            pInfo->pipeline_callback.notify(pipeline_id, msg);
+        }
+
+        mImgProcThread->releaseImgFeed(imgFeed);
+        return 0;
+    }
 
     uint64_t timestamp = 0;
     if (mUseCpuEncoder)
@@ -660,10 +721,6 @@ int CameraDeviceSessionHwlImpl::HandleImage()
     else
         result->result_metadata = HalCameraMetadata::Create(1, 10);
 
-    // ISP process based on meta
-    for (int stream_id = 0; stream_id < (int)pVideoStreams.size(); ++stream_id) {
-        pVideoStreams[stream_id]->ISPProcess(mSettings.get());
-    }
 
     // Set zoom ratio for ISP camera
     CameraMetadata requestMeta(result->result_metadata.get());
@@ -1021,17 +1078,6 @@ status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2MultiOutbuf(ImxStreamBuffer *
         int status = ProcessCapbuf2Outbuf(srcBuf, output_buffers[i], outFences[i], requestMeta);
         if (status)
           ret = BAD_VALUE;
-        uint64_t t1 = systemTime();
-        uint64_t t2 = systemTime();
-
-        char value[PROPERTY_VALUE_MAX];
-        property_get("vendor.rw.camera.test", value, "");
-        if (strcmp(value, "timestat") == 0) {
-            ALOGI("ProcessCapturedBuffer, process buf %d, use %lu ms, src: size %dx%d, format 0x%x, dst: size %dx%d, format 0x%x",
-                i, (t2-t1)/1000000,
-                srcBuf->mStream->width(), srcBuf->mStream->height(), srcBuf->mStream->format(),
-                dstBuf->mStream->width(), dstBuf->mStream->height(), dstBuf->mStream->format());
-        }
     }
 
     return ret;
@@ -1537,13 +1583,12 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
 
 int CameraDeviceSessionHwlImpl::PickConfigStream(uint32_t pipeline_id, uint8_t intent)
 {
-    auto iter = map_pipeline_info.find(pipeline_id);
-    if (iter == map_pipeline_info.end()) {
-        ALOGE("%s: Unknown pipeline ID: %u", __func__, pipeline_id);
+    PipelineInfo *pipeline_info = GetPipelineInfo(pipeline_id);
+    if(pipeline_info == NULL) {
+        ALOGE("%s: Unexpected, pipeline %d is invalid",__func__, pipeline_id);
         return -1;
     }
 
-    PipelineInfo *pipeline_info = iter->second;
     if((pipeline_info == NULL) || (pipeline_info->streams == NULL)){
         ALOGE("%s: pipeline_info or streams is NULL for id %d", __func__, pipeline_id);
         return -1;
@@ -1635,6 +1680,7 @@ status_t CameraDeviceSessionHwlImpl::GetConfiguredHalStream(
 status_t CameraDeviceSessionHwlImpl::BuildPipelines()
 {
     ALOGI("enter %s", __func__);
+
     Mutex::Autolock _l(mLock);
 
     if (pipelines_built_) {
@@ -1667,11 +1713,11 @@ void CameraDeviceSessionHwlImpl::ImgProcThread::drainImages(uint32_t waitItvlUs)
         mImageListLock.lock();
     }
 
+    ALOGI("%s: leave, mLatestImageIdx %lu, mProcdImageIdx %lu", __func__, mLatestImageIdx, mProcdImageIdx);
+
     return;
 }
 
-#define DESTROY_WAIT_MS 100
-#define DESTROY_WAIT_US (uint32_t)(DESTROY_WAIT_MS*1000)
 void CameraDeviceSessionHwlImpl::DestroyPipelines()
 {
     ALOGI("enter %s", __func__);
@@ -1683,50 +1729,18 @@ void CameraDeviceSessionHwlImpl::DestroyPipelines()
         return;
     }
 
-
-    mImgProcThread->drainImages(2000);
-
-    /* If still has un-processed requests, wait some time to finish */
-    if ( map_frame_request.empty() == false ) {
-        ALOGW("%s: still has %lu requests to process, wait %d ms", __func__, map_frame_request.size(), DESTROY_WAIT_MS);
+    /* If still has on-fly requests from map_frame_request, wait to finish */
+    while (mDeQueRequestIdx != mInQueRequestIdx) {
+        ALOGW("%s: still has requests to process, wait %d us, DeQueIdx %lu, InQueIdx %lu",
+            __func__, WAIT_ITVL_US, mDeQueRequestIdx, mInQueRequestIdx);
         mLock.unlock();
-        usleep(DESTROY_WAIT_US);
+        usleep(WAIT_ITVL_US);
         mLock.lock();
     }
 
-    // If still remain requests, just send out result to return buffers to framework.
-    for (auto it = map_frame_request.begin(); it != map_frame_request.end(); it++) {
-        uint32_t frame = it->first;
-        std::vector<FrameRequest> *request = it->second;
-        if(request == NULL) {
-            ALOGW("%s: frame %d request is null", __func__, frame);
-            continue;
-        }
+    ALOGI("%s: on on-fly requests, mDeQueRequestIdx %lu, mInQueRequestIdx %lu", __func__, mDeQueRequestIdx, mInQueRequestIdx);
 
-        uint32_t reqNum = request->size();
-        ALOGI("%s, frame %d still has %d requests to process, just send back result", __func__, frame, reqNum);
-
-        for (uint32_t i = 0; i < reqNum; i++) {
-            HwlPipelineRequest *hwReq = &(request->at(i).hwlReq);
-            uint32_t pipeline_id = hwReq->pipeline_id;
-            PipelineInfo *pInfo = map_pipeline_info[pipeline_id];
-            if(pInfo == NULL) {
-                ALOGW("%s: Unexpected, pipeline %d is invalid",__func__, pipeline_id);
-                continue;
-            }
-
-            auto result = std::make_unique<HwlPipelineResult>();
-            result->camera_id = camera_id_;
-            result->pipeline_id = hwReq->pipeline_id;
-            result->frame_number = frame;
-            result->result_metadata = HalCameraMetadata::Clone(hwReq->settings.get());
-            result->input_buffers = hwReq->input_buffers;
-            result->output_buffers = hwReq->output_buffers;
-            result->partial_result = 1;
-            if (pInfo->pipeline_callback.process_pipeline_result)
-                pInfo->pipeline_callback.process_pipeline_result(std::move(result));
-       }
-    }
+    mImgProcThread->drainImages(WAIT_ITVL_US);
 
     CleanRequestsLocked();
 
@@ -1763,7 +1777,9 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequests(
 
     for (int i = 0; i < size; i++) {
         uint32_t pipeline_id = requests[i].pipeline_id;
-        ALOGV("%s, frame_number %d, pipeline_id %d, outbuffer num %d",
+
+        if (mDebug)
+            ALOGI("%s, frame_number %d, pipeline_id %d, outbuffer num %d",
                 __func__,
                 frame_number,
                 (int)pipeline_id,
@@ -1798,14 +1814,17 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequests(
 
     Mutex::Autolock _l(mLock);
     map_frame_request[frame_number] = frame_request;
+    mInQueRequestIdx++;
     mCondition.signal();
 
     char value[PROPERTY_VALUE_MAX];
     property_get("vendor.rw.camera.test", value, "");
     mDebug = (strcmp(value, "debug") == 0) ? true : false;
 
-    if (mDebug)
+    if (mDebug) {
+        ALOGI("%s: mInQueRequestIdx %lu", __func__, mInQueRequestIdx);
         ItvlStat(mPreSubmitRequestTime, (char *)"SubmitRequests");
+    }
 
     return OK;
 }

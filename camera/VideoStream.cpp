@@ -132,8 +132,6 @@ int32_t VideoStream::ConfigAndStart(uint32_t format, uint32_t width, uint32_t he
     ALOGI("%s: to set format 0x%x, res %dx%d, fps %d, intent %d, sceneMode %d, recover %d",
         __func__, format, width, height, fps, intent, sceneMode, recover);
 
-    mCaptureIntent = intent;
-
     if (strstr(soc_type, "imx8mq") && (width == 320) && (height == 240)) {
         width = 640;
         height = 480;
@@ -150,9 +148,11 @@ int32_t VideoStream::ConfigAndStart(uint32_t format, uint32_t width, uint32_t he
     }
 
     // Drain images in mImageList, or the returned v4l2 buffers may not math the latest config.
-    getSession()->getImgProcThread()->drainImages(2000);
+    getSession()->getImgProcThread()->drainImages(WAIT_ITVL_US);
 
     Mutex::Autolock _l(mV4l2Lock);
+
+    mCaptureIntent = intent;
 
     if(mbStart) {
         ret = onDeviceStopLocked();
@@ -237,6 +237,7 @@ int32_t VideoStream::ConfigAndStart(uint32_t format, uint32_t width, uint32_t he
     // save mode
     mSceneMode = sceneMode;
 
+
     return 0;
 }
 
@@ -293,6 +294,7 @@ int32_t VideoStream::postConfigureLocked(uint32_t format, uint32_t width, uint32
     return 0;
 }
 
+#define MAX_RECOVER_COUNT 1
 #define SELECT_TIMEOUT_SECONDS 3
 ImxStreamBuffer* VideoStream::onFrameAcquire()
 {
@@ -326,6 +328,11 @@ capture_data:
     select(mDev + 1, &fds, NULL, NULL, &timeout);
     if (!FD_ISSET(mDev, &fds)) {
         mRecoverCount++;
+        if (mRecoverCount > MAX_RECOVER_COUNT) {
+            ALOGE("%s: camera recover too much times, the error can't fix in user space", __func__);
+            return NULL;
+        }
+
         ALOGW("%s: select fd %d blocked %d s on %dx%d, %d fps, camera recover count %d",
             __func__, mDev, SELECT_TIMEOUT_SECONDS, mWidth, mHeight, mFps, mRecoverCount);
 
@@ -349,9 +356,15 @@ capture_data:
 
     ALOGV("VIDIOC_DQBUF ok, idx %d", cfilledbuffer.index);
 
+    if (mSession->mDebug && strstr(mSession->getSensorData()->camera_name, ISP_SENSOR_NAME)) {
+        ((ISPCameraMMAPStream *)this)->getIspWrapper()->dump();
+    }
+
     mFrames++;
-    if (mFrames == 1)
+    if (mFrames == 1) {
+        mRecoverCount = 0;
         ALOGI("%s: first frame get for %dx%d", __func__, mWidth, mHeight);
+    }
 
     if (mOmitFrames > 0) {
         ALOGI("%s omit frame", __func__);
