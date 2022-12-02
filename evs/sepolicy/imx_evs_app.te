@@ -1,6 +1,5 @@
 type imx_evs_app, domain, coredomain;
 
-hal_server_domain(imx_evs_app, hal_evs)
 hal_client_domain(imx_evs_app, hal_evs)
 hal_client_domain(imx_evs_app, hal_vehicle)
 hal_client_domain(imx_evs_app, hal_configstore)
