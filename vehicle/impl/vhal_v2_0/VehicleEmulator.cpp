@@ -23,7 +23,6 @@
 
 #include <vhal_v2_0/VehicleUtils.h>
 
-#include "PipeComm.h"
 #include "ProtoMessageConverter.h"
 #include "SocketComm.h"
 
@@ -37,25 +36,16 @@ namespace V2_0 {
 
 namespace impl {
 
-VehicleEmulator::VehicleEmulator(EmulatedVehicleHalIface* hal) : mHal{hal} {
+VehicleEmulator::VehicleEmulator(DefaultVehicleHal* hal) : mHal{hal} {
     mHal->registerEmulator(this);
 
     ALOGI("Starting SocketComm");
     mSocketComm = std::make_unique<SocketComm>(this);
     mSocketComm->start();
-
-    if (isInEmulator()) {
-        ALOGI("Starting PipeComm");
-        mPipeComm = std::make_unique<PipeComm>(this);
-        mPipeComm->start();
-    }
 }
 
 VehicleEmulator::~VehicleEmulator() {
     mSocketComm->stop();
-    if (mPipeComm) {
-        mPipeComm->stop();
-    }
 }
 
 /**
@@ -68,11 +58,7 @@ void VehicleEmulator::doSetValueFromClient(const VehiclePropValue& propValue) {
     populateProtoVehiclePropValue(val, &propValue);
     msg.set_status(vhal_proto::RESULT_OK);
     msg.set_msg_type(vhal_proto::SET_PROPERTY_ASYNC);
-
     mSocketComm->sendMessage(msg);
-    if (mPipeComm) {
-        mPipeComm->sendMessage(msg);
-    }
 }
 
 void VehicleEmulator::doGetConfig(VehicleEmulator::EmulatorMessage const& rxMsg,
@@ -224,10 +210,6 @@ void VehicleEmulator::populateProtoVehicleConfig(vhal_proto::VehiclePropConfig* 
 void VehicleEmulator::populateProtoVehiclePropValue(vhal_proto::VehiclePropValue* protoVal,
                                                     const VehiclePropValue* val) {
     return proto_msg_converter::toProto(protoVal, *val);
-}
-
-bool isInEmulator() {
-    return android::base::GetBoolProperty("ro.boot.qemu", false);
 }
 
 }  // impl

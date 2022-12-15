@@ -25,9 +25,9 @@
 #include "vhal_v2_0/VehicleHal.h"
 
 #include "CommConn.h"
-#include "PipeComm.h"
 #include "SocketComm.h"
 #include "VehicleHalProto.pb.h"
+#include "EmulatedVehicleHal.h"
 
 namespace android {
 namespace hardware {
@@ -39,36 +39,12 @@ namespace impl {
 
 class VehicleEmulator;  // Forward declaration.
 
-/** Extension of VehicleHal that used by VehicleEmulator. */
-class EmulatedVehicleHalIface : public VehicleHal {
-public:
-    virtual bool setPropertyFromVehicle(const VehiclePropValue& propValue) = 0;
-    virtual std::vector<VehiclePropValue> getAllProperties() const = 0;
-
-    void registerEmulator(VehicleEmulator* emulator) {
-        ALOGI("%s, emulator: %p", __func__, emulator);
-        std::lock_guard<std::mutex> g(mEmulatorLock);
-        mEmulator = emulator;
-    }
-
-protected:
-    VehicleEmulator* getEmulatorOrDie() {
-        std::lock_guard<std::mutex> g(mEmulatorLock);
-        if (mEmulator == nullptr) abort();
-        return mEmulator;
-    }
-
-private:
-    mutable std::mutex mEmulatorLock;
-    VehicleEmulator* mEmulator;
-};
-
 /**
  * Emulates vehicle by providing controlling interface from host side either through ADB or Pipe.
  */
 class VehicleEmulator : public MessageProcessor {
    public:
-    VehicleEmulator(EmulatedVehicleHalIface* hal);
+    VehicleEmulator(DefaultVehicleHal* hal);
     virtual ~VehicleEmulator();
 
     void doSetValueFromClient(const VehiclePropValue& propValue);
@@ -90,13 +66,9 @@ class VehicleEmulator : public MessageProcessor {
                                        const VehiclePropValue* val);
 
 private:
-    EmulatedVehicleHalIface* mHal;
+    DefaultVehicleHal* mHal;
     std::unique_ptr<SocketComm> mSocketComm;
-    std::unique_ptr<PipeComm> mPipeComm;
 };
-
-// determine if it's running inside Android Emulator
-bool isInEmulator();
 
 }  // impl
 
