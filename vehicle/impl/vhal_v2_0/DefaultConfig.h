@@ -527,13 +527,13 @@ const ConfigDeclaration kVehicleProperties[]{
                     .changeMode = VehiclePropertyChangeMode::ON_CHANGE,
                     .areaConfigs = {VehicleAreaConfig{
                                             .areaId = SEAT_1_LEFT,
-                                            .minInt32Value = -2,
-                                            .maxInt32Value = 2,
+                                            .minInt32Value = 0,
+                                            .maxInt32Value = 3,
                                     },
                                     VehicleAreaConfig{
                                             .areaId = SEAT_1_RIGHT,
-                                            .minInt32Value = -2,
-                                            .maxInt32Value = 2,
+                                            .minInt32Value = 0,
+                                            .maxInt32Value = 3,
                                     }}},
          .initialValue = {.int32Values = {0}}},  // +ve values for heating and -ve for cooling
 
