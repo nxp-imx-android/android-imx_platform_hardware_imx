@@ -1,1 +1,2 @@
 /vendor/bin/hw/android\.hardware\.automotive\.vehicle@2\.0-imx-service u:object_r:hal_vehicle_default_exec:s0
+/vendor/bin/hw/android\.hardware\.automotive\.vehicle@V1-imx-service u:object_r:hal_vehicle_default_exec:s0
