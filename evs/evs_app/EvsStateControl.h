@@ -22,17 +22,18 @@
 #include "RenderBase.h"
 #include "StreamHandler.h"
 
+#include <aidl/android/hardware/automotive/vehicle/VehiclePropValues.h>
 #include <android/hardware/automotive/evs/1.1/IEvsCamera.h>
 #include <android/hardware/automotive/evs/1.1/IEvsDisplay.h>
 #include <android/hardware/automotive/evs/1.1/IEvsEnumerator.h>
-#include <android/hardware/automotive/vehicle/2.0/IVehicle.h>
+
+#include <IVhalClient.h>
 
 #include <thread>
 
 #define EVS_CPU_RENDER   "vendor.evs.cpu.render.enable"
 
 using namespace ::android::hardware::automotive::evs::V1_1;
-using namespace ::android::hardware::automotive::vehicle::V2_0;
 using ::android::hardware::Return;
 using ::android::hardware::Void;
 using ::android::hardware::hidl_vec;
@@ -47,10 +48,9 @@ using ::android::sp;
  */
 class EvsStateControl {
 public:
-    EvsStateControl(android::sp <IVehicle>       pVnet,
-                    android::sp <IEvsEnumerator> pEvs,
-                    android::sp <IEvsDisplay>    pDisplay,
-                    const ConfigManager&         config);
+    EvsStateControl(std::shared_ptr<android::frameworks::automotive::vhal::IVhalClient> pVnet,
+                    android::sp<IEvsEnumerator> pEvs, android::sp<IEvsDisplay> pDisplay,
+                    const ConfigManager& config);
 
     enum State {
         OFF = 0,
@@ -84,22 +84,24 @@ public:
 
 private:
     void updateLoop();
-    StatusCode invokeGet(VehiclePropValue *pRequestedPropValue);
+    aidl::android::hardware::automotive::vehicle::StatusCode invokeGet(
+            aidl::android::hardware::automotive::vehicle::VehiclePropValue* pRequestedPropValue);
     bool selectStateForCurrentConditions();
     bool configureEvsPipeline(State desiredState);  // Only call from one thread!
 
-    sp<IVehicle>                mVehicle;
+    std::shared_ptr<android::frameworks::automotive::vhal::IVhalClient> mVehicle;
     sp<IEvsEnumerator>          mEvs;
     sp<IEvsDisplay>             mDisplay;
     const ConfigManager&        mConfig;
 
-    VehiclePropValue            mGearValue;
-    VehiclePropValue            mTurnSignalValue;
+    aidl::android::hardware::automotive::vehicle::VehiclePropValue mGearValue;
+    aidl::android::hardware::automotive::vehicle::VehiclePropValue mTurnSignalValue;
 
     State                       mCurrentState = OFF;
 
-
-
+    // mCameraList is a redundant storage for camera device info, which is also
+    // stored in mCameraDescList and, however, not removed for backward
+    // compatibility.
     std::vector<ConfigManager::CameraInfo>  mCameraList[NUM_STATES];
     std::unique_ptr<RenderBase> mCurrentRenderer;
     std::unique_ptr<RenderBase> mDesiredRenderer;

@@ -55,13 +55,14 @@ cc_binary {
         "android.hardware.automotive.evs@1.0",
         "android.hardware.automotive.evs@1.1",
         "android.hardware.automotive.vehicle@2.0",
-        "libcartelemetry-evs-proto",
+        "evs-libcartelemetry-proto",
         "libprotobuf-cpp-lite",
     ],
 
     static_libs: [
         "libmath",
         "libjsoncpp",
+        "libvhalclient",
     ],
 
     required: [
@@ -69,8 +70,7 @@ cc_binary {
         "ImxCarFromTop.png",
         "ImxLabeledChecker.png",
     ],
-
-//    init_rc: ["evs_app.rc"],
+    defaults: ["vhalclient_defaults"],
 
     cflags: ["-DLOG_TAG=\"EvsApp\""] + [
         "-DGL_GLEXT_PROTOTYPES",
@@ -82,6 +82,20 @@ cc_binary {
         "-Wunreachable-code",
     ],
 
+}
+
+cc_library {
+    name: "evs-libcartelemetry-proto",
+    srcs: [
+        ":cartelemetry-evs-proto-srcs",
+    ],
+    proto: {
+        export_proto_headers: true,
+        type: "lite",
+    },
+    shared_libs: [
+        "libprotobuf-cpp-lite",
+    ],
 }
 
 prebuilt_etc {

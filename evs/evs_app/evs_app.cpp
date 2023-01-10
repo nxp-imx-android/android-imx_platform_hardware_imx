@@ -18,34 +18,41 @@
 #include "EvsStateControl.h"
 #include "EvsVehicleListener.h"
 
-#include <signal.h>
-#include <stdio.h>
-
-#include <android/hardware/automotive/evs/1.1/IEvsDisplay.h>
-#include <android/hardware/automotive/evs/1.1/IEvsEnumerator.h>
+#include <aidl/android/hardware/automotive/vehicle/SubscribeOptions.h>
+#include <aidl/android/hardware/automotive/vehicle/VehicleGear.h>
+#include <aidl/android/hardware/automotive/vehicle/VehicleProperty.h>
 #include <android-base/logging.h>
 #include <android-base/macros.h>    // arraysize
+#include <android/hardware/automotive/evs/1.1/IEvsDisplay.h>
+#include <android/hardware/automotive/evs/1.1/IEvsEnumerator.h>
 #include <hidl/HidlTransportSupport.h>
 #include <hwbinder/IPCThreadState.h>
 #include <hwbinder/ProcessState.h>
 #include <utils/Errors.h>
-#include <utils/StrongPointer.h>
 #include <utils/Log.h>
+#include <utils/StrongPointer.h>
 #include <cutils/properties.h>
 
-
-// libhidl:
-using android::hardware::configureRpcThreadpool;
-using android::hardware::joinRpcThreadpool;
+#include <IVhalClient.h>
+#include <signal.h>
+#include <stdio.h>
 
 namespace {
+
+using ::aidl::android::hardware::automotive::vehicle::VehicleGear;
+using ::aidl::android::hardware::automotive::vehicle::VehicleProperty;
+// libhidl:
+using ::android::frameworks::automotive::vhal::ISubscriptionClient;
+using ::android::frameworks::automotive::vhal::IVhalClient;
+using android::hardware::configureRpcThreadpool;
+using android::hardware::joinRpcThreadpool;
 
 android::sp<IEvsEnumerator> pEvs;
 android::sp<IEvsDisplay> pDisplay;
 EvsStateControl *pStateController;
 
 void sigHandler(int sig) {
-    LOG(ERROR) << "evs_app is being terminated on receiving a signal " << sig;
+    LOG(WARNING) << "evs_app is being terminated on receiving a signal " << sig;
     if (pEvs != nullptr) {
         // Attempt to clean up the resources
         pStateController->postCommand({EvsStateControl::Op::EXIT, 0, 0}, true);
@@ -69,28 +76,22 @@ void registerSigHandler() {
 
 } // namespace
 
-
 // Helper to subscribe to VHal notifications
-static bool subscribeToVHal(sp<IVehicle> pVnet,
-                            sp<IVehicleCallback> listener,
-                            VehicleProperty propertyId) {
+static bool subscribeToVHal(ISubscriptionClient* client, VehicleProperty propertyId) {
     assert(pVnet != nullptr);
     assert(listener != nullptr);
 
     // Register for vehicle state change callbacks we care about
     // Changes in these values are what will trigger a reconfiguration of the EVS pipeline
-    SubscribeOptions optionsData[] = {
+    std::vector<aidl::android::hardware::automotive::vehicle::SubscribeOptions> options = {
         {
             .propId = static_cast<int32_t>(propertyId),
-            .flags  = SubscribeFlags::EVENTS_FROM_CAR
+            .areaIds = {},
         },
     };
-    hidl_vec <SubscribeOptions> options;
-    options.setToExternal(optionsData, arraysize(optionsData));
-    StatusCode status = pVnet->subscribe(listener, options);
-    if (status != StatusCode::OK) {
+    if (auto result = client->subscribe(options); !result.ok()) {
         LOG(WARNING) << "VHAL subscription for property " << static_cast<int32_t>(propertyId)
-                     << " failed with code " << static_cast<int32_t>(status);
+                     << " failed with error " << result.error().message();
         return false;
     }
 
@@ -152,7 +153,7 @@ int main(int argc, char** argv)
     configureRpcThreadpool(1, false /* callerWillJoin */);
 
     // Construct our async helper object
-    sp<EvsVehicleListener> pEvsListener = new EvsVehicleListener();
+    std::shared_ptr<EvsVehicleListener> pEvsListener = std::make_shared<EvsVehicleListener>();
 
     // Get the EVS manager service
     LOG(INFO) << "Acquiring EVS Enumerator";
@@ -173,21 +174,22 @@ int main(int argc, char** argv)
     }
 
     // Connect to the Vehicle HAL so we can monitor state
-    sp<IVehicle> pVnet;
+    std::shared_ptr<IVhalClient> pVnet;
     if (useVehicleHal) {
         LOG(INFO) << "Connecting to Vehicle HAL";
-        pVnet = IVehicle::getService();
-        if (pVnet.get() == nullptr) {
+        pVnet = IVhalClient::create();
+        if (pVnet == nullptr) {
             LOG(ERROR) << "Vehicle HAL getService returned NULL.  Exiting.";
             return EXIT_FAILURE;
         } else {
+            auto subscriptionClient = pVnet->getSubscriptionClient(pEvsListener);
             // Register for vehicle state change callbacks we care about
             // Changes in these values are what will trigger a reconfiguration of the EVS pipeline
-            if (!subscribeToVHal(pVnet, pEvsListener, VehicleProperty::GEAR_SELECTION)) {
+            if (!subscribeToVHal(subscriptionClient.get(), VehicleProperty::GEAR_SELECTION)) {
                 LOG(ERROR) << "Without gear notification, we can't support EVS.  Exiting.";
                 return EXIT_FAILURE;
             }
-            if (!subscribeToVHal(pVnet, pEvsListener, VehicleProperty::TURN_SIGNAL_STATE)) {
+            if (!subscribeToVHal(subscriptionClient.get(), VehicleProperty::TURN_SIGNAL_STATE)) {
                 LOG(WARNING) << "Didn't get turn signal notifications, so we'll ignore those.";
             }
         }
