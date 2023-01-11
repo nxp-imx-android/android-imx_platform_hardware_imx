@@ -48,7 +48,7 @@ SocketComm::SocketComm(MessageProcessor* messageProcessor)
 SocketComm::~SocketComm() {
 }
 
-void SocketComm::start() {
+void SocketComm::startReadThread() {
 
     mListenThread = std::make_unique<std::thread>(std::bind(&SocketComm::listenThread, this));
 }
@@ -63,11 +63,15 @@ void SocketComm::stop() {
     }
 }
 
-void SocketComm::sendMessage(vhal_proto::EmulatorMessage const& msg) {
+int SocketComm::sendMessage(vhal_proto::EmulatorMessage const& msg) {
     std::lock_guard<std::mutex> lock(mMutex);
     for (std::unique_ptr<SocketConn> const& conn : mOpenConnections) {
-        conn->sendMessage(msg);
+        if (conn->sendMessage(msg)) {
+            ALOGE("%s: SendMEssage failed", __FUNCTION__);
+            return -1;
+        }
     }
+    return 0;
 }
 
 int SocketComm::listen() {
@@ -104,7 +108,6 @@ void SocketComm::listenThread() {
 
     std::vector<uint8_t> msg = std::vector<uint8_t>(sizeof(SYNC_COMMANDS));
     memcpy(msg.data(), SYNC_COMMANDS, sizeof(SYNC_COMMANDS));
-    conn->write(msg);
 
     conn->start();
     {

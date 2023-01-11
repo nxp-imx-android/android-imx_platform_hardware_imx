@@ -42,27 +42,3 @@ cc_binary {
         "libbinder_ndk",
     ],
 }
-
-//cc_library {
-//    name: "DefaultVehicleHal",
-//    vendor: true,
-//    defaults: [
-//        "VehicleHalDefaults",
-//    ],
-//    local_include_dirs: ["include"],
-//    export_include_dirs: ["include"],
-//    srcs: [
-//        "src/ConnectedClient.cpp",
-//        "src/DefaultVehicleHal.cpp",
-//        "src/SubscriptionManager.cpp",
-//    ],
-//   static_libs: [
-//        "VehicleHalUtils",
-//    ],
-//    header_libs: [
-//        "IVehicleHardware",
-//    ],
-//    shared_libs: [
-//        "libbinder_ndk",
-//    ],
-//}

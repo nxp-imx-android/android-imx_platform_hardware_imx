@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef android_hardware_automotive_vehicle_V2_0_impl_SocketComm_H_
-#define android_hardware_automotive_vehicle_V2_0_impl_SocketComm_H_
+#ifndef android_hardware_automotive_vehicle_aidl_impl_SocketComm_H_
+#define android_hardware_automotive_vehicle_aidl_impl_SocketComm_H_
 
 #include <mutex>
 #include <thread>
@@ -39,13 +39,13 @@ class SocketComm {
     SocketComm(MessageProcessor* messageProcessor);
     virtual ~SocketComm();
 
-    void start();
+    void startReadThread();
     void stop();
 
     /**
      * Serialized and send the given message to all connected clients.
      */
-    void sendMessage(vhal_proto::EmulatorMessage const& msg);
+    int sendMessage(vhal_proto::EmulatorMessage const& msg);
 
    private:
     int mListenFd;
@@ -118,4 +118,4 @@ class SocketConn : public CommConn {
 }  // namespace android
 
 
-#endif  // android_hardware_automotive_vehicle_V2_0_impl_SocketComm_H_
+#endif  // android_hardware_automotive_vehicle_aidl_impl_SocketComm_H_

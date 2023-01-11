@@ -1195,42 +1195,6 @@ const std::vector<ConfigDeclaration> kVehicleProperties = {
         {
                 .config =
                         {
-                                .prop = PLACEHOLDER_PROPERTY_INT,
-                                .access = VehiclePropertyAccess::READ_WRITE,
-                                .changeMode = VehiclePropertyChangeMode::ON_CHANGE,
-                        },
-                .initialValue = {.int32Values = {0}},
-        },
-        {
-                .config =
-                        {
-                                .prop = PLACEHOLDER_PROPERTY_FLOAT,
-                                .access = VehiclePropertyAccess::READ_WRITE,
-                                .changeMode = VehiclePropertyChangeMode::ON_CHANGE,
-                        },
-                .initialValue = {.floatValues = {0.0f}},
-        },
-        {
-                .config =
-                        {
-                                .prop = PLACEHOLDER_PROPERTY_BOOLEAN,
-                                .access = VehiclePropertyAccess::READ_WRITE,
-                                .changeMode = VehiclePropertyChangeMode::ON_CHANGE,
-                        },
-                .initialValue = {.int32Values = {0 /* false */}},
-        },
-        {
-                .config =
-                        {
-                                .prop = PLACEHOLDER_PROPERTY_STRING,
-                                .access = VehiclePropertyAccess::READ_WRITE,
-                                .changeMode = VehiclePropertyChangeMode::ON_CHANGE,
-                        },
-                .initialValue = {.stringValue = {"Test"}},
-        },
-        {
-                .config =
-                        {
                                 .prop = ECHO_REVERSE_BYTES,
                                 .access = VehiclePropertyAccess::READ_WRITE,
                                 .changeMode = VehiclePropertyChangeMode::ON_CHANGE,

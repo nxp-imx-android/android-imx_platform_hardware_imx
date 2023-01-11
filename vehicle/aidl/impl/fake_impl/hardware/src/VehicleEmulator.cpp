@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#define LOG_TAG "VehicleEmulator_v2_0"
+#define LOG_TAG "VehicleEmulator_aidl"
 #include <android/log.h>
 
 #include <android-base/properties.h>
@@ -37,15 +37,19 @@ using ::aidl::android::hardware::automotive::vehicle::VehicleProperty;
 using ::aidl::android::hardware::automotive::vehicle::VehiclePropValue;
 using ::aidl::android::hardware::automotive::vehicle::VehiclePropertyType;
 
-VehicleEmulator::VehicleEmulator(FakeVehicleHardware* hw) : mHardware{hw} {
-    mHardware->registerEmulator(this);
+VehicleEmulator::VehicleEmulator() {
     ALOGI("Starting SocketComm");
+    mHardware = nullptr;
     mSocketComm = std::make_unique<SocketComm>(this);
-    mSocketComm->start();
+    mSocketComm->startReadThread();
 }
 
 VehicleEmulator::~VehicleEmulator() {
     mSocketComm->stop();
+}
+
+void VehicleEmulator::setHardware(FakeVehicleHardware* hw) {
+    mHardware = hw;
 }
 
 /**
@@ -53,17 +57,26 @@ VehicleEmulator::~VehicleEmulator() {
  * changed.
  */
 void VehicleEmulator::doSetValueFromClient(const VehiclePropValue& aidlPropValue) {
+    std::scoped_lock<std::mutex> lockGuard(mLock);
+
     vhal_proto::EmulatorMessage msg;
     vhal_proto::VehiclePropValue* val = msg.add_value();
 
     populateProtoVehiclePropValue(val, &aidlPropValue);
     msg.set_status(vhal_proto::RESULT_OK);
     msg.set_msg_type(vhal_proto::SET_PROPERTY_ASYNC);
-    mSocketComm->sendMessage(msg);
+    if (mSocketComm->sendMessage(msg)) {
+        ALOGE("%s: SendMessage Failed", __func__);
+    }
 }
 
 void VehicleEmulator::doGetConfig(VehicleEmulator::EmulatorMessage const& rxMsg,
                                   VehicleEmulator::EmulatorMessage& respMsg) {
+    if (mHardware == nullptr) {
+        ALOGE("%s: FakeHardware connection is null.", __func__);
+        return;
+    }
+
     std::vector<VehiclePropConfig> configs = mHardware->getAllPropertyConfigs();
     vhal_proto::VehiclePropGet getProp = rxMsg.prop(0);
 
@@ -83,6 +96,11 @@ void VehicleEmulator::doGetConfig(VehicleEmulator::EmulatorMessage const& rxMsg,
 
 void VehicleEmulator::doGetConfigAll(VehicleEmulator::EmulatorMessage const& /* rxMsg */,
                                      VehicleEmulator::EmulatorMessage& respMsg) {
+    if (mHardware == nullptr) {
+        ALOGE("%s: FakeHardware connection is null.", __func__);
+        return;
+    }
+
     std::vector<VehiclePropConfig> configs = mHardware->getAllPropertyConfigs();
 
     respMsg.set_msg_type(vhal_proto::GET_CONFIG_ALL_RESP);
@@ -100,6 +118,11 @@ void VehicleEmulator::doGetProperty(VehicleEmulator::EmulatorMessage const& rxMs
     vhal_proto::VehiclePropGet getProp = rxMsg.prop(0);
     int32_t propId = getProp.prop();
     vhal_proto::Status status = vhal_proto::ERROR_INVALID_PROPERTY;
+
+    if (mHardware == nullptr) {
+        ALOGE("%s: FakeHardware connection is null.", __func__);
+        return;
+    }
 
     respMsg.set_msg_type(vhal_proto::GET_PROPERTY_RESP);
 
@@ -128,6 +151,11 @@ void VehicleEmulator::doGetPropertyAll(VehicleEmulator::EmulatorMessage const& /
     respMsg.set_msg_type(vhal_proto::GET_PROPERTY_ALL_RESP);
     respMsg.set_status(vhal_proto::RESULT_OK);
 
+    if (mHardware == nullptr) {
+        ALOGE("%s: FakeHardware connection is null.", __func__);
+        return;
+    }
+
     {
         for (const auto& prop : mHardware->getAllProperties()) {
             vhal_proto::VehiclePropValue* protoVal = respMsg.add_value();
@@ -145,6 +173,11 @@ void VehicleEmulator::doSetProperty(VehicleEmulator::EmulatorMessage const& rxMs
             .prop = protoVal.prop(),
             .status = (aidl::android::hardware::automotive::vehicle::VehiclePropertyStatus)protoVal.status(),
     };
+
+    if (mHardware == nullptr) {
+        ALOGE("%s: FakeHardware connection is null.", __func__);
+        return;
+    }
 
     respMsg.set_msg_type(vhal_proto::SET_PROPERTY_RESP);
 
@@ -261,7 +294,7 @@ void VehicleEmulator::populateProtoVehiclePropValue(vhal_proto::VehiclePropValue
     val->set_timestamp(aidlPropValue->timestamp);
     val->set_status((vhal_proto::VehiclePropStatus)(aidlPropValue->status));
     val->set_area_id(aidlPropValue->areaId);
-    
+
     if (aidlPropValue->value.stringValue.size() > 0) {
         val->set_string_value(aidlPropValue->value.stringValue);
     }

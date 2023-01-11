@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef android_hardware_automotive_vehicle_V2_0_impl_VehicleHalEmulator_H_
-#define android_hardware_automotive_vehicle_V2_0_impl_VehicleHalEmulator_H_
+#ifndef android_hardware_automotive_vehicle_aidl_impl_VehicleHalEmulator_H_
+#define android_hardware_automotive_vehicle_aidl_impl_VehicleHalEmulator_H_
 
 #include <log/log.h>
 #include <memory>
@@ -38,12 +38,13 @@ namespace fake {
  */
 class VehicleEmulator : public MessageProcessor {
    public:
-    VehicleEmulator(FakeVehicleHardware* hw);
+    VehicleEmulator();
     virtual ~VehicleEmulator();
 
     void doSetValueFromClient(const aidl::android::hardware::automotive::vehicle::VehiclePropValue& propValue);
     void processMessage(vhal_proto::EmulatorMessage const& rxMsg,
                         vhal_proto::EmulatorMessage& respMsg) override;
+    void setHardware(FakeVehicleHardware* hw);
 
    private:
     friend class ConnectionThread;
@@ -58,9 +59,9 @@ class VehicleEmulator : public MessageProcessor {
                                     const aidl::android::hardware::automotive::vehicle::VehiclePropConfig& cfg);
     void populateProtoVehiclePropValue(vhal_proto::VehiclePropValue* protoVal,
                                        const aidl::android::hardware::automotive::vehicle::VehiclePropValue* val);
-
 private:
     FakeVehicleHardware* mHardware;
+    std::mutex mLock;
     std::unique_ptr<SocketComm> mSocketComm;
 };
 
@@ -70,4 +71,4 @@ private:
 }  // namespace hardware
 }  // namespace android
 
-#endif // android_hardware_automotive_vehicle_V2_0_impl_VehicleHalEmulator_H_
+#endif // android_hardware_automotive_vehicle_aidl_impl_VehicleHalEmulator_H_

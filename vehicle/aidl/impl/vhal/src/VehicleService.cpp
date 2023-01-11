@@ -29,8 +29,9 @@ using ::android::hardware::automotive::vehicle::fake::FakeVehicleHardware;
 using ::android::hardware::automotive::vehicle::fake::VehicleEmulator;
 
 int main(int /* argc */, char* /* argv */[]) {
-    std::unique_ptr<FakeVehicleHardware> hardware = std::make_unique<FakeVehicleHardware>();
-    std::unique_ptr<VehicleEmulator> emulator = std::make_unique<VehicleEmulator>(hardware.get());
+    std::unique_ptr<VehicleEmulator> emulator = std::make_unique<VehicleEmulator>();
+    std::unique_ptr<FakeVehicleHardware> hardware = std::make_unique<FakeVehicleHardware>(emulator.get());
+    emulator->setHardware(hardware.get());
     std::shared_ptr<DefaultVehicleHal> vhal =
             ::ndk::SharedRefBase::make<DefaultVehicleHal>(std::move(hardware));
 

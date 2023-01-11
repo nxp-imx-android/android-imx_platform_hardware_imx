@@ -32,7 +32,6 @@ cc_library {
 
 cc_defaults {
     name: "FakeVehicleHardwareDefaultsImx",
-    cflags: ["-DENABLE_VENDOR_CLUSTER_PROPERTY_FOR_TESTING"],
     header_libs: [
         "IVehicleHardware",
         "VehicleHalDefaultConfigImx",

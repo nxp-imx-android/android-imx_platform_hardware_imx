@@ -38,15 +38,21 @@ void CommConn::stop() {
     }
 }
 
-void CommConn::sendMessage(vhal_proto::EmulatorMessage const& msg) {
+int CommConn::sendMessage(vhal_proto::EmulatorMessage const& msg) {
+    std::lock_guard<std::mutex> lock(mMutex);
     int numBytes = msg.ByteSize();
     std::vector<uint8_t> buffer(static_cast<size_t>(numBytes));
     if (!msg.SerializeToArray(buffer.data(), numBytes)) {
         ALOGE("%s: SerializeToString failed!", __func__);
-        return;
+        return - 1;
     }
 
-    write(buffer);
+    if (write(buffer)) {
+        ALOGE("%s: Write failed failed!", __func__);
+        return -1;
+    }
+
+    return 0;
 }
 
 void CommConn::readThread() {

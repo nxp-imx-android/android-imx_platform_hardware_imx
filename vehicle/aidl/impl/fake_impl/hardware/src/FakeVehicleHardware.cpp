@@ -128,16 +128,20 @@ void FakeVehicleHardware::storePropInitialValue(const defaultconfig::ConfigDecla
         if (!result.ok()) {
             ALOGE("failed to write default config value, error: %s, status: %d",
                   getErrorMsg(result).c_str(), getIntErrorCode(result));
+        } else {
+            auto val = mValuePool->obtain(prop);
+            mEmulator->doSetValueFromClient(*val);
         }
     }
 }
 
-FakeVehicleHardware::FakeVehicleHardware()
-    : FakeVehicleHardware(std::make_unique<VehiclePropValuePool>()) {}
+FakeVehicleHardware::FakeVehicleHardware(VehicleEmulator* emulator)
+    : FakeVehicleHardware(std::make_unique<VehiclePropValuePool>(), emulator) {}
 
-FakeVehicleHardware::FakeVehicleHardware(std::unique_ptr<VehiclePropValuePool> valuePool)
+FakeVehicleHardware::FakeVehicleHardware(std::unique_ptr<VehiclePropValuePool> valuePool, VehicleEmulator* emulator)
     : mValuePool(std::move(valuePool)),
       mServerSidePropStore(new VehiclePropertyStore(mValuePool)),
+      mEmulator(emulator),
       mFakeObd2Frame(new obd2frame::FakeObd2Frame(mServerSidePropStore)),
       mFakeUserHal(new FakeUserHal(mValuePool)),
       mRecurrentTimer(new RecurrentTimer()),
@@ -939,7 +943,7 @@ void FakeVehicleHardware::onValueChangeCallback(const VehiclePropValue& value) {
         return;
     }
 
-    getEmulatorOrDie()->doSetValueFromClient(value);
+    mEmulator->doSetValueFromClient(value);
 
     std::vector<VehiclePropValue> updatedValues;
     updatedValues.push_back(value);

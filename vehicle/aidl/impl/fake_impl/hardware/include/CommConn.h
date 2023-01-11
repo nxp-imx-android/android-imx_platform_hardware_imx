@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef android_hardware_automotive_vehicle_V2_0_impl_CommBase_H_
-#define android_hardware_automotive_vehicle_V2_0_impl_CommBase_H_
+#ifndef android_hardware_automotive_vehicle_aidl_impl_CommBase_H_
+#define android_hardware_automotive_vehicle_aidl_impl_CommBase_H_
 
 #include <aidl/android/hardware/automotive/vehicle/IVehicle.h>
 #include <string>
@@ -91,7 +91,7 @@ class CommConn {
     /**
      * Serialized and send the given message to the other side.
      */
-    void sendMessage(vhal_proto::EmulatorMessage const& msg);
+    int sendMessage(vhal_proto::EmulatorMessage const& msg);
 
    protected:
     std::unique_ptr<std::thread> mReadThread;
@@ -102,6 +102,9 @@ class CommConn {
      * stop().
      */
     void readThread();
+
+   private:
+    std::mutex mMutex;
 };
 
 }  // namespace fake
@@ -110,4 +113,4 @@ class CommConn {
 }  // namespace hardware
 }  // namespace android
 
-#endif  // android_hardware_automotive_vehicle_V2_0_impl_CommBase_H_
+#endif  // android_hardware_automotive_vehicle_aidl_impl_CommBase_H_

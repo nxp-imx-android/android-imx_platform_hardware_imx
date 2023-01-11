@@ -47,9 +47,9 @@ class FakeVehicleHardware : public IVehicleHardware {
   public:
     using ValueResultType = VhalResult<VehiclePropValuePool::RecyclableType>;
 
-    FakeVehicleHardware();
+    FakeVehicleHardware(VehicleEmulator* emulator);
 
-    explicit FakeVehicleHardware(std::unique_ptr<VehiclePropValuePool> valuePool);
+    explicit FakeVehicleHardware(std::unique_ptr<VehiclePropValuePool> valuePool, VehicleEmulator* emulator);
 
     ~FakeVehicleHardware();
 
@@ -95,12 +95,6 @@ class FakeVehicleHardware : public IVehicleHardware {
     aidl::android::hardware::automotive::vehicle::StatusCode updateSampleRate(
             int32_t propId, int32_t areaId, float sampleRate) override;
 
-    void registerEmulator(VehicleEmulator* emulator) {
-        ALOGI("%s, emulator: %p", __func__, emulator);
-        std::lock_guard<std::mutex> g(mEmulatorLock);
-        mEmulator = emulator;
-    }
-
     bool setPropertyFromVehicle(
             const aidl::android::hardware::automotive::vehicle::VehiclePropValue& value);
 
@@ -108,12 +102,6 @@ class FakeVehicleHardware : public IVehicleHardware {
             const aidl::android::hardware::automotive::vehicle::VehiclePropValue& value) const;
 
   protected:
-    VehicleEmulator* getEmulatorOrDie() {
-        std::lock_guard<std::mutex> g(mEmulatorLock);
-        if (mEmulator == nullptr) abort();
-        return mEmulator;
-    }
-
     // mValuePool is also used in mServerSidePropStore.
     const std::shared_ptr<VehiclePropValuePool> mValuePool;
     const std::shared_ptr<VehiclePropertyStore> mServerSidePropStore;
@@ -122,7 +110,6 @@ class FakeVehicleHardware : public IVehicleHardware {
             const aidl::android::hardware::automotive::vehicle::VehiclePropValue& value);
 
   private:
-    mutable std::mutex mEmulatorLock;
     VehicleEmulator* mEmulator;
 
     // Expose private methods to unit test.
