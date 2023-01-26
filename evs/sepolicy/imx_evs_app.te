@@ -28,3 +28,7 @@ allow imx_evs_app gpu_device:chr_file { map };
 allow imx_evs_app hal_evs_hwservice:hwservice_manager { find };
 allow imx_evs_app system_data_file:dir search;
 dontaudit imx_evs_app vendor_default_prop:file { open read map getattr };
+
+# Allow use of cartelemetry service
+allow imx_evs_app cartelemetryd_service:service_manager find;
+binder_call(imx_evs_app, cartelemetryd)
