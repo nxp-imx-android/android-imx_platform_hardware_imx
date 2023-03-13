@@ -221,6 +221,7 @@ status_t CameraDeviceSessionHwlImpl::Initialize(
     mMaxHeight = pDev->mMaxHeight;
     caps_supports = pDev->caps_supports;
     m_raw_v4l2_format = pDev->m_raw_v4l2_format;
+    m_color_arrange = pDev->m_color_arrange;
 
     return OK;
 }
@@ -698,10 +699,10 @@ int CameraDeviceSessionHwlImpl::HandleImage()
     }
 
     uint64_t timestamp = 0;
-    if (mUseCpuEncoder)
-        timestamp = systemTime(SYSTEM_TIME_MONOTONIC);
+    if (is_logical_request_)
+        timestamp = imgFeed->v4l2BufferList[0]->mTimeStamp;
     else
-        timestamp = systemTime(SYSTEM_TIME_BOOTTIME);
+        timestamp = imgFeed->v4l2Buffer->mTimeStamp;
 
     // notify shutter
     if (pInfo->pipeline_callback.notify) {
@@ -1505,6 +1506,7 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
     stillcapIdx = -1;
     recordIdx = -1;
     callbackIdx = -1;
+    cameraRWIdx = -1;
     is_logical_request_ = false;
 
     for (int i = 0; i < stream_num; i++) {
@@ -1530,6 +1532,9 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
         HalStream hal_stream;
         memset(&hal_stream, 0, sizeof(hal_stream));
         int usage = 0;
+        char socType[128] = {0};
+        property_get("ro.boot.soc_type", socType, "");
+        ALOGI("%s: socType :%s \n", __FUNCTION__, socType);
 
         switch (stream.format) {
             case HAL_PIXEL_FORMAT_RAW16:
@@ -1542,9 +1547,13 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
                 break;
 
             case HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED:
-                if (strcmp(mSensorData.v4l2_format, "nv12") == 0)
-                    hal_stream.override_format = HAL_PIXEL_FORMAT_YCBCR_420_888;
-                else
+                if (strcmp(mSensorData.v4l2_format, "nv12") == 0) {
+                    if (strstr(socType, "imx93")) {
+                        hal_stream.override_format = HAL_PIXEL_FORMAT_YV12 ;
+                    } else {
+                        hal_stream.override_format = HAL_PIXEL_FORMAT_YCBCR_420_888 ;
+                    }
+                } else
                     hal_stream.override_format = HAL_PIXEL_FORMAT_YCBCR_422_I;
 
                 hal_stream.max_buffers = NUM_PREVIEW_BUFFER;
@@ -1554,6 +1563,9 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
                     ALOGI("%s create video recording stream", __func__);
                     hal_stream.override_format = HAL_PIXEL_FORMAT_YCBCR_420_888;
                     recordIdx = i;
+                } else if (stream.usage & (GRALLOC_USAGE_HW_CAMERA_WRITE|GRALLOC_USAGE_HW_CAMERA_READ)) {
+                    ALOGI("%s create camera rw stream", __func__);
+                    cameraRWIdx = i;
                 } else {
                     ALOGI("%s create preview stream", __func__);
                     previewIdx = i;
@@ -1602,8 +1614,8 @@ int CameraDeviceSessionHwlImpl::PickConfigStream(uint32_t pipeline_id, uint8_t i
         return -1;
     }
 
-    ALOGI("%s: previewIdx %d, callbackIdx %d, stillcapIdx %d, recordIdx %d, intent %d",
-        __func__, previewIdx, callbackIdx, stillcapIdx, recordIdx, intent);
+    ALOGI("%s: previewIdx %d, callbackIdx %d, stillcapIdx %d, recordIdx %d, cameraRWIdx %d, intent %d",
+        __func__, previewIdx, callbackIdx, stillcapIdx, recordIdx, cameraRWIdx, intent);
 
     int configIdx = -1;
     if(intent == ANDROID_CONTROL_CAPTURE_INTENT_STILL_CAPTURE)
@@ -1636,6 +1648,8 @@ int CameraDeviceSessionHwlImpl::PickConfigStream(uint32_t pipeline_id, uint8_t i
             configIdx = stillcapIdx;
         else if (recordIdx >= 0)
             configIdx = recordIdx;
+        else if (cameraRWIdx >= 0)
+            configIdx = cameraRWIdx;
         else {
             ALOGE("%s, no stream found to config v4l2", __func__);
             return -1;

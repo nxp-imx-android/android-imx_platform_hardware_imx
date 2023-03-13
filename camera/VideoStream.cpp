@@ -185,23 +185,10 @@ int32_t VideoStream::ConfigAndStart(uint32_t format, uint32_t width, uint32_t he
         }
     }
 
-    if (strstr(mSession->getSensorData()->camera_name, ISP_SENSOR_NAME)) {
-        int sensorMode = mSession->getCapsMode(sceneMode);
-
-        struct viv_caps_mode_s caps_mode;
-        memset(&caps_mode,0,sizeof(caps_mode));
-        caps_mode.mode = sensorMode;
-
-        ret = ioctl(mDev, VIV_VIDIOC_S_CAPS_MODE, &caps_mode);
-        if (ret) {
-            ALOGE("%s: Set sensor mode[%d] Failed\n", __func__, caps_mode.mode);
-            return BAD_VALUE;
-        }
-
-        ((ISPCameraMMAPStream *)this)->getIspWrapper()->init(mDev);
-        // Before capture raw data, need first disable DWE.
-        if (format == HAL_PIXEL_FORMAT_RAW16)
-            ISPProcess(NULL, format);
+    ret = onPrepareLocked(format, sceneMode);
+    if (ret) {
+        ALOGE("%s: onPrepareLocked failed, ret %d\n", __func__, ret);
+        return ret;
     }
 
     ret = onDeviceConfigureLocked(format, width, height, fps);
@@ -216,12 +203,6 @@ int32_t VideoStream::ConfigAndStart(uint32_t format, uint32_t width, uint32_t he
         return ret;
     }
 
-    ret = onDeviceStartLocked();
-    if (ret) {
-        ALOGE("%s: onDeviceStartLocked failed, ret %d", __func__, ret);
-        return ret;
-    }
-
     if (strstr(mSession->getSensorData()->camera_name, ISP_SENSOR_NAME)) {
         // get the default dwe para.
         Json::Value jRequest, jResponse;
@@ -232,6 +213,12 @@ int32_t VideoStream::ConfigAndStart(uint32_t format, uint32_t width, uint32_t he
         } else {
             ALOGW("%s: IF_DWE_G_PARAMS failed, ret %d", __func__, ret);
         }
+    }
+
+    ret = onDeviceStartLocked();
+    if (ret) {
+        ALOGE("%s: onDeviceStartLocked failed, ret %d", __func__, ret);
+        return ret;
     }
 
     // save mode
@@ -354,6 +341,12 @@ capture_data:
         return NULL;
     }
 
+    uint64_t timestamp = 0;
+    if (mSession->mUseCpuEncoder)
+        timestamp = systemTime(SYSTEM_TIME_MONOTONIC);
+    else
+        timestamp = systemTime(SYSTEM_TIME_BOOTTIME);
+
     ALOGV("VIDIOC_DQBUF ok, idx %d", cfilledbuffer.index);
 
     if (mSession->mDebug && strstr(mSession->getSensorData()->camera_name, ISP_SENSOR_NAME)) {
@@ -380,6 +373,8 @@ capture_data:
     }
 
     mV4l2Lock.unlock();
+
+    mBuffers[cfilledbuffer.index]->mTimeStamp = timestamp;
     return mBuffers[cfilledbuffer.index];
 }
 
