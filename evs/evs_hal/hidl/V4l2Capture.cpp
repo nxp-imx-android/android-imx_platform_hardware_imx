@@ -30,7 +30,14 @@
 
 #include "V4l2Capture.h"
 
-//#define DEBUG_V4L2_CAMERA
+#include "gralloc_handle.h"
+#include "gralloc_metadata.h"
+#include "gralloc_driver.h"
+
+using aidl::android::hardware::graphics::common::BlendMode;
+using aidl::android::hardware::graphics::common::Dataspace;
+
+// #define DEBUG_V4L2_CAMERA
 #ifdef DEBUG_V4L2_CAMERA
 static int nub;
 #endif
@@ -474,21 +481,18 @@ Return<EvsResult> V4l2Capture::setMaxFramesInFlight(uint32_t bufferCount) {
 void V4l2Capture::onIncreaseMemoryBuffer(unsigned number)
 {
     unsigned added = 0;
-    fsl::Memory *buffer = nullptr;
-    fsl::MemoryManager* allocator = fsl::MemoryManager::getInstance();
-    fsl::MemoryDesc desc;
-    desc.mWidth = mWidth;
-    desc.mHeight = mHeight;
-    desc.mFormat = mFormat;
-    desc.mFslFormat = mFormat;
-    desc.mProduceUsage |= fsl::USAGE_HW_TEXTURE
-            | fsl::USAGE_HW_RENDER | fsl::USAGE_HW_VIDEO_ENCODER;
-    desc.mFlag = 0;
-    int ret = desc.checkFormat();
-    if (ret != 0) {
-        ALOGE("%s checkFormat failed", __func__);
-        return;
-    }
+    buffer_handle_t buffer;
+    struct gralloc_buffer_descriptor desc;
+    gralloc_driver driver;
+    driver.init();
+
+    desc.width = mWidth;
+    desc.height = mHeight;
+    desc.droid_format = mFormat;
+    desc.droid_usage = fsl::USAGE_HW_TEXTURE | fsl::USAGE_HW_RENDER | fsl::USAGE_HW_VIDEO_ENCODER;
+    desc.drm_format = 0x0;
+    desc.use_flags = 0x0;
+    desc.reserved_region_size = sizeof(gralloc_metadata);
 
     while (added < number) {
         // allocate mFramesAllowed buffer for every physical camera
@@ -497,7 +501,27 @@ void V4l2Capture::onIncreaseMemoryBuffer(unsigned number)
                 return;
 
             buffer = nullptr;
-            allocator->allocMemory(desc, &buffer);
+
+            desc.name = "EVS V4L capture buf" + std::to_string(added);
+            int ret = driver.allocate(&desc, &buffer);
+            if (ret) {
+                ALOGE("Failed to allocate EVS V4L capture buffers.");
+                return;
+            }
+
+            void* reservedRegionAddr = nullptr;
+            uint64_t reservedRegionSize = 0;
+            ret = driver.get_reserved_region(buffer, &reservedRegionAddr, &reservedRegionSize);
+            if (ret) {
+                driver.release(buffer);
+                ALOGE("Failed to initializeMetadata. Failed to getReservedRegion.");
+                return;
+            }
+            gralloc_metadata* grallocMetadata = reinterpret_cast<gralloc_metadata*>(reservedRegionAddr);
+            snprintf(grallocMetadata->name, GRALLOC_METADATA_MAX_NAME_SIZE, "%s", desc.name.c_str());
+            grallocMetadata->dataspace = Dataspace::UNKNOWN;
+            grallocMetadata->blendMode = BlendMode::INVALID;
+
 
             std::vector<fsl::Memory*> fsl_mem;
             fsl_mem = mCamBuffers[mDeviceFd[physical_cam]];
@@ -507,7 +531,7 @@ void V4l2Capture::onIncreaseMemoryBuffer(unsigned number)
                 {
                     std::unique_lock <std::mutex> lock(mLock);
                     if (mem_singal == nullptr) {
-                        mem_singal = buffer;
+                        mem_singal = (fsl::Memory*)buffer;
                         stored = true;
                         break;
                     }
@@ -515,7 +539,7 @@ void V4l2Capture::onIncreaseMemoryBuffer(unsigned number)
             }
 
             if (!stored) {
-                fsl_mem.push_back(buffer);
+                fsl_mem.push_back((fsl::Memory*)buffer);
             }
 
             struct v4l2_buffer buf;
@@ -555,8 +579,8 @@ void V4l2Capture::onIncreaseMemoryBuffer(unsigned number)
             buf.index = v4l2_index;
 
             buf.length = 1;
-            buf.m.planes->length = buffer->size;
-            buf.m.planes->m.fd = buffer->fd;
+            buf.m.planes->length = ((fsl::Memory *)buffer)->size;
+            buf.m.planes->m.fd = ((fsl::Memory *)buffer)->fd;
 
             // Requeue the buffer to capture the next available frame
             if (ioctl(mDeviceFd[physical_cam], VIDIOC_QBUF, &buf) < 0) {
@@ -567,9 +591,10 @@ void V4l2Capture::onIncreaseMemoryBuffer(unsigned number)
             void *vaddr = NULL;
             // handle->base which is instore virtual addr is only set after lock
             // need lock the addr here, so that it can been used in onFrameCollect
-            allocator->lock(buffer,  buffer->usage |  fsl::USAGE_SW_READ_OFTEN
-                           | fsl::USAGE_SW_WRITE_OFTEN, 0, 0,
-                           buffer->width, buffer->height, &vaddr);
+            struct rectangle rect = {.x=0, .y=0, .width=desc.width, .height=desc.height};
+            uint8_t *addr[DRV_MAX_PLANES];
+            driver.lock(buffer, /*acquire_fence*/ -1,/*close_acquire_fence*/ false, &rect, fsl::USAGE_SW_READ_OFTEN | fsl::USAGE_SW_WRITE_OFTEN, addr);
+            vaddr = addr[0];
 #endif
             mCamBuffers[mDeviceFd[physical_cam]] = fsl_mem;
         }
@@ -582,8 +607,9 @@ void V4l2Capture::onIncreaseMemoryBuffer(unsigned number)
 // it only been called when return buffer and the mDecreasenum is not 0
 void V4l2Capture::onDecreaseMemoryBuffer(unsigned index)
 {
-    fsl::Memory *buffer = nullptr;
-    fsl::MemoryManager* allocator = fsl::MemoryManager::getInstance();
+    buffer_handle_t buffer;
+    gralloc_driver driver;
+    driver.init();
 
     // destroy CAMERA_BUFFER_NUM buffer for every physical camera
     for (const auto& physical_cam : mPhysicalCamera) {
@@ -595,7 +621,7 @@ void V4l2Capture::onDecreaseMemoryBuffer(unsigned index)
         {
             std::unique_lock <std::mutex> lock(mLock);
             buffer = mCamBuffers[mDeviceFd[physical_cam]].at(mBufferMap[physical_cam].at(index));
-            allocator->releaseMemory(buffer);
+            driver.release(buffer);
             mCamBuffers[mDeviceFd[physical_cam]].at(mBufferMap[physical_cam].at(index)) = nullptr;
             mBufferMap[physical_cam].at(index) = -1;
             mFramesAllowed--;
@@ -605,8 +631,9 @@ void V4l2Capture::onDecreaseMemoryBuffer(unsigned index)
 }
 
 void V4l2Capture::onMemoryDestroy() {
-    fsl::Memory *buffer = nullptr;
-    fsl::MemoryManager* allocator = fsl::MemoryManager::getInstance();
+    buffer_handle_t buffer;
+    gralloc_driver driver;
+    driver.init();
     for (const auto& physical_cam : mPhysicalCamera) {
         if (mDeviceFd[physical_cam] < 0)
             continue;
@@ -624,7 +651,7 @@ void V4l2Capture::onMemoryDestroy() {
                 buffer = mem_singal;
                 mem_singal = nullptr;
             }
-            allocator->releaseMemory(buffer);
+           driver.release(buffer);
         }
         fsl_mem.clear();
     }
