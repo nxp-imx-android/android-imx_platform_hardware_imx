@@ -67,6 +67,7 @@ cc_binary {
 
     required: [
         "ImxConfig.json",
+        "ImxFakeCamConfig.json",
         "ImxCarFromTop.png",
         "ImxLabeledChecker.png",
     ],
@@ -118,6 +119,14 @@ prebuilt_etc {
     name: "ImxLabeledChecker.png",
 
     src: "ImxLabeledChecker.png",
+    sub_dir: "automotive/evs",
+
+}
+
+prebuilt_etc {
+    name: "ImxFakeCamConfig.json",
+
+    src: "ImxFakeCamConfig.json",
     sub_dir: "automotive/evs",
 
 }
