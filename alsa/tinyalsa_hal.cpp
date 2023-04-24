@@ -4551,7 +4551,7 @@ static int adev_get_format_for_device(struct imx_audio_device *adev, uint32_t de
      return 0;
 }
 
-/* On imx8q board, we prefer use audio board(cs42888) as speaker and mic */
+/* On imx8q board, we prefer use wm8960 as speaker and mic */
 static void adjust_card_sequence(struct imx_audio_device *adev)
 {
     int cardIdx;
@@ -4581,7 +4581,7 @@ static void adjust_card_sequence(struct imx_audio_device *adev)
     if((pcard_wm8960 == NULL) || (pcard_cs42888 == NULL))
         return;
 
-    if(idx_cs42888 < idx_wm8960)
+    if(idx_cs42888 > idx_wm8960)
         return;
 
     adev->card_list[idx_wm8960] = pcard_cs42888;
