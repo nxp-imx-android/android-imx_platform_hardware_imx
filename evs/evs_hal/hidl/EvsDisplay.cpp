@@ -20,6 +20,10 @@
 #include <ui/DisplayMode.h>
 #include <ui/DisplayState.h>
 
+#include "gralloc_handle.h"
+#include "gralloc_metadata.h"
+#include "gralloc_driver.h"
+
 namespace android {
 namespace hardware {
 namespace automotive {
@@ -31,6 +35,8 @@ using namespace android;
 using ::nxp::hardware::display::V1_0::Error;
 using ::android::frameworks::automotive::display::V1_0::HwDisplayConfig;
 using ::android::frameworks::automotive::display::V1_0::HwDisplayState;
+using aidl::android::hardware::graphics::common::BlendMode;
+using aidl::android::hardware::graphics::common::Dataspace;
 
 #define DISPLAY_WIDTH 1280
 #define DISPLAY_HEIGHT 720
@@ -114,28 +120,44 @@ void EvsDisplay::hideWindow()
 bool EvsDisplay::initialize()
 {
     // allocate memory.
-    fsl::Memory *buffer = nullptr;
-    fsl::MemoryManager* allocator = fsl::MemoryManager::getInstance();
-    fsl::MemoryDesc desc;
-    desc.mWidth = mWidth;
-    desc.mHeight = mHeight;
-    desc.mFormat = mFormat;
-    desc.mFslFormat = mFormat;
-    desc.mProduceUsage |= fsl::USAGE_HW_TEXTURE
-            | fsl::USAGE_HW_RENDER | fsl::USAGE_HW_VIDEO_ENCODER;
-    desc.mFlag = 0;
-    int ret = desc.checkFormat();
-    if (ret != 0) {
-        ALOGE("%s checkFormat failed", __func__);
-        return false;
-    }
+    buffer_handle_t buffer;
+    struct gralloc_buffer_descriptor desc;
+    gralloc_driver driver;
+    driver.init();
+
+    desc.width = mWidth;
+    desc.height = mHeight;
+    desc.droid_format = mFormat;
+    desc.droid_usage = fsl::USAGE_HW_TEXTURE | fsl::USAGE_HW_RENDER | fsl::USAGE_HW_VIDEO_ENCODER;
+    desc.drm_format = 0x0;
+    desc.use_flags = 0x0;
+    desc.reserved_region_size = sizeof(gralloc_metadata);
 
     for (int i = 0; i < DISPLAY_BUFFER_NUM; i++) {
         buffer = nullptr;
-        allocator->allocMemory(desc, &buffer);
+
+        desc.name = "EVS Display Buf" + std::to_string(i);
+        int ret = driver.allocate(&desc, &buffer);
+        if (ret) {
+            ALOGE("Failed to allocate EVS Display buffers.");
+            return false;
+        }
+
+        void* reservedRegionAddr = nullptr;
+        uint64_t reservedRegionSize = 0;
+        ret = driver.get_reserved_region(buffer, &reservedRegionAddr, &reservedRegionSize);
+        if (ret) {
+            driver.release(buffer);
+            ALOGE("Failed to initializeMetadata. Failed to getReservedRegion.");
+            return false;
+        }
+        gralloc_metadata* grallocMetadata = reinterpret_cast<gralloc_metadata*>(reservedRegionAddr);
+        snprintf(grallocMetadata->name, GRALLOC_METADATA_MAX_NAME_SIZE, "%s", desc.name.c_str());
+        grallocMetadata->dataspace = Dataspace::UNKNOWN;
+        grallocMetadata->blendMode = BlendMode::INVALID;
 
         std::unique_lock<std::mutex> lock(mLock);
-        mBuffers[i] = buffer;
+        mBuffers[i] = (fsl::Memory*) buffer;
     }
 
     return true;
@@ -160,8 +182,11 @@ void EvsDisplay::forceShutdown()
         display->putLayer(layer);
     }
 
-    fsl::Memory *buffer = nullptr;
-    fsl::MemoryManager* allocator = fsl::MemoryManager::getInstance();
+    buffer_handle_t buffer;
+    struct gralloc_buffer_descriptor desc;
+    gralloc_driver driver;
+    driver.init();
+
     for (int i = 0; i < DISPLAY_BUFFER_NUM; i++) {
         {
             std::unique_lock<std::mutex> lock(mLock);
@@ -172,7 +197,7 @@ void EvsDisplay::forceShutdown()
             buffer = mBuffers[i];
             mBuffers[i] = nullptr;
         }
-        allocator->releaseMemory(buffer);
+        driver.release(buffer);
     }
 
     std::lock_guard<std::mutex> lock(mLock);

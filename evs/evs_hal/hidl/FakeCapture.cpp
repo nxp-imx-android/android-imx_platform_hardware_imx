@@ -30,6 +30,13 @@
 
 #include "FakeCapture.h"
 
+#include "gralloc_handle.h"
+#include "gralloc_metadata.h"
+#include "gralloc_driver.h"
+
+using aidl::android::hardware::graphics::common::BlendMode;
+using aidl::android::hardware::graphics::common::Dataspace;
+
 #define COLOR_HEIGHT 64
 #define COLOR_VALUE 0x86
 #define CAMERA_WIDTH 1920
@@ -44,6 +51,7 @@ FakeCapture::FakeCapture(const char *deviceName, const camera_metadata_t * metad
 {
     mWidth = CAMERA_WIDTH;
     mHeight = CAMERA_HEIGHT;
+    mFormat = fsl::FORMAT_RGBA8888;
     mIslogicCamera = isLogicalCamera(metadata);
     // the logic camera have phsical camera inside, it need allocate buffer according phsical camera
     if (mIslogicCamera)
@@ -262,22 +270,21 @@ std::set<uint32_t> FakeCapture::enumerateCameraControls() {
 
 void FakeCapture::onIncreaseMemoryBuffer(unsigned number) {
     std::vector<fsl::Memory*> fsl_mem;
-    fsl::Memory *buffer = nullptr;
-    fsl::MemoryManager* allocator = fsl::MemoryManager::getInstance();
-    fsl::MemoryDesc desc;
-    desc.mWidth = mWidth;
-    desc.mHeight = mHeight;
-    desc.mFormat = fsl::FORMAT_RGBA8888;
-    desc.mFslFormat = fsl::FORMAT_RGBA8888;
-    desc.mProduceUsage |= fsl::USAGE_HW_TEXTURE
-        | fsl::USAGE_HW_RENDER | fsl::USAGE_HW_VIDEO_ENCODER;
-    desc.mFlag = 0;
+
+    buffer_handle_t buffer;
+    struct gralloc_buffer_descriptor desc;
+    gralloc_driver driver;
+    driver.init();
+
+    desc.width = mWidth;
+    desc.height = mHeight;
+    desc.droid_format = mFormat;
+    desc.droid_usage = fsl::USAGE_HW_TEXTURE | fsl::USAGE_HW_RENDER | fsl::USAGE_HW_VIDEO_ENCODER;
+    desc.drm_format = 0x0;
+    desc.use_flags = 0x0;
+    desc.reserved_region_size = sizeof(gralloc_metadata);
+
     ALOGD("the number is %d", number);
-    int ret = desc.checkFormat();
-    if (ret != 0) {
-        ALOGE("%s checkFormat failed", __func__);
-        return;
-    }
     // allocate CAMERA_BUFFER_NUM buffer for every physical camera
     int cam_nu = 0;
     for (const auto& physical_cam : mPhysicalCamera) {
@@ -290,13 +297,36 @@ void FakeCapture::onIncreaseMemoryBuffer(unsigned number) {
             char filename[128];
             memset(filename, 0, 128);
             sprintf(filename, "/vendor/etc/automotive/sv/cam%d.png", cam_nu);
-            allocator->allocMemory(desc, &buffer);
+
+            desc.name = "EVS fake capture buf" + std::to_string(i);
+            int ret = driver.allocate(&desc, &buffer);
+            if (ret) {
+                ALOGE("Failed to allocate EVS fake capture buffers.");
+                return;
+            }
+
+            void* reservedRegionAddr = nullptr;
+            uint64_t reservedRegionSize = 0;
+            ret = driver.get_reserved_region(buffer, &reservedRegionAddr, &reservedRegionSize);
+            if (ret) {
+                driver.release(buffer);
+                ALOGE("Failed to initializeMetadata. Failed to getReservedRegion.");
+                return;
+            }
+            gralloc_metadata* grallocMetadata = reinterpret_cast<gralloc_metadata*>(reservedRegionAddr);
+            snprintf(grallocMetadata->name, GRALLOC_METADATA_MAX_NAME_SIZE, "%s", desc.name.c_str());
+            grallocMetadata->dataspace = Dataspace::UNKNOWN;
+            grallocMetadata->blendMode = BlendMode::INVALID;
+
             std::unique_lock <std::mutex> lock(mLock);
-            allocator->lock(buffer,  buffer->usage |  fsl::USAGE_SW_READ_OFTEN
-                           | fsl::USAGE_SW_WRITE_OFTEN, 0, 0,
-                            buffer->width, buffer->height, &vaddr);
+
+            struct rectangle rect = {.x=0, .y=0, .width=desc.width, .height=desc.height};
+            uint8_t *addr[DRV_MAX_PLANES];
+            driver.lock(buffer, /*acquire_fence*/ -1,/*close_acquire_fence*/ false, &rect, fsl::USAGE_SW_READ_OFTEN | fsl::USAGE_SW_WRITE_OFTEN, addr);
+            vaddr = addr[0];
+
             readFromPng(filename, vaddr);
-            fsl_mem.push_back(buffer);
+            fsl_mem.push_back((fsl::Memory*)buffer);
         }
         cam_nu++;
         mCamBuffers[mDeviceFd[physical_cam]] = fsl_mem;
@@ -447,8 +477,10 @@ void FakeCapture::readFromPng(const char *filename, void* buf) {
 }
 
 void FakeCapture::onMemoryDestroy() {
-    fsl::Memory *buffer = nullptr;
-    fsl::MemoryManager* allocator = fsl::MemoryManager::getInstance();
+    buffer_handle_t buffer;
+    gralloc_driver driver;
+    driver.init();
+
     for (const auto& physical_cam : mPhysicalCamera) {
         if (mDeviceFd[physical_cam] < 0)
             continue;
@@ -466,7 +498,7 @@ void FakeCapture::onMemoryDestroy() {
                 buffer = mem_singal;
                 mem_singal = nullptr;
             }
-            allocator->releaseMemory(buffer);
+            driver.release(buffer);
         }
         fsl_mem.clear();
     }

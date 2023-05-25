@@ -40,7 +40,11 @@ evs_defaults {
         "liblog",
         "libutils",
         "libfsldisplay",
+        "libdisplayutils",
         "libsync",
+    ],
+    static_libs: [
+        "libgralloc_driver",
     ],
     vintf_fragments: [
         "android.hardware.automotive.evs@1.1-EvsEnumeratorHw.xml",
@@ -48,6 +52,8 @@ evs_defaults {
     include_dirs: [
         "frameworks/native/include",
         "vendor/nxp-opensource/imx/display/display",
+        "vendor/nxp-opensource/imx/display/gralloc_v4",
+        "vendor/nxp-opensource/libdrm-imx/include/drm",
     ],
     vendor: true,
     relative_install_path: "hw",
