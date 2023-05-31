@@ -69,7 +69,7 @@ protected:
     sp<IEvsEnumerator>              mEnumerator;
     const ConfigManager&            mConfig;
     std::vector<ActiveCamera>       mActiveCameras;
-    std::unique_ptr<Stream>         mTargetCfg;
+    std::shared_ptr<Stream>         mTargetCfg;
 
     struct {
         std::unique_ptr<TexWrapper> checkerBoard;

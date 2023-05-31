@@ -156,7 +156,7 @@ bool RenderTopView::activate() {
     for (auto&& cam: mActiveCameras) {
         cam.tex.reset(createVideoTexture(mEnumerator,
                                          cam.info.cameraId.c_str(),
-                                         std::move(mTargetCfg),
+                                         mTargetCfg,
                                          sDisplay));
         if (!cam.tex) {
             LOG(ERROR) << "Failed to set up video texture for " << cam.info.cameraId

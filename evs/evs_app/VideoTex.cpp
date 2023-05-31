@@ -134,7 +134,7 @@ bool VideoTex::refresh() {
 
 VideoTex* createVideoTexture(sp<IEvsEnumerator> pEnum,
                              const char* evsCameraId,
-                             std::unique_ptr<Stream> streamCfg,
+                             std::shared_ptr<Stream> streamCfg,
                              EGLDisplay glDisplay) {
     // Set up the camera to feed this texture
     sp<IEvsCamera> pCamera = nullptr;

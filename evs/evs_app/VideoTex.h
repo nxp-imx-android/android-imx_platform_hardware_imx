@@ -34,7 +34,7 @@ using namespace ::android::hardware::automotive::evs::V1_1;
 class VideoTex: public TexWrapper {
     friend VideoTex* createVideoTexture(sp<IEvsEnumerator> pEnum,
                                         const char * evsCameraId,
-                                        std::unique_ptr<Stream> streamCfg,
+                                        std::shared_ptr<Stream> streamCfg,
                                         EGLDisplay glDisplay);
 
 public:
@@ -62,7 +62,7 @@ private:
 // Creates a video texture to draw the camera preview.
 VideoTex* createVideoTexture(sp<IEvsEnumerator> pEnum,
                              const char * deviceName,
-                             std::unique_ptr<Stream> streamCfg,
+                             std::shared_ptr<Stream> streamCfg,
                              EGLDisplay glDisplay);
 
 #endif // VIDEOTEX_H
