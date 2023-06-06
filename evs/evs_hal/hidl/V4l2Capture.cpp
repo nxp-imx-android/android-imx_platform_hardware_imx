@@ -598,7 +598,10 @@ void V4l2Capture::onIncreaseMemoryBuffer(unsigned number)
 #endif
             mCamBuffers[mDeviceFd[physical_cam]] = fsl_mem;
         }
-        mFramesAllowed++;
+        {
+            std::unique_lock <std::mutex> lock(mLock);
+            mFramesAllowed++;
+        }
         added++;
     }
 }

@@ -72,8 +72,11 @@ EvsCamera::EvsCamera(const char *videoName, const camera_metadata_t *metadata)
     if (metadata != NULL) {
         mDescription.metadata.setToExternal((uint8_t *)metadata, get_camera_metadata_size(metadata));
     }
-    mFramesInUse = 0;
-    mFramesAllowed = 0;
+    {
+        std::unique_lock <std::mutex> lock(mLock);
+        mFramesInUse = 0;
+        mFramesAllowed = 0;
+    }
 }
 
 EvsCamera::~EvsCamera()
@@ -442,13 +445,19 @@ Return<void> EvsCamera::getIntParameterRange(CameraParam id,
 Return<void> EvsCamera::doneWithFrame(const BufferDesc_1_0& buffer)
 {
     ALOGV("doneWithFrame index %d", buffer.bufferId);
-    mFramesInUse--;
+    {
+        std::unique_lock <std::mutex> lock(mLock);
+        mFramesInUse--;
+    }
     doneWithFrame_impl(buffer.bufferId, buffer.memHandle, "");
     return Void();
 }
 
 Return<EvsResult> EvsCamera::doneWithFrame_1_1(const hidl_vec<BufferDesc_1_1>& buffers)  {
-    mFramesInUse--;
+    {
+        std::unique_lock <std::mutex> lock(mLock);
+        mFramesInUse--;
+    }
     for (auto&& buffer : buffers) {
         doneWithFrame_impl(buffer.bufferId, buffer.buffer.nativeHandle, buffer.deviceId);
     }
@@ -493,7 +502,10 @@ void EvsCamera::forwardFrame(std::vector<struct forwardframe> &fwframes)
             frames[i++] = bufDesc_1_1;
         }
 
-        mFramesInUse++;
+        {
+            std::unique_lock <std::mutex> lock(mLock);
+            mFramesInUse++;
+        }
         auto result = mStream_1_1->deliverFrame_1_1(frames);
         if (result.isOk()) {
             ALOGV("Delivered buffer as id %d",
@@ -519,7 +531,10 @@ void EvsCamera::forwardFrame(std::vector<struct forwardframe> &fwframes)
             static_cast<uint32_t>(fwframes[0].index),
             fwframes[0].buf
         };
-        mFramesInUse++;
+        {
+            std::unique_lock <std::mutex> lock(mLock);
+            mFramesInUse++;
+        }
         auto result = mStream->deliverFrame(bufDesc_1_0);
         if (result.isOk()) {
             ALOGV("Delivered buffer as id %d",
