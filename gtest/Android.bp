@@ -12,55 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-cc_test {
-    name: "imx_unit_test",
-    compile_multilib: "64",
-    srcs: [
-        "SVImageGtest.cpp",
-        "ImageUtils.cpp",
-        "SV3DGtest.cpp",
-    ],
-
-    cflags: [
-        "-Wall",
-        "-Werror",
-        "-O0",
-        "-DGL_GLEXT_PROTOTYPES",
-        "-DEGL_EGLEXT_PROTOTYPES",
-        "-DENABLE_IMX_SV",
-    ],
-
-    header_libs: [
-        "libeigen",
-        "libsurfaceflinger_headers"
-    ],
-
-    include_dirs: [
-        "vendor/nxp/fsl-proprietary/assimp/include",
-        "external/glm"
-    ],
-
-    static_libs: ["libglTest", "libimxsv_base"],
-
-    shared_libs: [
-        "libandroid",
-        "liblog",
-        "libjnigraphics",
-        "libdl",
-        "libmediandk",
-        "libcutils",
-        "libEGL",
-        "libGLESv2",
-        "libui",
-        "libgui",
-        "libutils",
-        "libassimp",
-    ],
-    stl: "c++_static",
-    test_suites: ["device-tests"],
-    host_supported: false,
-}
-
 cc_test{
        name: "imx_stress_test",
        srcs: ["UsbGtest.cpp"],
