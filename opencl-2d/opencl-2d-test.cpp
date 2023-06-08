@@ -40,12 +40,16 @@
 #include <cutils/log.h>
 #endif
 
+#include <linux/videodev2.h>
+
 #include "opencl-2d.h"
+#include "Allocator.h"
 
 #define LOG_TAG "opencl-2d-test"
 #define DEBUG 1
 #define MAX_FILE_LEN 128
 #define G2D_TEST_LOOP 10
+#define TEST_BUFFER_NUM 3
 
 static char input_file[MAX_FILE_LEN];
 static char output_file[MAX_FILE_LEN];
@@ -589,7 +593,7 @@ void usage(char *app)
     printf("\t-z\t  output stride\n");
     printf("\t-m\t  memory_type\n");
     printf("\t\t\t  0:Cached memory,1:Non-cached ION memory\n");
-
+    printf("\t-v\t  v4l2 device(such as /dev/video0, /dev/video1, ...)\n");
 }
 
 static int update_surface_parameters(struct cl_g2d_surface *src, char *input_buf,
@@ -1005,9 +1009,222 @@ enlarge:
     return 0;
 }
 
+struct testPhyBuffer {
+    void* mVirtAddr;
+    uint64_t mPhyAddr;
+    size_t mSize;
+    int32_t mFd;
+};
+
+int AllocPhyBuffer(struct testPhyBuffer *phyBufs)
+{
+    int sharedFd;
+    uint64_t phyAddr;
+    uint64_t outPtr;
+    uint32_t ionSize = phyBufs->mSize;
+
+    if (phyBufs == NULL)
+        return -1;
+
+    fsl::Allocator *allocator = fsl::Allocator::getInstance();
+    if (allocator == NULL) {
+        printf("%s ion allocator invalid\n", __func__);
+        return -1;
+    }
+
+    sharedFd = allocator->allocMemory(ionSize,
+                    MEM_ALIGN, fsl::MFLAGS_CONTIGUOUS);
+    if (sharedFd < 0) {
+        printf("%s: allocMemory failed.\n", __func__);
+        return -1;
+    }
+
+    int err = allocator->getVaddrs(sharedFd, ionSize, outPtr);
+    if (err != 0) {
+        printf("%s: getVaddrs failed.\n", __func__);
+        close(sharedFd);
+        return -1;
+    }
+
+    err = allocator->getPhys(sharedFd, ionSize, phyAddr);
+    if (err != 0) {
+        printf("%s: getPhys failed.\n", __func__);
+        munmap((void*)(uintptr_t)outPtr, ionSize);
+        close(sharedFd);
+        return -1;
+    }
+
+    printf("%s, outPtr:%p,  phy:%p, virt: %p, ionSize:%d\n", __func__, (void *)outPtr, (void *)phyAddr, (void *)outPtr, ionSize);
+
+    phyBufs->mVirtAddr = (void *)outPtr;
+    phyBufs->mPhyAddr = phyAddr;
+    phyBufs->mFd = sharedFd;
+
+    return 0;
+}
+
+int FreePhyBuffer(struct testPhyBuffer *phyBufs)
+{
+    if (phyBufs == NULL)
+        return -1;
+
+    /* If already freed or never allocated, just return */
+    if (phyBufs->mVirtAddr == NULL)
+        return 0;
+
+    munmap(phyBufs->mVirtAddr, phyBufs->mSize);
+
+    if (phyBufs->mFd > 0)
+        close(phyBufs->mFd);
+
+    memset(phyBufs, 0, sizeof(struct testPhyBuffer));
+
+    return 0;
+}
+
+static struct testPhyBuffer InPhyBuffer[TEST_BUFFER_NUM];
+static bool g_use_v4l2_buffer = false;
+static int g_fd_v4l = -1;
+static char *g_v4l_device = "/dev/video1";
+int g_out_width = 1920;
+int g_out_height = 1080;
+int g_cap_fmt = V4L2_PIX_FMT_YUYV;
+int g_capture_mode = 0;
+int g_camera_framerate = 30;
+enum v4l2_buf_type g_buf_type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+int g_mem_type = V4L2_MEMORY_MMAP;
+
+static int InitV4l2()
+{
+    if ((g_fd_v4l = open(g_v4l_device, O_RDWR, 0)) < 0) {
+        printf("unable to open %s for capture device.\n", g_v4l_device);
+        return -1;
+    }
+
+    struct v4l2_format fmt;
+    struct v4l2_streamparm parm;
+
+    // set fps
+    memset(&parm, 0, sizeof(parm));
+    parm.type = g_buf_type;
+    parm.parm.capture.capturemode = g_capture_mode;
+    parm.parm.capture.timeperframe.denominator = g_camera_framerate;
+    parm.parm.capture.timeperframe.numerator = 1;
+    if (ioctl(g_fd_v4l, VIDIOC_S_PARM, &parm) < 0)
+    {
+      printf("VIDIOC_S_PARM failed\n");
+      goto fail;
+    }
+
+    // set size, format
+    memset(&fmt, 0, sizeof(fmt));
+    fmt.type = g_buf_type;
+
+    if (g_buf_type == V4L2_BUF_TYPE_VIDEO_CAPTURE) {
+      fmt.fmt.pix.pixelformat = g_cap_fmt;
+      fmt.fmt.pix.width = g_out_width;
+      fmt.fmt.pix.height = g_out_height;
+    } else {
+      fmt.fmt.pix_mp.pixelformat = g_cap_fmt;
+      fmt.fmt.pix_mp.width = g_out_width;
+      fmt.fmt.pix_mp.height = g_out_height;
+      fmt.fmt.pix_mp.num_planes = 1;
+    }
+
+    if (ioctl(g_fd_v4l, VIDIOC_S_FMT, &fmt) < 0)
+    {
+      printf("set format failed\n");
+      goto fail;
+    }
+
+    return 0;
+
+fail:
+    if (g_fd_v4l > 0)
+        close(g_fd_v4l);
+
+    return -1;
+}
+
+
+static int ExitV4l2()
+{
+    if (g_fd_v4l > 0)
+        close(g_fd_v4l);
+
+    return 0;
+}
+
+static int AllocV4l2Buffers()
+{
+  unsigned int i;
+  struct v4l2_buffer buf;
+  enum v4l2_buf_type type;
+  struct v4l2_requestbuffers req;
+  int ret;
+  struct v4l2_plane planes;
+  memset(&planes, 0, sizeof(struct v4l2_plane));
+
+  memset(&req, 0, sizeof (req));
+  req.count = TEST_BUFFER_NUM;
+  req.type = g_buf_type;
+  req.memory = g_mem_type;
+
+  if (ioctl(g_fd_v4l, VIDIOC_REQBUFS, &req) < 0) {
+    printf("VIDIOC_REQBUFS failed\n");
+    return -1;
+  }
+
+  for (i = 0; i < TEST_BUFFER_NUM; i++) {
+    memset(&buf, 0, sizeof (buf));
+    buf.type = g_buf_type;
+    buf.memory = g_mem_type;
+    buf.index = i;
+
+    if (ioctl(g_fd_v4l, VIDIOC_QUERYBUF, &buf) < 0) {
+      printf("VIDIOC_QUERYBUF error\n");
+      return -1;
+    }
+
+    InPhyBuffer[i].mSize = buf.length;
+    InPhyBuffer[i].mVirtAddr = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, g_fd_v4l, buf.m.offset);
+  }
+
+  return 0;
+}
+
+static int FreeV4l2Buffers()
+{
+  enum v4l2_buf_type type;
+  struct v4l2_requestbuffers req;
+  int ret;
+
+  if (g_fd_v4l < 0)
+    return -1;
+
+  /* unmap memory */
+  printf("unmap memory, g_mem_type %d, V4L2_MEMORY_MMAP %d, TEST_BUFFER_NUM %d\n", g_mem_type, V4L2_MEMORY_MMAP, TEST_BUFFER_NUM);
+  for (int i = 0; i < TEST_BUFFER_NUM; i++) {
+    if (InPhyBuffer[i].mVirtAddr) {
+      printf("unmap %p, size %u\n", InPhyBuffer[i].mVirtAddr, InPhyBuffer[i].mSize);
+      munmap(InPhyBuffer[i].mVirtAddr, InPhyBuffer[i].mSize);
+    }
+  }
+
+  memset(&req, 0, sizeof (req));
+  req.count = 0;
+  req.type = type;
+  req.memory = g_mem_type;
+
+  ret = ioctl(g_fd_v4l, VIDIOC_REQBUFS, &req);
+
+  return ret;
+}
+
 int main(int argc, char** argv)
 {
     int rt;
+    int ret = 0;
     int inputlen = 0;
     int outputlen = 0;
     int read_len = 0;
@@ -1038,7 +1255,7 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    while ((rt = getopt(argc, argv, "hbcl:i:s:o:d:w:g:t:m:x:y:z:")) >= 0) {
+    while ((rt = getopt(argc, argv, "hbcl:i:s:o:d:w:g:t:m:x:y:z:v:")) >= 0) {
         switch (rt) {
         case 'h':
             usage(argv[0]);
@@ -1087,11 +1304,17 @@ int main(int argc, char** argv)
             memset(output_file, 0, MAX_FILE_LEN);
             strncpy(output_file, optarg, MAX_FILE_LEN);
             break;
+        case 'v':
+            g_v4l_device = optarg;
+            g_use_v4l2_buffer = true;
+            break;
         default:
             usage(argv[0]);
             return 0;
         }
     }
+
+    printf("g_v4l_device %s\n", g_v4l_device);
 
     if (gOutWidth == 0)
         gOutWidth = gWidth;
@@ -1145,38 +1368,81 @@ int main(int argc, char** argv)
         ALOGI("copy len: %d", gCopyLen);
     }
 
+
     inputlen = get_file_len(input_file);
     if (inputlen <= 0 ||
         inputlen < get_buf_size(gInput_format, gWidth, gHeight, gMemTest, gCopyLen)) {
         ALOGE("No valid file %s for this test", input_file);
         goto clean;
     }
+
+    outputlen = get_buf_size(gOutput_format, gOutWidth, gOutHeight, gMemTest, gCopyLen);
+
+/*
     input_buf  = allocate_memory(&input_ion_hnd, &input_ion_buf_fd,
             inputlen);
     if(input_buf  == NULL) {
         ALOGE("Cannot allocate input buffer");
         goto clean;
     }
-    read_len = read_from_file((char *)input_buf, inputlen, input_file);
-    dump_buffer((char *)input_buf, 64, "input");
+*/
+    struct testPhyBuffer OutPhyBuffer[TEST_BUFFER_NUM];
+    struct testPhyBuffer OutVXPhyBuffer;
+    struct testPhyBuffer OutBenchMarkPhyBuffer;
+    memset(&InPhyBuffer, 0, sizeof(InPhyBuffer));
+    memset(&OutPhyBuffer, 0, sizeof(OutPhyBuffer));
+    memset(&OutVXPhyBuffer, 0, sizeof(OutVXPhyBuffer));
+    memset(&OutBenchMarkPhyBuffer, 0, sizeof(OutBenchMarkPhyBuffer));
 
-    outputlen = get_buf_size(gOutput_format, gOutWidth, gOutHeight, gMemTest, gCopyLen);
-    output_buf  = allocate_memory(&output_ion_hnd, &output_ion_buf_fd,
-            outputlen);
-    output_vx_buf  = allocate_memory(&output_vx_ion_hnd, &output_vx_ion_buf_fd,
-            outputlen);
-    output_benchmark_buf  = allocate_memory(&benchmark_ion_hnd, &benchmark_ion_buf_fd,
-            outputlen);
-    if((output_buf  == NULL)||(output_benchmark_buf == NULL)||(output_vx_buf == NULL)) {
+    OutVXPhyBuffer.mSize = outputlen;
+    AllocPhyBuffer(&OutVXPhyBuffer);
+    output_vx_buf = OutVXPhyBuffer.mVirtAddr;
+
+    OutBenchMarkPhyBuffer.mSize = outputlen;
+    AllocPhyBuffer(&OutBenchMarkPhyBuffer);
+    output_benchmark_buf = OutBenchMarkPhyBuffer.mVirtAddr;
+
+    if((output_benchmark_buf == NULL)||(output_vx_buf == NULL)) {
         ALOGE("Cannot allocate output buffer");
         goto clean;
     }
-    memset(output_buf, 0, outputlen);
-    ALOGI("Get openCL output ptr %p", output_buf);
+
     memset(output_vx_buf, 0, outputlen);
     ALOGI("Get openVX output ptr %p", output_vx_buf);
     memset(output_benchmark_buf, 0, outputlen);
     ALOGI("Get CPU output ptr %p", output_benchmark_buf);
+
+    if (g_use_v4l2_buffer) {
+        ret = InitV4l2();
+        if (ret) {
+          ALOGI("%s: InitV4l2 failed, ret %d", __func__, ret);
+          goto clean;
+        }
+
+        ret = AllocV4l2Buffers();
+        if (ret) {
+            ALOGI("%s: AllocV4l2Buffers failed, ret %d", __func__, ret);
+            goto clean;
+        }
+    } else {
+        for (int i = 0; i < TEST_BUFFER_NUM; i++) {
+            InPhyBuffer[i].mSize = inputlen;
+            AllocPhyBuffer(&InPhyBuffer[i]);
+            if(InPhyBuffer[i].mVirtAddr == NULL) {
+                ALOGE("Cannot allocate input buffer, i %d", i);
+                goto clean;
+            }
+        }
+    }
+
+    for (int i = 0; i < TEST_BUFFER_NUM; i++) {
+        OutPhyBuffer[i].mSize = outputlen;
+        AllocPhyBuffer(&OutPhyBuffer[i]);
+        if(OutPhyBuffer[i].mVirtAddr == NULL) {
+            ALOGE("Cannot allocate output buffer, i %d", i);
+            goto clean;
+        }
+    }
 
     if(cl_g2d_open(&g2dHandle) == -1 || g2dHandle == NULL) {
         ALOGE("Fail to open g2d device!\n");
@@ -1184,13 +1450,28 @@ int main(int argc, char** argv)
     }
 
     uint64_t t1, t2;
-    ALOGI("Start openCL 2d blit");
+    ALOGI("Start openCL 2d blit, in size %d, out size %d", inputlen, outputlen);
     t1 = systemTime();
     for(int loop = 0; loop < G2D_TEST_LOOP; loop ++) {
+        int test_buffer_index = loop%TEST_BUFFER_NUM;
+        ALOGI("loop %d, test_buffer_index %d", loop, test_buffer_index);
+        input_buf = InPhyBuffer[test_buffer_index].mVirtAddr;
+
+        read_len = read_from_file((char *)input_buf, inputlen, input_file);
+        if (loop == 0)
+            dump_buffer((char *)input_buf, 64, "input");
+
+        output_buf = OutPhyBuffer[test_buffer_index].mVirtAddr;
+        if(output_buf == NULL) {
+            ALOGE("Cannot allocate output buffer");
+            goto clean;
+        }
+
         if (!gMemTest) {
             update_surface_parameters(&src, (char *)input_buf,
                 &dst, (char *)output_buf);
 
+            ALOGI("call cl_g2d_blit");
             cl_g2d_blit(g2dHandle, &src, &dst);
         }
         else {
@@ -1207,6 +1488,7 @@ int main(int argc, char** argv)
                 g2d_output_buf.usage = CL_G2D_CPU_MEMORY;
                 g2d_input_buf.usage = CL_G2D_CPU_MEMORY;
             }
+            ALOGI("call cl_g2d_copy");
             cl_g2d_copy(g2dHandle, &g2d_output_buf,
                     &g2d_input_buf, (unsigned int)gCopyLen);
         }
@@ -1349,6 +1631,7 @@ int main(int argc, char** argv)
     }
 
     write_from_file((char *)output_buf, outputlen, output_file);
+
     strncpy(output_vx_file, output_file, strlen(output_file));
     strcat(output_vx_file, "_vx");
     write_from_file((char *)output_vx_buf, outputlen, output_vx_file);
@@ -1357,6 +1640,7 @@ int main(int argc, char** argv)
     write_from_file((char *)output_benchmark_buf, outputlen, output_benchmark_file);
 
 clean:
+/*
     if(input_buf  == NULL)
         free_memory(input_buf, input_ion_hnd,
                 input_ion_buf_fd, inputlen);
@@ -1369,6 +1653,24 @@ clean:
     if(output_benchmark_buf  == NULL)
         free_memory(output_benchmark_buf, benchmark_ion_hnd,
                 benchmark_ion_buf_fd, outputlen);
+*/
+
+    if (g_use_v4l2_buffer) {
+        FreeV4l2Buffers();
+        ExitV4l2();
+    } else {
+      for (int i = 0; i < TEST_BUFFER_NUM; i++) {
+          FreePhyBuffer(&InPhyBuffer[i]);
+      }
+    }
+
+    for (int i = 0; i < TEST_BUFFER_NUM; i++) {
+        FreePhyBuffer(&OutPhyBuffer[i]);
+    }
+
+    FreePhyBuffer(&OutVXPhyBuffer);
+    FreePhyBuffer(&OutBenchMarkPhyBuffer);
+
     if(g2dHandle  == NULL)
         cl_g2d_close(g2dHandle);
     if(gIonFd == 0)

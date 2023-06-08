@@ -1933,6 +1933,7 @@ static int spdif_in_rate_check(struct imx_stream_in *in)
 
             if (in->resampler) {
                 release_resampler(in->resampler);
+                in->resampler = NULL;
             }
 
             if (in->requested_rate != in->config.rate) {
@@ -2030,6 +2031,7 @@ static int start_input_stream(struct imx_stream_in *in)
 
     if (in->resampler) {
         release_resampler(in->resampler);
+        in->resampler = NULL;
     }
     if (in->requested_rate != in->config.rate) {
         in->buf_provider.get_next_buffer = get_next_buffer;
@@ -4483,6 +4485,7 @@ static void adev_close_input_stream(struct audio_hw_device *dev,
 
     if (in->resampler) {
         release_resampler(in->resampler);
+        in->resampler = NULL;
     }
     if (in->proc_buf_in)
         free(in->proc_buf_in);

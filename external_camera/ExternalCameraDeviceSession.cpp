@@ -539,7 +539,7 @@ Return<void> ExternalCameraDeviceSession::close(bool callerIsDtor) {
         // free all buffers
         {
             Mutex::Autolock _l(mCbsLock);
-            for(auto pair : mStreamMap) {
+            for(auto &pair : mStreamMap) {
                 cleanupBuffersLocked(/*Stream ID*/pair.first);
             }
         }
@@ -1591,7 +1591,8 @@ int ExternalCameraDeviceSession::OutputThread::VpuDecAndCsc(uint8_t* inData, siz
     // mjpeg decoded to nv12/nv16 raw data
     ret = mDecoder->exportDecodedBuf(mDecodedData, kDecWaitTimeoutMs);
     if (ret)
-      return ret;
+        return ret;
+
     ALOGV("%s: mDecodedData.width:%d, mDecodedData.height:%d", __func__, mDecodedData.width, mDecodedData.height);
 
     // convert nv12/nv16 to I420
