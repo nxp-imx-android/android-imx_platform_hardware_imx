@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 NXP.
+ * Copyright 2018-2023 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,23 +17,15 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <dlfcn.h>
+#include <cutils/properties.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <string.h>
-#include <ion/ion.h>
 #include <utils/Timers.h>
-#include <linux/version.h>
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
-#include <ion_4.12.h>
-#endif
-#include <linux/ion.h>
 #include <libyuv.h>
-
-#include <VX/vx.h>
-#include <VX/vx_api.h>
-#include <VX/vxu.h>
 
 #include <CL/opencl.h>
 #ifdef BUILD_FOR_ANDROID
@@ -42,10 +34,38 @@
 
 #include <linux/videodev2.h>
 
+#include <g2d.h>
 #include "opencl-2d.h"
 #include "Allocator.h"
 
-#define LOG_TAG "opencl-2d-test"
+typedef int (*hwc_func1)(void* handle);
+typedef int (*hwc_func3)(void* handle, void* arg1, void* arg2);
+typedef int (*hwc_func4)(void* handle, void* arg1, void* arg2, void* arg3);
+hwc_func1 mOpenEngine;
+hwc_func1 mCloseEngine;
+hwc_func1 mFinishEngine;
+hwc_func4 mCopyEngine;
+hwc_func3 mBlitEngine;
+
+hwc_func1 mCLOpen;
+hwc_func1 mCLClose;
+hwc_func4 mCLCopy;
+hwc_func3 mCLBlit;
+hwc_func1 mCLFlush;
+hwc_func1 mCLFinish;
+
+#if defined(__LP64__)
+#define LIB_PATH1 "/system/lib64"
+#define LIB_PATH2 "/vendor/lib64"
+#else
+#define LIB_PATH1 "/system/lib"
+#define LIB_PATH2 "/vendor/lib"
+#endif
+
+#define CLENGINE "libg2d-opencl.so"
+#define G2DENGINE "libg2d"
+
+#define LOG_TAG "2d-test"
 #define DEBUG 1
 #define MAX_FILE_LEN 128
 #define G2D_TEST_LOOP 10
@@ -53,7 +73,8 @@
 
 static char input_file[MAX_FILE_LEN];
 static char output_file[MAX_FILE_LEN];
-static char output_vx_file[MAX_FILE_LEN];
+static char output_2d_file[MAX_FILE_LEN];
+static char output_cl_file[MAX_FILE_LEN];
 static char output_benchmark_file[MAX_FILE_LEN];
 static enum cl_g2d_format gInput_format = CL_G2D_YUYV;
 static enum cl_g2d_format gOutput_format = CL_G2D_YUYV;
@@ -63,11 +84,11 @@ static int gStride = 0;
 static int gOutWidth = 0;
 static int gOutHeight = 0;
 static int gOutStride = 0;
-static int gMemory_type = 0;
+static int gInputMemory_type = 0;
+static int gOutputMemory_type = 0;
 static bool gMemTest = false;
 static bool gCLBuildTest = false;
 static int gCopyLen = 0;
-static int gIonFd;
 
 static int get_buf_size(enum cl_g2d_format format, int width, int height, bool copyTest, int copyLen)
 {
@@ -272,186 +293,6 @@ static int g2d_get_planesize(enum cl_g2d_format format, int w_stride, int h_stri
     return w_stride * h_stride * bpp / 8;
 }
 
-
-static vx_df_image imagetype_to_openvx(enum cl_g2d_format format)
-{
-    switch(format) {
-    case CL_G2D_YUYV:
-        return VX_DF_IMAGE_YUYV;
-        break;
-    case CL_G2D_NV12:
-        return VX_DF_IMAGE_NV12;
-        break;
-    case CL_G2D_NV21:
-        return VX_DF_IMAGE_NV21;
-        break;
-    default:
-        break;
-    }
-    return -1;
-}
-
-static bool imagepatch_to_openvx(enum cl_g2d_format format, int w_stride,
-        int height, vx_imagepatch_addressing_t *frameFormats)
-{
-    if(frameFormats == NULL)
-        return false;
-
-    memset(frameFormats, 0, sizeof(frameFormats));
-    switch(format) {
-    case CL_G2D_YUYV:
-        frameFormats[0].dim_x = gStride;
-        frameFormats[0].dim_y = gHeight;
-        frameFormats[0].stride_x = 2;
-        frameFormats[0].stride_y = gStride * 2;
-        break;
-    case CL_G2D_NV12:
-    case CL_G2D_NV21:
-        frameFormats[0].dim_x = gStride;
-        frameFormats[0].dim_y = gHeight;
-        frameFormats[0].stride_x = 1;
-        frameFormats[0].stride_y = gStride;
-        frameFormats[1].dim_x = gStride;
-        frameFormats[1].dim_y = gHeight;
-        frameFormats[1].stride_x = 1;
-        frameFormats[1].stride_y = gStride/2;
-        break;
-    default:
-        break;
-    }
-    return true;
-}
-
-static bool planeptrs_fill_openvx(enum cl_g2d_format format, void *input_ptr, int w_stride,
-                        int h_stride,void * plane_ptrs[])
-{
-    if((input_ptr == NULL) || (plane_ptrs == NULL))
-        return false;
-    int plane_count = g2d_get_planecount(format);
-    char *in_ptr = (char *)input_ptr;
-    for(int i = 0; i < plane_count; i ++) {
-        plane_ptrs[i] = in_ptr;
-        in_ptr += g2d_get_planesize(format, w_stride, h_stride, i);
-    }
-    return true;
-}
-
-
-//default ion heap
-#define ION_BUFFER_HEAP 1
-//64bit buffer alignment
-#define ION_BUFFER_ALIGN 8
-
-static void * allocate_memory(ion_user_handle_t *ion_hnd,
-        int *ion_buf_fd,int size)
-{
-    int err;
-    if (gMemory_type == 0) {
-        *ion_hnd = -1;
-        return malloc(size);
-    }
-    else {
-        unsigned char *ptr = NULL;
-        *ion_hnd = -1;
-        *ion_buf_fd = -1;
-        if (gIonFd <= 0) {
-            gIonFd = ion_open();
-        }
-
-        if (gIonFd <= 0) {
-            ALOGE("%s ion open failed", __func__);
-            return NULL;
-        }
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
-        int heap_cnt;
-        int heap_mask = 0;
-        struct ion_heap_data ihd[16];
-        err = ion_query_heap_cnt(gIonFd, &heap_cnt);
-        if (err != 0 || heap_cnt == 0) {
-            ALOGE("can't query heap count");
-            return NULL;
-        }
-
-        memset(&ihd, 0, sizeof(ihd));
-        err = ion_query_get_heaps(gIonFd, heap_cnt, &ihd);
-        if (err != 0) {
-            ALOGE("can't get ion heaps");
-            return NULL;
-        }
-        heap_mask = 0;
-        // add heap ids from heap type.
-        for (int i=0; i<heap_cnt; i++) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 1)
-            if (ihd[i].type == ION_HEAP_TYPE_DMA ||
-                 ihd[i].type == ION_HEAP_TYPE_CARVEOUT) {
-#else
-            if (ihd[i].type == ION_HEAP_TYPE_DMA) {
-#endif
-                heap_mask |=  1 << ihd[i].heap_id;
-                continue;
-            }
-        }
-        err = ion_alloc_fd(gIonFd, size, ION_BUFFER_ALIGN, heap_mask, ION_FLAG_CACHED, ion_buf_fd);
-        if (err) {
-            ALOGE("ion allocation failed!\n");
-            return NULL;
-        }
-
-        ptr = (unsigned char*)mmap(0, size, PROT_READ|PROT_WRITE,
-                     MAP_SHARED, *ion_buf_fd, 0);
-        if (ptr == MAP_FAILED) {
-            ALOGE("mmap failed!\n");
-            close(*ion_buf_fd);
-            return NULL;
-        }
-#else
-        err = ion_alloc(gIonFd,
-            size,
-            ION_BUFFER_ALIGN,
-            ION_BUFFER_HEAP,
-            0,
-            ion_hnd);
-        if (err) {
-            ALOGE("ion_alloc failed");
-            return NULL;
-        }
-
-        err = ion_map(gIonFd,
-                *ion_hnd,
-                size,
-                PROT_READ | PROT_WRITE,
-                MAP_SHARED,
-                0,
-                &ptr,
-                ion_buf_fd);
-        if (err) {
-            ALOGE("ion_map failed.");
-            ion_free(gIonFd, *ion_hnd);
-            return NULL;
-        }
-#endif
-
-        ALOGI("ion allocator: %p, size %d", ptr, size);
-        return ptr;
-    }
-}
-
-static void free_memory(void* pbuf, ion_user_handle_t ion_hnd,
-        int ion_buf_fd, int size)
-{
-    if (gMemory_type == 0) {
-        free(pbuf);
-    }
-    else {
-        munmap(pbuf, size);
-        if (ion_hnd > 0)
-            ion_free(gIonFd, ion_hnd);
-        if (ion_buf_fd > 0)
-            close(ion_buf_fd);
-    }
-}
-
 static void YUYVCopyByLine(uint8_t *dst, uint32_t dstWidth, uint32_t dstHeight,
         uint8_t *src, uint32_t srcWidth, uint32_t srcHeight)
 {
@@ -574,7 +415,7 @@ static void convertYUYVtoNV12SP(uint8_t *inputBuffer, uint8_t *outputBuffer,
 void usage(char *app)
 {
     printf("%s test program.\n", app);
-    printf("Usage: %s [-h] [-c] [-l len] [-w width] [-g height] [-i input_file] [-s input_format] [-o output_file] [-d output_format] [-m memory_type]\n", app);
+    printf("Usage: %s [-h] [-c] [-l len] [-w width] [-g height] [-i input_file] [-s input_format] [-o output_file] [-d output_format] [-m InputMemory_type] [-n Outputmemory_type]\n", app);
     printf("\t-h\t  Print this message\n");
     printf("\t-b\t  Generate CL Binary as output file from input file\n");
     printf("\t-c\t  Memory copy test\n");
@@ -591,17 +432,23 @@ void usage(char *app)
     printf("\t-x\t  output width\n");
     printf("\t-y\t  output height\n");
     printf("\t-z\t  output stride\n");
-    printf("\t-m\t  memory_type\n");
-    printf("\t\t\t  0:Cached memory,1:Non-cached ION memory\n");
+    printf("\t-m\t  InputMemory_type\n");
+    printf("\t-n\t  Outputmemory_type\n");
+    printf("\t\t\t  0:Cached memory,1:Non-cached memory\n");
     printf("\t-v\t  v4l2 device(such as /dev/video0, /dev/video1, ...)\n");
+    printf("\tex\t  copy: 2d-test_64 -i 1080p.yuyv -o 1080p_cp.yuyv -c\n");
+    printf("\t  \t  csc:  2d-test_64 -i 1080p.yuyv -s 24 -d 20 -o 1080p-out.nv12 -w 1920 -g 1080 -t 1920 -x 1920 -y 1080 -z 1920\n");
 }
 
 static int update_surface_parameters(struct cl_g2d_surface *src, char *input_buf,
         struct cl_g2d_surface *dst, char *output_buf)
 {
-    src->format = gInput_format;
-    if (gMemory_type == 1)
+    if (gInputMemory_type == 1)
         src->usage = CL_G2D_DEVICE_MEMORY;
+    else
+        src->usage = CL_G2D_CPU_MEMORY;
+
+    src->format = gInput_format;
     switch (src->format) {
     case CL_G2D_YUYV:
         src->planes[0] = (long)input_buf;
@@ -624,9 +471,12 @@ static int update_surface_parameters(struct cl_g2d_surface *src, char *input_buf
     src->width  = gWidth;
     src->height = gHeight;
 
-    dst->format = gOutput_format;
-    if (gMemory_type == 1)
+    if (gOutputMemory_type == 1)
         dst->usage = CL_G2D_DEVICE_MEMORY;
+    else
+        dst->usage = CL_G2D_CPU_MEMORY;
+
+    dst->format = gOutput_format;
     switch (dst->format) {
     case CL_G2D_NV12:
     case CL_G2D_NV21:
@@ -656,6 +506,157 @@ static int update_surface_parameters(struct cl_g2d_surface *src, char *input_buf
     return 0;
 }
 
+static int update_surface_parameters_2d(struct g2d_buf *s_buf, struct g2d_surface *s_surface, char *input_buf, uint64_t inputPhy_buf,
+    struct g2d_buf *d_buf, struct g2d_surface *d_surface, char *output_buf, uint64_t outputPhy_buf) {
+    // just scale or csc
+    s_buf->buf_paddr = inputPhy_buf;
+    s_buf->buf_vaddr = input_buf;
+    d_buf->buf_paddr = outputPhy_buf;
+    d_buf->buf_vaddr = output_buf;
+
+    s_surface->format = (g2d_format)gInput_format;
+    s_surface->planes[0] = (long)s_buf->buf_paddr;
+    s_surface->left = 0;
+    s_surface->top = 0;
+    s_surface->right = gWidth;
+    s_surface->bottom = gHeight;
+    s_surface->stride = gWidth;
+    s_surface->width  = gWidth;
+    s_surface->height = gHeight;
+    s_surface->rot    = G2D_ROTATION_0;
+
+    d_surface->format = (g2d_format)gOutput_format;
+    d_surface->planes[0] = (long)d_buf->buf_paddr;
+    d_surface->planes[1] = (long)d_buf->buf_paddr + gOutWidth * gOutHeight;
+    d_surface->left = 0;
+    d_surface->top = 0;
+    d_surface->right = gOutWidth;
+    d_surface->bottom = gOutHeight;
+    d_surface->stride = gOutWidth;
+    d_surface->width  = gOutWidth;
+    d_surface->height = gOutHeight;
+    d_surface->rot    = G2D_ROTATION_0;
+
+    return 0;
+}
+
+static bool getDefaultG2DLib(char *libName, int size)
+{
+    char value[PROPERTY_VALUE_MAX];
+
+    if((libName == NULL)||(size < (int)strlen(G2DENGINE) + (int)strlen(".so")))
+        return false;
+
+    memset(libName, 0, size);
+    property_get("vendor.imx.default-g2d", value, "");
+    if(strcmp(value, "") == 0) {
+        ALOGI("No g2d lib available to be used!");
+        return false;
+    } else {
+        strncpy(libName, G2DENGINE, strlen(G2DENGINE));
+        strcat(libName, "-");
+        strcat(libName, value);
+        strcat(libName, ".so");
+    }
+    ALOGI("Default g2d lib: %s", libName);
+    return true;
+}
+
+static void getModule(char *path, const char *name)
+{
+    snprintf(path, PATH_MAX, "%s/%s",
+                                 LIB_PATH1, name);
+    if (access(path, R_OK) == 0)
+        return;
+    snprintf(path, PATH_MAX, "%s/%s",
+                                 LIB_PATH2, name);
+    if (access(path, R_OK) == 0)
+        return;
+    return;
+}
+
+static void initializeModule(void **G2dHandle, void **CLHandle)
+{
+    char path[PATH_MAX] = {0};
+    char g2dlibName[PATH_MAX] = {0};
+
+    // open g2d module
+    if(getDefaultG2DLib(g2dlibName, PATH_MAX)){
+        getModule(path, g2dlibName);
+        *G2dHandle = dlopen(path, RTLD_NOW);
+    }
+    if ((*G2dHandle) != NULL) {
+        mOpenEngine = (hwc_func1)dlsym(*G2dHandle, "g2d_open");
+        mCloseEngine = (hwc_func1)dlsym(*G2dHandle, "g2d_close");
+        mFinishEngine = (hwc_func1)dlsym(*G2dHandle, "g2d_finish");
+        mCopyEngine = (hwc_func4)dlsym(*G2dHandle, "g2d_copy");
+        mBlitEngine = (hwc_func3)dlsym(*G2dHandle, "g2d_blit");
+        if (mOpenEngine(G2dHandle) != 0 || (*G2dHandle) == NULL) {
+            *G2dHandle = NULL;
+            ALOGE("Fail to open %s device!\n", path);
+        }
+    }
+
+    // open cl module
+    memset(path, 0, sizeof(path));
+    getModule(path, CLENGINE);
+    *CLHandle = dlopen(path, RTLD_NOW);
+    if ((*CLHandle) != NULL) {
+        mCLOpen = (hwc_func1)dlsym(*CLHandle, "cl_g2d_open");
+        mCLClose = (hwc_func1)dlsym(*CLHandle, "cl_g2d_close");
+        mCLFlush = (hwc_func1)dlsym(*CLHandle, "cl_g2d_flush");
+        mCLFinish = (hwc_func1)dlsym(*CLHandle, "cl_g2d_finish");
+        mCLBlit = (hwc_func3)dlsym(*CLHandle, "cl_g2d_blit");
+        mCLCopy = (hwc_func4)dlsym(*CLHandle, "cl_g2d_copy");
+        if (mCLOpen(CLHandle) != 0 || (*CLHandle) == NULL) {
+            *CLHandle = NULL;
+            ALOGE("Fail to open %s device!\n", path);
+        }
+    }
+}
+
+static void dumpOutPutBuffer(char *output_buf, const char *title)
+{
+    if (gMemTest) {
+        if (strcmp(title, "g2d") == 0) {
+            dump_buffer(output_buf, gCopyLen>256?256:gCopyLen, "g2d_output_cp");
+        } else if (strcmp(title, "cl") == 0) {
+            dump_buffer(output_buf, gCopyLen>256?256:gCopyLen, "cl_output_cp");
+        } else if (strcmp(title, "benchmark") == 0) {
+            dump_buffer(output_buf, gCopyLen>256?256:gCopyLen, "benchmark_output_cp");
+        }
+        return;
+    }
+
+    switch (gOutput_format) {
+    case CL_G2D_YUYV:
+        if (strcmp(title, "g2d") == 0) {
+            dump_buffer(output_buf, 128, "g2d_output_yuyv");
+        } else if (strcmp(title, "cl") == 0) {
+            dump_buffer(output_buf, 128, "cl_output_yuyv");
+        } else if (strcmp(title, "benchmark") == 0) {
+            dump_buffer(output_buf, 128, "output_benchmark_yuyv");
+        }
+        break;
+
+    case CL_G2D_NV12:
+    case CL_G2D_NV21:
+        if (strcmp(title, "g2d") == 0) {
+            dump_buffer(output_buf, 64, "g2d_output_y");
+            dump_buffer(output_buf + gOutWidth*gOutHeight, 64, "g2d_output_uv");
+        } else if (strcmp(title, "cl") == 0) {
+            dump_buffer(output_buf, 64, "cl_output_y");
+            dump_buffer(output_buf + gOutWidth*gOutHeight, 64, "cl_output_uv");
+        } else if (strcmp(title, "benchmark") == 0) {
+            dump_buffer(output_buf, 64, "output_benchmark_y");
+            dump_buffer(output_buf + gOutWidth*gOutHeight, 64, "benchmark_output_uv");
+        }
+        break;
+        default:
+            ALOGE("No supported output format to dump buffer: 0x%x.\n", gOutput_format);
+    }
+}
+
 int createCLProgram(const char* fileSrcName, const char*fileBinName)
 {
     cl_int errNum;
@@ -674,6 +675,7 @@ int createCLProgram(const char* fileSrcName, const char*fileBinName)
     FILE* pSrcFileStream = NULL;
     char* source = NULL;
     int ret = 0;
+    long int res;
 
     errNum = clGetPlatformIDs(1, &firstPlatformId, &numPlatforms);
     if (errNum != CL_SUCCESS || numPlatforms <= 0) {
@@ -714,13 +716,16 @@ int createCLProgram(const char* fileSrcName, const char*fileBinName)
 
     // Allocate memory for the devices buffer
     devices = new cl_device_id[numDevices];
+
     errNum = clGetContextInfo(context, CL_CONTEXT_DEVICES,
             deviceBufferSize, devices, NULL);
     if (errNum != CL_SUCCESS) {
         ALOGE("Failed to get device IDs\n");
         return -1;
     }
-    device = devices[0];
+    if (devices != NULL) {
+        device = devices[0];
+    }
 
     pSrcFileStream = fopen(fileSrcName, "rb");
     if(pSrcFileStream == 0) {
@@ -731,7 +736,14 @@ int createCLProgram(const char* fileSrcName, const char*fileBinName)
 
     // get the length of the source code
     fseek(pSrcFileStream, 0, SEEK_END);
-    program_length = ftell(pSrcFileStream);
+    res = ftell(pSrcFileStream);
+    if (res == -1) {
+        fclose(pSrcFileStream);
+        ALOGE("Failed to return the file position for the file %s\n" ,fileSrcName);
+        ret = -1;
+        goto binary_out;
+    }
+    program_length = res;
     fseek(pSrcFileStream, 0, SEEK_SET);
 
     // allocate a buffer for the source code string and read it in
@@ -1016,24 +1028,30 @@ struct testPhyBuffer {
     int32_t mFd;
 };
 
-int AllocPhyBuffer(struct testPhyBuffer *phyBufs)
+int AllocPhyBuffer(struct testPhyBuffer *phyBufs, bool bCached)
 {
     int sharedFd;
     uint64_t phyAddr;
     uint64_t outPtr;
-    uint32_t ionSize = phyBufs->mSize;
+    uint32_t ionSize;
+    uint32_t flag;
 
     if (phyBufs == NULL)
         return -1;
 
+    ionSize = phyBufs->mSize;
     fsl::Allocator *allocator = fsl::Allocator::getInstance();
     if (allocator == NULL) {
         printf("%s ion allocator invalid\n", __func__);
         return -1;
     }
 
+    flag = fsl::MFLAGS_CONTIGUOUS;
+    if (bCached) {
+        flag |= fsl::MFLAGS_CACHEABLE;
+    }
     sharedFd = allocator->allocMemory(ionSize,
-                    MEM_ALIGN, fsl::MFLAGS_CONTIGUOUS);
+                    MEM_ALIGN, flag);
     if (sharedFd < 0) {
         printf("%s: allocMemory failed.\n", __func__);
         return -1;
@@ -1195,7 +1213,6 @@ static int AllocV4l2Buffers()
 
 static int FreeV4l2Buffers()
 {
-  enum v4l2_buf_type type;
   struct v4l2_requestbuffers req;
   int ret;
 
@@ -1206,14 +1223,14 @@ static int FreeV4l2Buffers()
   printf("unmap memory, g_mem_type %d, V4L2_MEMORY_MMAP %d, TEST_BUFFER_NUM %d\n", g_mem_type, V4L2_MEMORY_MMAP, TEST_BUFFER_NUM);
   for (int i = 0; i < TEST_BUFFER_NUM; i++) {
     if (InPhyBuffer[i].mVirtAddr) {
-      printf("unmap %p, size %u\n", InPhyBuffer[i].mVirtAddr, InPhyBuffer[i].mSize);
+      printf("unmap %p, size %lu\n", InPhyBuffer[i].mVirtAddr, InPhyBuffer[i].mSize);
       munmap(InPhyBuffer[i].mVirtAddr, InPhyBuffer[i].mSize);
     }
   }
 
   memset(&req, 0, sizeof (req));
   req.count = 0;
-  req.type = type;
+  req.type = g_buf_type;
   req.memory = g_mem_type;
 
   ret = ioctl(g_fd_v4l, VIDIOC_REQBUFS, &req);
@@ -1228,34 +1245,29 @@ int main(int argc, char** argv)
     int inputlen = 0;
     int outputlen = 0;
     int read_len = 0;
+    bool bInputMemCached = false;
+    bool bOutputMemCached = false;
 
     void *input_buf = NULL;
-    ion_user_handle_t input_ion_hnd = 0;
-    int input_ion_buf_fd = 0;
-
+    uint64_t inputPhy_buf = 0;
     void *output_buf = NULL;
-    ion_user_handle_t output_ion_hnd = 0;
-    int output_ion_buf_fd = 0;
+    uint64_t outputPhy_buf = 0;
 
     void *output_benchmark_buf = NULL;
-    ion_user_handle_t benchmark_ion_hnd = 0;
-    int benchmark_ion_buf_fd = 0;
-
-    void *output_vx_buf = NULL;
-    ion_user_handle_t output_vx_ion_hnd = 0;
-    int output_vx_ion_buf_fd = 0;
 
     struct cl_g2d_surface src,dst;
-    void *g2dHandle = NULL;
+    void *CLHandle = NULL;
 
-    vx_context context = NULL;
+    struct g2d_buf s_buf, d_buf;
+    struct g2d_surface s_surface, d_surface;
+    void *G2dHandle = NULL;
 
     if (argc < 3) {
         usage(argv[0]);
         return 0;
     }
 
-    while ((rt = getopt(argc, argv, "hbcl:i:s:o:d:w:g:t:m:x:y:z:v:")) >= 0) {
+    while ((rt = getopt(argc, argv, "hbcl:i:s:o:d:w:g:t:m:n:x:y:z:v:")) >= 0) {
         switch (rt) {
         case 'h':
             usage(argv[0]);
@@ -1271,7 +1283,11 @@ int main(int argc, char** argv)
             break;
         case 'i':
             memset(input_file, 0, MAX_FILE_LEN);
-            strncpy(input_file, optarg, MAX_FILE_LEN);
+            if (strlen(optarg) >= MAX_FILE_LEN) {
+                ALOGE("input file name too long to process: %s", optarg);
+                return 0;
+            }
+            strncpy(input_file, optarg, strlen(optarg));
             break;
         case 's':
             gInput_format = (enum cl_g2d_format)atoi(optarg);
@@ -1298,11 +1314,18 @@ int main(int argc, char** argv)
              gOutStride = atoi(optarg);
             break;
         case 'm':
-            gMemory_type = atoi(optarg);
+            gInputMemory_type = atoi(optarg);
+            break;
+        case 'n':
+            gOutputMemory_type = atoi(optarg);
             break;
         case 'o':
             memset(output_file, 0, MAX_FILE_LEN);
-            strncpy(output_file, optarg, MAX_FILE_LEN);
+            if (strlen(optarg) >= MAX_FILE_LEN) {
+                ALOGE("output file name too long to process: %s", optarg);
+                return 0;
+            }
+            strncpy(output_file, optarg, strlen(optarg));
             break;
         case 'v':
             g_v4l_device = optarg;
@@ -1347,14 +1370,21 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    if (gMemTest && (gCopyLen == 0)) {
-        usage(argv[0]);
-        return 0;
-    }
-
-    ALOGI("Start opencl 2d test with:");
+    ALOGI("Start 2d test with:");
     ALOGI("input file: %s", input_file);
     ALOGI("output file: %s", output_file);
+
+    inputlen = get_file_len(input_file);
+    if (inputlen <= 0 ||
+        inputlen < get_buf_size(gInput_format, gWidth, gHeight, gMemTest, gCopyLen)) {
+        ALOGE("No valid file %s for this test", input_file);
+        goto clean;
+    }
+    // if no '-l' parameter, the default length is input file size
+    gCopyLen = gCopyLen ? gCopyLen : inputlen;
+
+    outputlen = get_buf_size(gOutput_format, gOutWidth, gOutHeight, gMemTest, gCopyLen);
+
     if (!gMemTest) {
         ALOGI("src width: %d", gWidth);
         ALOGI("src height: %d", gHeight);
@@ -1368,47 +1398,22 @@ int main(int argc, char** argv)
         ALOGI("copy len: %d", gCopyLen);
     }
 
-
-    inputlen = get_file_len(input_file);
-    if (inputlen <= 0 ||
-        inputlen < get_buf_size(gInput_format, gWidth, gHeight, gMemTest, gCopyLen)) {
-        ALOGE("No valid file %s for this test", input_file);
-        goto clean;
-    }
-
-    outputlen = get_buf_size(gOutput_format, gOutWidth, gOutHeight, gMemTest, gCopyLen);
-
-/*
-    input_buf  = allocate_memory(&input_ion_hnd, &input_ion_buf_fd,
-            inputlen);
-    if(input_buf  == NULL) {
-        ALOGE("Cannot allocate input buffer");
-        goto clean;
-    }
-*/
     struct testPhyBuffer OutPhyBuffer[TEST_BUFFER_NUM];
-    struct testPhyBuffer OutVXPhyBuffer;
     struct testPhyBuffer OutBenchMarkPhyBuffer;
     memset(&InPhyBuffer, 0, sizeof(InPhyBuffer));
     memset(&OutPhyBuffer, 0, sizeof(OutPhyBuffer));
-    memset(&OutVXPhyBuffer, 0, sizeof(OutVXPhyBuffer));
     memset(&OutBenchMarkPhyBuffer, 0, sizeof(OutBenchMarkPhyBuffer));
 
-    OutVXPhyBuffer.mSize = outputlen;
-    AllocPhyBuffer(&OutVXPhyBuffer);
-    output_vx_buf = OutVXPhyBuffer.mVirtAddr;
+    bInputMemCached = gInputMemory_type ? false: true;
+    bOutputMemCached = gOutputMemory_type ? false: true;
 
     OutBenchMarkPhyBuffer.mSize = outputlen;
-    AllocPhyBuffer(&OutBenchMarkPhyBuffer);
+    AllocPhyBuffer(&OutBenchMarkPhyBuffer, bOutputMemCached);
     output_benchmark_buf = OutBenchMarkPhyBuffer.mVirtAddr;
-
-    if((output_benchmark_buf == NULL)||(output_vx_buf == NULL)) {
+    if(output_benchmark_buf == NULL) {
         ALOGE("Cannot allocate output buffer");
         goto clean;
     }
-
-    memset(output_vx_buf, 0, outputlen);
-    ALOGI("Get openVX output ptr %p", output_vx_buf);
     memset(output_benchmark_buf, 0, outputlen);
     ALOGI("Get CPU output ptr %p", output_benchmark_buf);
 
@@ -1427,7 +1432,7 @@ int main(int argc, char** argv)
     } else {
         for (int i = 0; i < TEST_BUFFER_NUM; i++) {
             InPhyBuffer[i].mSize = inputlen;
-            AllocPhyBuffer(&InPhyBuffer[i]);
+            AllocPhyBuffer(&InPhyBuffer[i], bInputMemCached);
             if(InPhyBuffer[i].mVirtAddr == NULL) {
                 ALOGE("Cannot allocate input buffer, i %d", i);
                 goto clean;
@@ -1437,224 +1442,166 @@ int main(int argc, char** argv)
 
     for (int i = 0; i < TEST_BUFFER_NUM; i++) {
         OutPhyBuffer[i].mSize = outputlen;
-        AllocPhyBuffer(&OutPhyBuffer[i]);
+        AllocPhyBuffer(&OutPhyBuffer[i], bOutputMemCached);
         if(OutPhyBuffer[i].mVirtAddr == NULL) {
             ALOGE("Cannot allocate output buffer, i %d", i);
             goto clean;
         }
     }
 
-    if(cl_g2d_open(&g2dHandle) == -1 || g2dHandle == NULL) {
-        ALOGE("Fail to open g2d device!\n");
+    initializeModule(&G2dHandle, &CLHandle);
+    if (G2dHandle == NULL && CLHandle == NULL) {
+        ALOGE("G2dHandle and CLHandle both NULL");
         goto clean;
     }
 
     uint64_t t1, t2;
-    ALOGI("Start openCL 2d blit, in size %d, out size %d", inputlen, outputlen);
+    // g2d engine
+    if (G2dHandle != NULL) {
+        ALOGI("Start g2d engine blit, in size %d, out size %d", inputlen, outputlen);
+        t1 = systemTime();
+        for(int loop = 0; loop < G2D_TEST_LOOP; loop ++) {
+            int test_buffer_index = loop%TEST_BUFFER_NUM;
+            ALOGV("loop %d, test_buffer_index %d", loop, test_buffer_index);
+            input_buf = InPhyBuffer[test_buffer_index].mVirtAddr;
+            inputPhy_buf = InPhyBuffer[test_buffer_index].mPhyAddr;;
+            output_buf = OutPhyBuffer[test_buffer_index].mVirtAddr;
+            outputPhy_buf = OutPhyBuffer[test_buffer_index].mPhyAddr;
+
+            read_len = read_from_file((char *)input_buf, inputlen, input_file);
+
+            if (!gMemTest) {
+                update_surface_parameters_2d(&s_buf, &s_surface, (char *)input_buf, inputPhy_buf,
+                    &d_buf, &d_surface, (char *)output_buf, outputPhy_buf);
+                ALOGV("call g2d_blit");
+                mBlitEngine(G2dHandle, &s_surface, &d_surface);
+            } else {
+                s_buf.buf_paddr = inputPhy_buf;
+                s_buf.buf_vaddr = input_buf;
+                d_buf.buf_paddr = outputPhy_buf;
+                d_buf.buf_vaddr = output_buf;
+
+                ALOGV("call g2d_copy");
+                mCopyEngine(G2dHandle, &d_buf, &s_buf, (void*)(intptr_t)gCopyLen);
+            }
+            mFinishEngine(G2dHandle);
+        }
+        t2 = systemTime();
+        ALOGI("End g2d engine blit, %d loops use %lld ns, average %lld ns per loop", G2D_TEST_LOOP, t2-t1, (t2-t1)/G2D_TEST_LOOP);
+
+        dump_buffer((char *)input_buf, gCopyLen>256?256:gCopyLen, "g2d_input");
+        dumpOutPutBuffer((char *)output_buf, "g2d");
+
+        memset(output_2d_file, 0, MAX_FILE_LEN);
+        strncpy(output_2d_file, output_file, strlen(output_file));
+        strcat(output_2d_file, "_2d");
+        write_from_file((char *)output_buf, outputlen, output_2d_file);
+    }
+
+    // cl engine
+    if (CLHandle != NULL) {
+        ALOGI("Start CL engine blit, in size %d, out size %d", inputlen, outputlen);
+        t1 = systemTime();
+        for(int loop = 0; loop < G2D_TEST_LOOP; loop ++) {
+            int test_buffer_index = loop%TEST_BUFFER_NUM;
+            ALOGV("loop %d, test_buffer_index %d", loop, test_buffer_index);
+            input_buf = InPhyBuffer[test_buffer_index].mVirtAddr;
+            inputPhy_buf = InPhyBuffer[test_buffer_index].mPhyAddr;;
+            output_buf = OutPhyBuffer[test_buffer_index].mVirtAddr;
+            outputPhy_buf = OutPhyBuffer[test_buffer_index].mPhyAddr;
+
+            read_len = read_from_file((char *)input_buf, inputlen, input_file);
+
+            if (!gMemTest) {
+                update_surface_parameters(&src, (char *)input_buf, &dst, (char *)output_buf);
+                ALOGV("call cl_g2d_blit");
+                mCLBlit(CLHandle, &src, &dst);
+
+            } else {
+                struct cl_g2d_buf cl_output_buf;
+                struct cl_g2d_buf cl_input_buf;
+                cl_output_buf.buf_vaddr = output_buf;
+                cl_output_buf.buf_size = gCopyLen;
+                cl_input_buf.buf_vaddr = input_buf;
+                cl_input_buf.buf_size = gCopyLen;
+
+                if (gInputMemory_type == 1) {
+                    cl_input_buf.usage = CL_G2D_DEVICE_MEMORY;
+                } else {
+                    cl_input_buf.usage = CL_G2D_CPU_MEMORY;
+                }
+                if (gOutputMemory_type == 1) {
+                    cl_output_buf.usage = CL_G2D_DEVICE_MEMORY;
+                } else {
+                    cl_output_buf.usage = CL_G2D_CPU_MEMORY;
+                }
+                ALOGV("call cl_g2d_copy");
+                mCLCopy(CLHandle, &cl_output_buf,
+                        &cl_input_buf, (void*)(intptr_t)gCopyLen);
+            }
+            mCLFlush(CLHandle);
+            mCLFinish(CLHandle);
+        }
+        t2 = systemTime();
+        ALOGI("End CL engine blit, %d loops use %lld ns, average %lld ns per loop", G2D_TEST_LOOP, t2-t1, (t2-t1)/G2D_TEST_LOOP);
+
+        dump_buffer((char *)input_buf, gCopyLen>256?256:gCopyLen, "cl_input");
+        dumpOutPutBuffer((char *)output_buf, "cl");
+
+        memset(output_cl_file, 0, MAX_FILE_LEN);
+        strncpy(output_cl_file, output_file, strlen(output_file));
+        strcat(output_cl_file, "_cl");
+        write_from_file((char *)output_buf, outputlen, output_cl_file);
+    }
+
+    // cpu engine
+    ALOGI("Start CPU 2d blit, in size %d, out size %d", inputlen, outputlen);
     t1 = systemTime();
     for(int loop = 0; loop < G2D_TEST_LOOP; loop ++) {
-        int test_buffer_index = loop%TEST_BUFFER_NUM;
-        ALOGI("loop %d, test_buffer_index %d", loop, test_buffer_index);
-        input_buf = InPhyBuffer[test_buffer_index].mVirtAddr;
-
-        read_len = read_from_file((char *)input_buf, inputlen, input_file);
-        if (loop == 0)
-            dump_buffer((char *)input_buf, 64, "input");
-
-        output_buf = OutPhyBuffer[test_buffer_index].mVirtAddr;
-        if(output_buf == NULL) {
-            ALOGE("Cannot allocate output buffer");
-            goto clean;
-        }
-
         if (!gMemTest) {
-            update_surface_parameters(&src, (char *)input_buf,
-                &dst, (char *)output_buf);
-
-            ALOGI("call cl_g2d_blit");
-            cl_g2d_blit(g2dHandle, &src, &dst);
-        }
-        else {
-            struct cl_g2d_buf g2d_output_buf;
-            struct cl_g2d_buf g2d_input_buf;
-            g2d_output_buf.buf_vaddr = output_buf;
-            g2d_output_buf.buf_size = gCopyLen;
-            g2d_input_buf.buf_vaddr = input_buf;
-            g2d_input_buf.buf_size = gCopyLen;
-            if (gMemory_type == 1) {
-                g2d_output_buf.usage = CL_G2D_DEVICE_MEMORY;
-                g2d_input_buf.usage = CL_G2D_DEVICE_MEMORY;
-            } else {
-                g2d_output_buf.usage = CL_G2D_CPU_MEMORY;
-                g2d_input_buf.usage = CL_G2D_CPU_MEMORY;
+            if ((gInput_format == CL_G2D_YUYV) && (gOutput_format == CL_G2D_NV12)) {
+                convertYUYVtoNV12SP((uint8_t *)input_buf, (uint8_t *)output_benchmark_buf,
+                        gOutWidth, gOutHeight);
             }
-            ALOGI("call cl_g2d_copy");
-            cl_g2d_copy(g2dHandle, &g2d_output_buf,
-                    &g2d_input_buf, (unsigned int)gCopyLen);
-        }
-        cl_g2d_flush(g2dHandle);
-        cl_g2d_finish(g2dHandle);
-    }
-    t2 = systemTime();
-    ALOGI("End openCL 2d blit, %d loops use %lld ns, average %lld ns per loop", G2D_TEST_LOOP, t2-t1, (t2-t1)/G2D_TEST_LOOP);
+            else if ((gInput_format == CL_G2D_YUYV) && (gOutput_format == CL_G2D_YUYV)) {
+                if ((gWidth == gOutWidth) && (gHeight == gOutHeight))
+                    YUYVCopyByLine((uint8_t *)output_benchmark_buf, gOutWidth, gOutHeight,
+                    (uint8_t *)input_buf, gWidth, gHeight);
+                else
+                    yuv422iResize((uint8_t *)input_buf, gWidth, gHeight, (uint8_t *)output_benchmark_buf, gOutWidth, gOutHeight);
+            }
+            else if ((gInput_format == CL_G2D_NV12) && (gOutput_format == CL_G2D_NV21)) {
+                convertNV12toNV21((uint8_t *)output_benchmark_buf, gOutWidth, gOutHeight,
+                    (uint8_t *)input_buf);
+            } else if((gInput_format == CL_G2D_NV12) && (gOutput_format == CL_G2D_I420) && (gWidth == gOutWidth) && (gHeight == gOutHeight)) {
+                uint8_t *nv12_y = (uint8_t *)input_buf;
+                uint8_t *nv12_uv = (uint8_t *)input_buf + gWidth*gHeight;
+                int nv12_y_stride = gWidth;
+                int nv12_uv_stride = gWidth;
 
-    ALOGI("Start CPU 2d blit");
-    t1 = systemTime();
-    if (!gMemTest) {
-        if ((src.format == CL_G2D_YUYV) && (dst.format == CL_G2D_NV12)) {
-            convertYUYVtoNV12SP((uint8_t *)input_buf, (uint8_t *)output_benchmark_buf,
-                    gOutWidth, gOutHeight);
-        }
-        else if ((src.format == CL_G2D_YUYV) && (dst.format == CL_G2D_YUYV)) {
-            if ((gWidth == gOutWidth) && (gHeight == gOutHeight))
-                YUYVCopyByLine((uint8_t *)output_benchmark_buf, gOutWidth, gOutHeight,
-                  (uint8_t *)input_buf, gWidth, gHeight);
-            else
-                yuv422iResize((uint8_t *)input_buf, gWidth, gHeight, (uint8_t *)output_benchmark_buf, gOutWidth, gOutHeight);
-        }
-        else if ((src.format == CL_G2D_NV12) && (dst.format == CL_G2D_NV21)) {
-            convertNV12toNV21((uint8_t *)output_benchmark_buf, gOutWidth, gOutHeight,
-                (uint8_t *)input_buf);
-        } else if((src.format == CL_G2D_NV12) && (dst.format == CL_G2D_I420) && (gWidth == gOutWidth) && (gHeight == gOutHeight)) {
-            uint8_t *nv12_y = (uint8_t *)input_buf;
-            uint8_t *nv12_uv = (uint8_t *)input_buf + gWidth*gHeight;
-            int nv12_y_stride = gWidth;
-            int nv12_uv_stride = gWidth;
-
-            libyuv::NV12ToI420(
-                nv12_y, nv12_y_stride, nv12_uv, nv12_uv_stride,
-                (uint8_t *)output_benchmark_buf, gWidth,
-                (uint8_t *)output_benchmark_buf + gWidth*gHeight, gWidth/2,
-                (uint8_t *)output_benchmark_buf + gWidth*gHeight*5/4, gWidth/2,
-                gWidth, gHeight);
+                libyuv::NV12ToI420(
+                    nv12_y, nv12_y_stride, nv12_uv, nv12_uv_stride,
+                    (uint8_t *)output_benchmark_buf, gWidth,
+                    (uint8_t *)output_benchmark_buf + gWidth*gHeight, gWidth/2,
+                    (uint8_t *)output_benchmark_buf + gWidth*gHeight*5/4, gWidth/2,
+                    gWidth, gHeight);
+            } else {
+                ALOGW("unsupported by CPU blit, gInput_format %d, gOutput_format %d", gInput_format, gOutput_format);
+            }
         } else {
-            ALOGW("unsupported by CPU blit, src.format %d, dst.format %d", src.format, dst.format);
+            memcpy(output_benchmark_buf, input_buf, gCopyLen);
         }
-    } else {
-        memcpy(output_benchmark_buf, input_buf, gCopyLen);
     }
     t2 = systemTime();
-    ALOGI("End CPU 2d blit, use %lld ns", t2-t1);
+    ALOGI("End CPU 2d blit, %d loops use %lld ns, average %lld ns per loop", G2D_TEST_LOOP, t2-t1, (t2-t1)/G2D_TEST_LOOP);
+    dumpOutPutBuffer((char *)output_benchmark_buf, "benchmark");
 
-#if 0
-    ALOGI("Start openVX blit");
-    {
-        vx_status status;
-        void *input_planes[3] = { NULL, NULL, NULL};
-        void *output_planes[3] = { NULL, NULL, NULL};
-        vx_df_image src_type = imagetype_to_openvx(src.format);
-        vx_df_image dst_type = imagetype_to_openvx(dst.format);
-        vx_imagepatch_addressing_t frameFormats[3];
-
-        planeptrs_fill_openvx(src.format, input_buf, gStride,
-                        gHeight, input_planes);
-        planeptrs_fill_openvx(dst.format, output_vx_buf, gStride,
-                        gHeight, output_planes);
-
-        context = vxCreateContext();
-        ALOGI("Create openVX inputput Image based on plan 0: 0x%p, plane 1: 0x%p",
-                input_planes[0], input_planes[1]);
-        imagepatch_to_openvx(src.format, gStride, gHeight, frameFormats);
-        vx_image im = vxCreateImageFromHandle(context, src_type,
-                                            frameFormats, input_planes, VX_MEMORY_TYPE_HOST);
-        status = vxGetStatus((vx_reference)im);
-        if (status != VX_SUCCESS) {
-            ALOGI("Falied to create input vx image with error %d", status);
-            goto clean;
-        }
-
-        ALOGI("Create openVX output Image based on plan 0: 0x%p, plane 1: 0x%p",
-                output_planes[0], output_planes[1]);
-        imagepatch_to_openvx(dst.format, gStride, gHeight, frameFormats);
-        vx_image om = vxCreateImageFromHandle(context, dst_type,
-                                            frameFormats, output_planes, VX_MEMORY_TYPE_HOST);
-        status = vxGetStatus((vx_reference)om);
-        if (status != VX_SUCCESS) {
-            ALOGI("Falied to create output vx image");
-            goto clean;
-        }
-
-        status = vxuColorConvert(context, im, om);
-        if (status != VX_SUCCESS) {
-            ALOGI("Falied to convert vx image");
-            goto clean;
-        }
-        vx_imagepatch_addressing_t addr;
-        vx_map_id map_id;
-        void* ptr = 0;
-        vx_rectangle_t rect;
-        rect.start_x = 0;
-        rect.start_y =0;
-        rect.end_x = gOutWidth;
-        rect.end_y = gOutHeight;
-        status = vxMapImagePatch(om, &rect, 0, &map_id, &addr, &ptr, VX_READ_ONLY, VX_MEMORY_TYPE_HOST, 0);
-        if (status != VX_SUCCESS) {
-            ALOGI("Falied to map output vx image");
-            goto clean;
-        }
-        ALOGI("Get openVX output ptr %p", ptr);
-        status = vxUnmapImagePatch(om, map_id);
-        if (status != VX_SUCCESS) {
-            ALOGI("Falied to unmap output vx image");
-            goto clean;
-        }
-    }
-    ALOGI("End openVX blit");
-#endif
-
-    if (!gMemTest) {
-        if (dst.format == CL_G2D_YUYV) {
-            dump_buffer((char *)output_buf, 128, "cl_output_yuyv");
-            dump_buffer((char *)output_benchmark_buf, 128, "output_benchmark_yuyv");
-            dump_buffer((char *)output_vx_buf, 128, "vx_output_yuyv");
-        }
-        else if (dst.format == CL_G2D_NV12) {
-            dump_buffer((char *)output_buf, 64, "cl_output_y");
-            dump_buffer((char *)output_buf + gOutWidth*gOutHeight, 64, "cl_output_uv");
-            dump_buffer((char *)output_vx_buf, 64, "vx_output_y");
-            dump_buffer((char *)output_vx_buf + gOutWidth*gOutHeight, 64, "vx_output_uv");
-            dump_buffer((char *)output_benchmark_buf, 64, "output_benchmark_y");
-            dump_buffer((char *)output_benchmark_buf + gOutWidth*gOutHeight, 64, "output_benchmark_uv");
-        }
-        else if (dst.format == CL_G2D_NV21) {
-            dump_buffer((char *)output_buf, 64, "cl_output_y");
-            dump_buffer((char *)output_buf + gOutWidth*gOutHeight, 64, "output_uv");
-            dump_buffer((char *)output_vx_buf, 64, "vx_output_y");
-            dump_buffer((char *)output_vx_buf + gOutWidth*gOutHeight, 64, "vx_output_uv");
-            dump_buffer((char *)output_benchmark_buf, 64, "output_benchmark_y");
-            dump_buffer((char *)output_benchmark_buf + gOutWidth*gOutHeight, 64, "output_benchmark_uv");
-        }
-    } else {
-        dump_buffer((char *)output_buf, gCopyLen>256?256:gCopyLen, "cl_output");
-        dump_buffer((char *)output_vx_buf, gCopyLen>256?256:gCopyLen, "vx_output");
-        dump_buffer((char *)output_benchmark_buf, gCopyLen>256?256:gCopyLen, "output_benchmark");
-    }
-
-    write_from_file((char *)output_buf, outputlen, output_file);
-
-    strncpy(output_vx_file, output_file, strlen(output_file));
-    strcat(output_vx_file, "_vx");
-    write_from_file((char *)output_vx_buf, outputlen, output_vx_file);
+    memset(output_benchmark_file, 0, MAX_FILE_LEN);
     strncpy(output_benchmark_file, output_file, strlen(output_file));
     strcat(output_benchmark_file, "_benchmark");
     write_from_file((char *)output_benchmark_buf, outputlen, output_benchmark_file);
 
 clean:
-/*
-    if(input_buf  == NULL)
-        free_memory(input_buf, input_ion_hnd,
-                input_ion_buf_fd, inputlen);
-    if(output_buf  == NULL)
-        free_memory(output_buf, output_ion_hnd,
-                output_ion_buf_fd, outputlen);
-    if(output_vx_buf  == NULL)
-        free_memory(output_vx_buf, output_vx_ion_hnd,
-                output_vx_ion_buf_fd, outputlen);
-    if(output_benchmark_buf  == NULL)
-        free_memory(output_benchmark_buf, benchmark_ion_hnd,
-                benchmark_ion_buf_fd, outputlen);
-*/
-
     if (g_use_v4l2_buffer) {
         FreeV4l2Buffers();
         ExitV4l2();
@@ -1668,15 +1615,14 @@ clean:
         FreePhyBuffer(&OutPhyBuffer[i]);
     }
 
-    FreePhyBuffer(&OutVXPhyBuffer);
     FreePhyBuffer(&OutBenchMarkPhyBuffer);
 
-    if(g2dHandle  == NULL)
-        cl_g2d_close(g2dHandle);
-    if(gIonFd == 0)
-        ion_close(gIonFd);
-    if (context != nullptr)
-        vxReleaseContext(&context);
+    if(G2dHandle  != NULL) {
+         mCloseEngine(G2dHandle);
+    }
+    if (CLHandle != NULL) {
+        mCLClose(CLHandle);
+    }
 
     return 0;
 }
