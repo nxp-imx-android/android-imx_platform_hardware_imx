@@ -49,37 +49,6 @@ cc_test {
                ]
 }
 
-cc_test {
-    name: "imx_halevsv1_1test",
-    srcs: [
-        "evs/FrameHandler.cpp",
-        "evs/FrameHandlerUltrasonics.cpp",
-        "evs/VtsHalEvsV1_1TargetTest.cpp",
-    ],
-    defaults: ["VtsHalTargetTestDefaults"],
-    shared_libs: [
-        "libui",
-        "libcamera_metadata",
-        "libhidlmemory",
-        "android.hidl.allocator@1.0",
-        "android.hidl.memory@1.0",
-    ],
-    static_libs: [
-        "android.hardware.automotive.evs@1.0",
-        "android.hardware.automotive.evs@1.1",
-        "android.hardware.automotive.evs@common-default-lib",
-        "android.hardware.graphics.common@1.0",
-        "android.hardware.graphics.common@1.1",
-        "android.hardware.graphics.common@1.2",
-        "android.hardware.camera.device@3.2",
-    ],
-    test_suites: ["vts"],
-    cflags: [
-        "-O0",
-        "-g",
-    ],
-}
-
 cc_test{
     name: "storage_module_test",
     srcs: ["storage_test.cpp"],
