@@ -32,6 +32,7 @@ using android::hardware::joinRpcThreadpool;
 // Generated HIDL files
 using android::hardware::automotive::evs::V1_1::IEvsEnumerator;
 using android::hardware::automotive::evs::V1_1::IEvsDisplay;
+using android::frameworks::automotive::display::V1_0::IAutomotiveDisplayProxyService;
 
 // The namespace in which all our implementation code lives
 using namespace android::hardware::automotive::evs::V1_1::implementation;
@@ -39,8 +40,19 @@ using namespace android;
 
 
 int main() {
-    ALOGI("EVS Hardware Enumerator service is starting");
-    android::sp<IEvsEnumerator> service = new EvsEnumerator(nullptr);
+    LOG(INFO) << "EVS Hardware Enumerator service is starting";
+
+    android::sp<IAutomotiveDisplayProxyService> carWindowService =
+        IAutomotiveDisplayProxyService::tryGetService("default");
+    if (carWindowService == nullptr) {
+        LOG(ERROR) << "Cannot use AutomotiveDisplayProxyService.";
+    }
+
+#ifdef EVS_DEBUG
+    SetMinimumLogSeverity(android::base::DEBUG);
+#endif
+
+    android::sp<IEvsEnumerator> service = new EvsEnumerator(carWindowService);
 
     configureRpcThreadpool(1, true /* callerWillJoin */);
 
@@ -48,13 +60,14 @@ int main() {
     // they will be killed (their thread pool will throw an exception).
     status_t status = service->registerAsService(kEnumeratorServiceName);
     if (status == OK) {
-        ALOGD("%s is ready.", kEnumeratorServiceName);
+        LOG(DEBUG) << kEnumeratorServiceName << " is ready.";
         joinRpcThreadpool();
     } else {
-        ALOGE("Could not register service %s (%d).", kEnumeratorServiceName, status);
+        LOG(ERROR) << "Could not register service " << kEnumeratorServiceName
+                   << " (" << status << ").";
     }
 
     // In normal operation, we don't expect the thread pool to exit
-    ALOGE("EVS Hardware Enumerator is shutting down");
+    LOG(ERROR) << "EVS Hardware Enumerator is shutting down";
     return 1;
 }

@@ -1,5 +1,6 @@
 /*
- * Copyright 2019 NXP.
+ * Copyright (C) 2016 The Android Open Source Project
+ * Copyright 2019-2023 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +20,9 @@
 #include <sync/sync.h>
 #include <ui/DisplayMode.h>
 #include <ui/DisplayState.h>
+
+#include <ui/GraphicBufferAllocator.h>
+#include <ui/GraphicBufferMapper.h>
 
 #include "gralloc_handle.h"
 #include "gralloc_metadata.h"
@@ -84,6 +88,17 @@ sp<IDisplay> EvsDisplay::getDisplay()
     return mDisplay;
 }
 
+EvsDisplay::EvsDisplay(sp<IAutomotiveDisplayProxyService> pDisplayProxy, uint64_t displayId)
+    : mDisplayProxy(pDisplayProxy),
+      mDisplayId(displayId) {
+    ALOGD("EvsDisplay instantiated");
+
+    // Set up our self description
+    // NOTE:  These are arbitrary values chosen for testing
+    mInfo.displayId             = "evs hal Display";
+    mInfo.vendorFlags           = 3870;
+}
+
 EvsDisplay::EvsDisplay()
 {
     ALOGD("EvsDisplay instantiated");
@@ -102,18 +117,24 @@ EvsDisplay::EvsDisplay()
 
 EvsDisplay::~EvsDisplay()
 {
-    ALOGD("EvsDisplay being destroyed");
+    LOG(DEBUG) << "EvsGlDisplay being destroyed";
     forceShutdown();
 }
 
-void EvsDisplay::showWindow()
+void EvsDisplay::showWindow(sp<IAutomotiveDisplayProxyService>& pWindowProxy, uint64_t id)
 {
-    ALOGI("%s window is showing", __func__);
+    LOG(INFO) << __FUNCTION__ << "window is showing";
+    if (pWindowProxy != nullptr) {
+        pWindowProxy->showWindow(id);
+    }
 }
 
 
-void EvsDisplay::hideWindow()
+void EvsDisplay::hideWindow(sp<IAutomotiveDisplayProxyService>& pWindowProxy, uint64_t id)
 {
+    if (pWindowProxy != nullptr) {
+        pWindowProxy->hideWindow(id);
+    }
 }
 
 // Main entry point
@@ -168,51 +189,77 @@ bool EvsDisplay::initialize()
  */
 void EvsDisplay::forceShutdown()
 {
-    ALOGD("EvsDisplay forceShutdown");
-    int layer;
-    sp<IDisplay> display = getDisplay();
-    {
-        std::unique_lock<std::mutex> lock(mLock);
-        layer = mLayer;
-        mLayer = -1;
-        display = mDisplay;
-    }
+    LOG(DEBUG) << "EvsGlDisplay forceShutdown";
 
-    if (display != nullptr) {
-        display->putLayer(layer);
-    }
+    if (mDisplayProxy != nullptr) {
+        std::lock_guard<std::mutex> lock(mLock);
 
-    buffer_handle_t buffer;
-    struct gralloc_buffer_descriptor desc;
-    gralloc_driver driver;
-    driver.init();
-
-    for (int i = 0; i < DISPLAY_BUFFER_NUM; i++) {
-        {
-            std::unique_lock<std::mutex> lock(mLock);
-            if (mBuffers[i] == nullptr) {
-                continue;
+        // If the buffer isn't being held by a remote client, release it now as an
+        // optimization to release the resources more quickly than the destructor might
+        // get called.
+        if (mBuffer.memHandle) {
+            // Report if we're going away while a buffer is outstanding
+            if (mFrameBusy) {
+                LOG(ERROR) << "EvsGlDisplay going down while client is holding a buffer";
             }
 
-            buffer = mBuffers[i];
-            mBuffers[i] = nullptr;
-        }
-        driver.release(buffer);
-    }
+            // Drop the graphics buffer we've been using
+            GraphicBufferAllocator& alloc(GraphicBufferAllocator::get());
+            alloc.free(mBuffer.memHandle);
+            mBuffer.memHandle = nullptr;
 
-    std::lock_guard<std::mutex> lock(mLock);
-    // Put this object into an unrecoverable error state since somebody else
-    // is going to own the display now.
-    mRequestedState = EvsDisplayState::DEAD;
+            mGlWrapper.hideWindow(mDisplayProxy, mDisplayId);
+            mGlWrapper.shutdown();
+        }
+
+        // Put this object into an unrecoverable error state since somebody else
+        // is going to own the display now.
+        mRequestedState = EvsDisplayState::DEAD;
+    } else {
+        int layer;
+        sp<IDisplay> display = getDisplay();
+        {
+            std::unique_lock<std::mutex> lock(mLock);
+            layer = mLayer;
+            mLayer = -1;
+            display = mDisplay;
+        }
+
+        if (display != nullptr) {
+            display->putLayer(layer);
+        }
+
+        buffer_handle_t buffer;
+        struct gralloc_buffer_descriptor desc;
+        gralloc_driver driver;
+        driver.init();
+
+        for (int i = 0; i < DISPLAY_BUFFER_NUM; i++) {
+            {
+                std::unique_lock<std::mutex> lock(mLock);
+                if (mBuffers[i] == nullptr) {
+                    continue;
+                }
+
+                buffer = mBuffers[i];
+                mBuffers[i] = nullptr;
+            }
+            driver.release(buffer);
+        }
+
+        std::lock_guard<std::mutex> lock(mLock);
+        // Put this object into an unrecoverable error state since somebody else
+        // is going to own the display now.
+        mRequestedState = EvsDisplayState::DEAD;
+    }
 }
 
 /**
  * Returns basic information about the EVS display provided by the system.
  * See the description of the DisplayDesc structure for details.
  */
-Return<void> EvsDisplay::getDisplayInfo(getDisplayInfo_cb _hidl_cb)
-{
-    ALOGD("getDisplayInfo");
+Return<void> EvsDisplay::getDisplayInfo(getDisplayInfo_cb _hidl_cb) {
+    LOG(DEBUG) << __FUNCTION__;
 
     // Send back our self description
     _hidl_cb(mInfo);
@@ -228,17 +275,13 @@ Return<void> EvsDisplay::getDisplayInfo(getDisplayInfo_cb _hidl_cb)
  * then begin providing video.  When the display is no longer required, the client
  * is expected to request the NOT_VISIBLE state after passing the last video frame.
  */
-Return<EvsResult> EvsDisplay::setDisplayState(EvsDisplayState state)
-{
-    ALOGD("setDisplayState");
+Return<EvsResult> EvsDisplay::setDisplayState(EvsDisplayState state) {
+    LOG(DEBUG) << __FUNCTION__;
+    std::lock_guard<std::mutex> lock(mLock);
 
-    {
-        std::lock_guard<std::mutex> lock(mLock);
-
-        if (mRequestedState == EvsDisplayState::DEAD) {
-            // This object no longer owns the display -- it's been superceeded!
-            return EvsResult::OWNERSHIP_LOST;
-        }
+    if (mRequestedState == EvsDisplayState::DEAD) {
+        // This object no longer owns the display -- it's been superceeded!
+        return EvsResult::OWNERSHIP_LOST;
     }
 
     // Ensure we recognize the requested state so we don't go off the rails
@@ -248,21 +291,21 @@ Return<EvsResult> EvsDisplay::setDisplayState(EvsDisplayState state)
 
     switch (state) {
     case EvsDisplayState::NOT_VISIBLE:
-        hideWindow();
+        hideWindow(mDisplayProxy, mDisplayId);
         break;
     case EvsDisplayState::VISIBLE:
-        showWindow();
+        showWindow(mDisplayProxy, mDisplayId);
         break;
     default:
         break;
     }
 
-    std::lock_guard<std::mutex> lock(mLock);
     // Record the requested state
     mRequestedState = state;
 
     return EvsResult::OK;
 }
+
 
 /**
  * The HAL implementation should report the actual current state, which might
@@ -271,11 +314,10 @@ Return<EvsResult> EvsDisplay::setDisplayState(EvsDisplayState state)
  * the device layer, making it undesirable for the HAL implementation to
  * spontaneously change display states.
  */
-Return<EvsDisplayState> EvsDisplay::getDisplayState()
-{
-    ALOGD("getDisplayState");
-
+Return<EvsDisplayState> EvsDisplay::getDisplayState() {
+    LOG(DEBUG) << __FUNCTION__;
     std::lock_guard<std::mutex> lock(mLock);
+
     return mRequestedState;
 }
 
@@ -285,74 +327,153 @@ Return<EvsDisplayState> EvsDisplay::getDisplayState()
  * must be returned via a call to returnTargetBufferForDisplay() even if the
  * display is no longer visible.
  */
-Return<void> EvsDisplay::getTargetBuffer(getTargetBuffer_cb _hidl_cb)
-{
-    ALOGV("getTargetBuffer");
+Return<void> EvsDisplay::getTargetBuffer(getTargetBuffer_cb _hidl_cb) {
+    LOG(DEBUG) << __FUNCTION__;
 
-    BufferDesc_1_0 hbuf = {};
-    {
+    if (mDisplayProxy != nullptr) {
         std::lock_guard<std::mutex> lock(mLock);
 
         if (mRequestedState == EvsDisplayState::DEAD) {
-            ALOGE("Rejecting buffer request from object that lost ownership of the display.");
+            LOG(ERROR) << "Rejecting buffer request from object that lost ownership of the display.";
+            _hidl_cb({});
+            return Void();
+         }
+
+        // If we don't already have a buffer, allocate one now
+        if (!mBuffer.memHandle) {
+            // Initialize our display window
+            // NOTE:  This will cause the display to become "VISIBLE" before a frame is actually
+            // returned, which is contrary to the spec and will likely result in a black frame being
+            // (briefly) shown.
+            if (!mGlWrapper.initialize(mDisplayProxy, mDisplayId)) {
+                // Report the failure
+                LOG(ERROR) << "Failed to initialize GL display";
+                _hidl_cb({});
+                return Void();
+            }
+
+            // Assemble the buffer description we'll use for our render target
+            mBuffer.width       = mGlWrapper.getWidth();
+            mBuffer.height      = mGlWrapper.getHeight();
+            mBuffer.format      = HAL_PIXEL_FORMAT_RGBA_8888;
+            mBuffer.usage       = GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_COMPOSER | GRALLOC_USAGE_HW_VIDEO_ENCODER;
+            mBuffer.bufferId    = 0x3870;  // Arbitrary magic number for self recognition
+            mBuffer.pixelSize   = 4;
+
+            // Allocate the buffer that will hold our displayable image
+            buffer_handle_t handle = nullptr;
+            GraphicBufferAllocator& alloc(GraphicBufferAllocator::get());
+            status_t result = alloc.allocate(mBuffer.width, mBuffer.height,
+                                             mBuffer.format, 1,
+                                             mBuffer.usage, &handle,
+                                             &mBuffer.stride,
+                                             0, "EvsGlDisplay");
+            if (result != NO_ERROR) {
+                LOG(ERROR) << "Error " << result
+                           << " allocating " << mBuffer.width << " x " << mBuffer.height
+                           << " graphics buffer.";
+                _hidl_cb({});
+                mGlWrapper.shutdown();
+                return Void();
+            }
+            if (!handle) {
+            LOG(ERROR) << "We didn't get a buffer handle back from the allocator";
+                _hidl_cb({});
+                mGlWrapper.shutdown();
+                return Void();
+            }
+
+            mBuffer.memHandle = handle;
+            LOG(DEBUG) << "Allocated new buffer " << mBuffer.memHandle.getNativeHandle()
+                       << " with stride " <<  mBuffer.stride;
+            mFrameBusy = false;
+        }
+
+        // Do we have a frame available?
+        if (mFrameBusy) {
+            // This means either we have a 2nd client trying to compete for buffers
+            // (an unsupported mode of operation) or else the client hasn't returned
+            // a previously issued buffer yet (they're behaving badly).
+            // NOTE:  We have to make the callback even if we have nothing to provide
+            LOG(ERROR) << "getTargetBuffer called while no buffers available.";
+            _hidl_cb({});
+            return Void();
+        } else {
+            // Mark our buffer as busy
+            mFrameBusy = true;
+
+            // Send the buffer to the client
+            LOG(VERBOSE) << "Providing display buffer handle " << mBuffer.memHandle.getNativeHandle()
+                         << " as id " << mBuffer.bufferId;
+            _hidl_cb(mBuffer);
+            return Void();
+        }
+    } else {
+        BufferDesc_1_0 hbuf = {};
+        {
+            std::lock_guard<std::mutex> lock(mLock);
+
+            if (mRequestedState == EvsDisplayState::DEAD) {
+                ALOGE("Rejecting buffer request from object that lost ownership of the display.");
+                _hidl_cb(hbuf);
+                return Void();
+            }
+        }
+
+        int layer;
+        uint32_t slot = -1;
+        sp<IDisplay> display = getDisplay();
+        {
+            std::lock_guard<std::mutex> lock(mLock);
+            display = mDisplay;
+            layer = mLayer;
+        }
+        if (display == nullptr)  {
+            ALOGE("%s invalid display", __func__);
             _hidl_cb(hbuf);
             return Void();
         }
-    }
 
-    int layer;
-    uint32_t slot = -1;
-    sp<IDisplay> display = getDisplay();
-    {
-        std::lock_guard<std::mutex> lock(mLock);
-        display = mDisplay;
-        layer = mLayer;
-    }
-    if (display == nullptr)  {
-        ALOGE("%s invalid display", __func__);
-        _hidl_cb(hbuf);
-        return Void();
-    }
+        display->getSlot(layer, [&](const auto& tmpError, const auto& tmpSlot) {
+            if (tmpError == Error::NONE) {
+                slot = tmpSlot;
+            }
+        });
 
-    display->getSlot(layer, [&](const auto& tmpError, const auto& tmpSlot) {
-        if (tmpError == Error::NONE) {
-            slot = tmpSlot;
-        }
-    });
-
-    if (slot == (uint32_t)-1) {
-        ALOGE("%s get slot failed", __func__);
-        _hidl_cb(hbuf);
-        return Void();
-    }
-
-    fsl::Memory *buffer = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(mLock);
-        if (mBuffers[slot] == nullptr) {
-            ALOGE("%s can't find valid buffer", __func__);
+        if (slot == (uint32_t)-1) {
+            ALOGE("%s get slot failed", __func__);
             _hidl_cb(hbuf);
             return Void();
         }
-        buffer = mBuffers[slot];
+
+        fsl::Memory *buffer = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(mLock);
+            if (mBuffers[slot] == nullptr) {
+                ALOGE("%s can't find valid buffer", __func__);
+                _hidl_cb(hbuf);
+                return Void();
+            }
+            buffer = mBuffers[slot];
+        }
+
+        // Assemble the buffer description we'll use for our render target
+        // hard code the resolution 640*480
+        hbuf.width     = buffer->width;
+        hbuf.height    = buffer->height;
+        hbuf.stride    = buffer->stride;
+        hbuf.format    = buffer->format;
+        hbuf.usage     = buffer->usage;
+        hbuf.bufferId  = slot;
+        hbuf.pixelSize = 4;
+        hbuf.memHandle = buffer;
+
+        // Send the buffer to the client
+        ALOGV("Providing display buffer handle %p as id %d",
+              hbuf.memHandle.getNativeHandle(), hbuf.bufferId);
+        _hidl_cb(hbuf);
+        return Void();
     }
-
-    // Assemble the buffer description we'll use for our render target
-    // hard code the resolution 640*480
-    hbuf.width     = buffer->width;
-    hbuf.height    = buffer->height;
-    hbuf.stride    = buffer->stride;
-    hbuf.format    = buffer->format;
-    hbuf.usage     = buffer->usage;
-    hbuf.bufferId  = slot;
-    hbuf.pixelSize = 4;
-    hbuf.memHandle = buffer;
-
-    // Send the buffer to the client
-    ALOGV("Providing display buffer handle %p as id %d",
-          hbuf.memHandle.getNativeHandle(), hbuf.bufferId);
-    _hidl_cb(hbuf);
-    return Void();
 }
 
 
@@ -360,60 +481,109 @@ Return<void> EvsDisplay::getTargetBuffer(getTargetBuffer_cb _hidl_cb)
  * This call tells the display that the buffer is ready for display.
  * The buffer is no longer valid for use by the client after this call.
  */
-Return<EvsResult> EvsDisplay::returnTargetBufferForDisplay(const BufferDesc_1_0& buffer)
-{
-    ALOGV("returnTargetBufferForDisplay %p", buffer.memHandle.getNativeHandle());
+Return<EvsResult> EvsDisplay::returnTargetBufferForDisplay(const BufferDesc_1_0& buffer) {
+    LOG(VERBOSE) << __FUNCTION__ << " " << buffer.memHandle.getNativeHandle();
+
     // Nobody should call us with a null handle
     if (!buffer.memHandle.getNativeHandle()) {
-        ALOGE ("%s invalid buffer handle.\n", __func__);
+        LOG(ERROR) << __FUNCTION__
+                   << " called without a valid buffer handle.";
         return EvsResult::INVALID_ARG;
     }
 
-    if (buffer.bufferId >= DISPLAY_BUFFER_NUM) {
-        ALOGE ("%s invalid buffer id.\n", __func__);
-        return EvsResult::INVALID_ARG;
-    }
-
-    EvsDisplayState state;
-    sp<IDisplay> display = getDisplay();
-    fsl::Memory *abuffer = nullptr;
-    int layer;
-    {
+    if (mDisplayProxy != nullptr) {
         std::lock_guard<std::mutex> lock(mLock);
-        state = mRequestedState;
-        abuffer = mBuffers[buffer.bufferId];
-        display = mDisplay;
-        layer = mLayer;
-    }
+        if (buffer.bufferId != mBuffer.bufferId) {
+            LOG(ERROR) << "Got an unrecognized frame returned.";
+            return EvsResult::INVALID_ARG;
+        }
+        if (!mFrameBusy) {
+            LOG(ERROR) << "A frame was returned with no outstanding frames.";
+            return EvsResult::BUFFER_NOT_AVAILABLE;
+        }
 
-    if (abuffer == nullptr) {
-        ALOGE ("%s abuffer invalid.\n", __func__);
-        return EvsResult::INVALID_ARG;
-    }
+        mFrameBusy = false;
 
-    if (display != nullptr) {
-        display->presentLayer(layer, buffer.bufferId, abuffer);
-    }
+        // If we've been displaced by another owner of the display, then we can't do anything else
+        if (mRequestedState == EvsDisplayState::DEAD) {
+            return EvsResult::OWNERSHIP_LOST;
+        }
 
-    // If we've been displaced by another owner of the display, then we can't do anything else
-    if (state == EvsDisplayState::DEAD) {
-        return EvsResult::OWNERSHIP_LOST;
-    }
+        // If we were waiting for a new frame, this is it!
+        if (mRequestedState == EvsDisplayState::VISIBLE_ON_NEXT_FRAME) {
+            mRequestedState = EvsDisplayState::VISIBLE;
+            mGlWrapper.showWindow(mDisplayProxy, mDisplayId);
+        }
 
-    // If we were waiting for a new frame, this is it!
-    if (state == EvsDisplayState::VISIBLE_ON_NEXT_FRAME) {
-        showWindow();
-        std::lock_guard<std::mutex> lock(mLock);
-        mRequestedState = EvsDisplayState::VISIBLE;
-    }
+        // Validate we're in an expected state
+        if (mRequestedState != EvsDisplayState::VISIBLE) {
+            // Not sure why a client would send frames back when we're not visible.
+            LOG(WARNING) << "Got a frame returned while not visible - ignoring.";
+        } else {
+            // Update the texture contents with the provided data
+    // TODO:  Why doesn't it work to pass in the buffer handle we got from HIDL?
+    //        if (!mGlWrapper.updateImageTexture(buffer)) {
+            if (!mGlWrapper.updateImageTexture(mBuffer)) {
+                return EvsResult::UNDERLYING_SERVICE_ERROR;
+            }
 
-    // Validate we're in an expected state
-    if (state != EvsDisplayState::VISIBLE) {
-        // Not sure why a client would send frames back when we're not visible.
-        ALOGW("Got a frame returned while not visible - ignoring.\n");
-    }
-    else {
-        ALOGV("Got a visible frame %d returned.\n", buffer.bufferId);
+            // Put the image on the screen
+            mGlWrapper.renderImageToScreen();
+            #ifdef EVS_DEBUG
+            if (!sDebugFirstFrameDisplayed) {
+                LOG(DEBUG) << "EvsFirstFrameDisplayTiming start time: "
+                           << elapsedRealtime() << " ms.";
+                sDebugFirstFrameDisplayed = true;
+            }
+            #endif
+        }
+    } else {
+        if (buffer.bufferId >= DISPLAY_BUFFER_NUM) {
+            ALOGE ("%s invalid buffer id.\n", __func__);
+            return EvsResult::INVALID_ARG;
+        }
+
+        EvsDisplayState state;
+        sp<IDisplay> display = getDisplay();
+        fsl::Memory *abuffer = nullptr;
+        int layer;
+        {
+            std::lock_guard<std::mutex> lock(mLock);
+            state = mRequestedState;
+            abuffer = mBuffers[buffer.bufferId];
+            display = mDisplay;
+            layer = mLayer;
+        }
+
+        if (abuffer == nullptr) {
+            ALOGE ("%s abuffer invalid.\n", __func__);
+            return EvsResult::INVALID_ARG;
+        }
+
+        if (display != nullptr) {
+            display->presentLayer(layer, buffer.bufferId, abuffer);
+        }
+
+        // If we've been displaced by another owner of the display, then we can't do anything else
+        if (state == EvsDisplayState::DEAD) {
+            return EvsResult::OWNERSHIP_LOST;
+        }
+
+        // If we were waiting for a new frame, this is it!
+        if (state == EvsDisplayState::VISIBLE_ON_NEXT_FRAME) {
+            //showWindow();
+            std::lock_guard<std::mutex> lock(mLock);
+            mRequestedState = EvsDisplayState::VISIBLE;
+        }
+
+        // Validate we're in an expected state
+        if (state != EvsDisplayState::VISIBLE) {
+            // Not sure why a client would send frames back when we're not visible.
+            ALOGW("Got a frame returned while not visible - ignoring.\n");
+        }
+        else {
+            ALOGV("Got a visible frame %d returned.\n", buffer.bufferId);
+        }
     }
 
     return EvsResult::OK;
@@ -425,24 +595,25 @@ Return<void> EvsDisplay::getDisplayInfo_1_1(__attribute__ ((unused))getDisplayIn
     HwDisplayConfig activeConfig;
     HwDisplayState  activeState;
 
-    if (getDisplay() == nullptr) {
+    if (mDisplayProxy != nullptr) {
+        return mDisplayProxy->getDisplayInfo(mDisplayId, _info_cb);
+    } else {
+        if (getDisplay() == nullptr) {
+            _info_cb(activeConfig, activeState);
+            return Void();
+        }
+        displayMode.resolution = ui::Size(mWidth, mHeight);
+        displayMode.refreshRate = 60.f;
+        displayState.layerStack.id = mLayer;
+        activeConfig.setToExternal((uint8_t*)&displayMode, sizeof(android::ui::DisplayMode));
+        activeState.setToExternal((uint8_t*)&displayState, sizeof(android::ui::DisplayState));
         _info_cb(activeConfig, activeState);
         return Void();
     }
-
-    displayMode.resolution = ui::Size(mWidth, mHeight);
-    displayMode.refreshRate = 60.f;
-    displayState.layerStack.id = mLayer;
-
-    activeConfig.setToExternal((uint8_t*)&displayMode, sizeof(android::ui::DisplayMode));
-    activeState.setToExternal((uint8_t*)&displayState, sizeof(android::ui::DisplayState));
-
-    _info_cb(activeConfig, activeState);
-    return Void();
 }
 
 } // namespace implementation
-} // namespace V1_0
+} // namespace V1_1
 } // namespace evs
 } // namespace automotive
 } // namespace hardware

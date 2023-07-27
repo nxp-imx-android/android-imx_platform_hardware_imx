@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016 The Android Open Source Project
- * Copyright 2019 NXP.
+ * Copyright 2019-2023 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -67,6 +67,9 @@ std::list<EvsEnumerator::CameraRecord>   EvsEnumerator::sCameraList;
 wp<EvsDisplay>                           EvsEnumerator::sActiveDisplay;
 std::mutex                               EvsEnumerator::sLock;
 std::unique_ptr<ConfigManager>           EvsEnumerator::sConfigManager;
+sp<IAutomotiveDisplayProxyService>       EvsEnumerator::sDisplayProxy;
+std::unordered_map<uint8_t, uint64_t>    EvsEnumerator::sDisplayPortList;
+uint64_t                                 EvsEnumerator::sInternalDisplayId;
 
 ConfigManager * EvsEnumerator::getConfigManager() {
     return sConfigManager.get();
@@ -233,12 +236,50 @@ found:
 }
 
 EvsEnumerator::EvsEnumerator(sp<IAutomotiveDisplayProxyService> proxyService) {
-    ALOGD("EvsEnumerator created");
+    LOG(DEBUG) << "EvsEnumerator is created.";
 
-    if (proxyService == nullptr)
-         ALOGD("proxy server is null");
-    if (!EnumAvailableVideo())
+    if (proxyService != nullptr) {
+         LOG(DEBUG) << "Display proxy service is running";
+         if (sDisplayProxy == nullptr) {
+            /* sets a car-window service handle */
+            sDisplayProxy = proxyService;
+         }
+         if (sDisplayProxy != nullptr) {
+            enumerateDisplays();
+         }
+    } else {
+         LOG(DEBUG) << "Display proxy service is null";
+    }
+    if (!EnumAvailableVideo()) {
         mPollVideoFileThread = new PollVideoFileThread();
+    }
+}
+
+void EvsEnumerator::enumerateDisplays() {
+    LOG(INFO) << __FUNCTION__
+              << ": Starting display enumeration";
+    if (!sDisplayProxy) {
+        LOG(ERROR) << "AutomotiveDisplayProxyService is not available!";
+        return;
+    }
+
+    sDisplayProxy->getDisplayIdList(
+        [](const auto& displayIds) {
+            // The first entry of the list is the internal display.  See
+            // SurfaceFlinger::getPhysicalDisplayIds() implementation.
+            if (displayIds.size() > 0) {
+                sInternalDisplayId = displayIds[0];
+                for (const auto& id : displayIds) {
+                    const auto port = id & 0xFF;
+                    LOG(INFO) << "Display " << std::hex << id
+                              << " is detected on the port, " << port;
+                    sDisplayPortList.insert_or_assign(port, id);
+                }
+            }
+        }
+    );
+
+    LOG(INFO) << "Found " << sDisplayPortList.size() << " displays";
 }
 
 Return<void> EvsEnumerator::getDisplayIdList(getDisplayIdList_cb _list_cb) {
@@ -621,7 +662,11 @@ Return<sp<IEvsDisplay_1_1>> EvsEnumerator::openDisplay_1_1(uint8_t port) {
     }
 
     // Create a new display interface and return it
-    pActiveDisplay = new EvsDisplay();
+    if (sDisplayProxy != nullptr) {
+        pActiveDisplay = new EvsDisplay(sDisplayProxy, sDisplayPortList[port]);
+    } else {
+        pActiveDisplay = new EvsDisplay();
+    }
     sActiveDisplay = pActiveDisplay;
 
     ALOGD("Returning new EvsDisplay object %p %d", pActiveDisplay.get(), port);
@@ -640,7 +685,11 @@ Return<sp<IEvsDisplay_1_0>> EvsEnumerator::openDisplay() {
     }
 
     // Create a new display interface and return it
-    pActiveDisplay = new EvsDisplay();
+    if (sDisplayProxy != nullptr) {
+        pActiveDisplay = new EvsDisplay(sDisplayProxy, sInternalDisplayId);
+    } else {
+        pActiveDisplay = new EvsDisplay();
+    }
     sActiveDisplay = pActiveDisplay;
 
     ALOGD("Returning new EvsDisplay object %p", pActiveDisplay.get());

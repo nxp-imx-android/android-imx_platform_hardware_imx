@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 NXP.
+ * Copyright 2019-2023 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,11 @@
 
 #include <android/hardware/automotive/evs/1.1/IEvsDisplay.h>
 #include <nxp/hardware/display/1.0/IDisplay.h>
+#include <android/frameworks/automotive/display/1.0/IAutomotiveDisplayProxyService.h>
 
+#include "GlWrapper.h"
+
+#include <ui/GraphicBuffer.h>
 #include <Memory.h>
 #include <MemoryDesc.h>
 #include <MemoryManager.h>
@@ -30,7 +34,7 @@ using ::android::hardware::automotive::evs::V1_0::DisplayDesc;
 using ::android::hardware::automotive::evs::V1_1::IEvsDisplay;
 using EvsResult   = ::android::hardware::automotive::evs::V1_0::EvsResult;
 using ::android::frameworks::automotive::display::V1_0::HwDisplayConfig;
-
+using android::frameworks::automotive::display::V1_0::IAutomotiveDisplayProxyService;
 
 namespace android {
 namespace hardware {
@@ -55,6 +59,7 @@ public:
 
     // Implementation details
     EvsDisplay();
+    EvsDisplay(sp<IAutomotiveDisplayProxyService> pWindowService, uint64_t displayId);
     virtual ~EvsDisplay() override;
 
     // This gets called if another caller "steals" ownership of the display.
@@ -62,8 +67,8 @@ public:
 
 private:
     bool initialize();
-    void showWindow();
-    void hideWindow();
+    void showWindow(sp<IAutomotiveDisplayProxyService>& pWindowProxy, uint64_t id);
+    void hideWindow(sp<IAutomotiveDisplayProxyService>& pWindowProxy, uint64_t id);
     sp<IDisplay> getDisplay();
 
 private:
@@ -72,14 +77,20 @@ private:
     int mWidth  = 0;
     int mHeight = 0;
 
+    GlWrapper       mGlWrapper;
     int mIndex = -1;
     fsl::Memory* mBuffers[DISPLAY_BUFFER_NUM] = {};
 
     DisplayDesc mInfo = {};
     EvsDisplayState mRequestedState = EvsDisplayState::NOT_VISIBLE;
 
+    BufferDesc_1_0 mBuffer = {};       // A graphics buffer into which we'll store images
+    bool mFrameBusy = false;           // A flag telling us our buffer is in use
+
     uint32_t mLayer = -1;
     sp<IDisplay> mDisplay = nullptr;
+    sp<IAutomotiveDisplayProxyService> mDisplayProxy = nullptr;
+    uint64_t                           mDisplayId;
 };
 
 } // namespace implementation

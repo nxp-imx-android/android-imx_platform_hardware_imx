@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016 The Android Open Source Project
- * Copyright 2019 NXP.
+ * Copyright 2019-2023 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ using IEvsCamera_1_0  = ::android::hardware::automotive::evs::V1_0::IEvsCamera;
 using IEvsCamera_1_1  = ::android::hardware::automotive::evs::V1_1::IEvsCamera;
 using IEvsDisplay_1_0  = ::android::hardware::automotive::evs::V1_0::IEvsDisplay;
 using IEvsDisplay_1_1  = ::android::hardware::automotive::evs::V1_1::IEvsDisplay;
+using android::frameworks::automotive::display::V1_0::IAutomotiveDisplayProxyService;
 using ::android::hardware::camera::device::V3_2::Stream;
 using IEvsCameraStream_1_0 = ::android::hardware::automotive::evs::V1_0::IEvsCameraStream;
 using BufferDesc_1_0       = ::android::hardware::automotive::evs::V1_0::BufferDesc;
@@ -49,7 +50,6 @@ namespace V1_1 {
 namespace implementation {
 using android::Thread;
 using android::sp;
-using android::frameworks::automotive::display::V1_0::IAutomotiveDisplayProxyService;
 
 class EvsCamera;    // from EvsCamera.h
 class EvsDisplay;    // from EvsDisplay.h
@@ -73,7 +73,7 @@ public:
     // Methods from ::android::hardware::automotive::evs::V1_0::IEvsEnumerator follow.
     Return<void> getCameraList(getCameraList_cb _hidl_cb)  override;
     Return<sp<IEvsCamera_1_0>> openCamera(const hidl_string& cameraId) override;
-    Return<void> closeCamera(const ::android::sp<IEvsCamera_1_0>& carCamera)  override;
+    Return<void> closeCamera(const ::android::sp<IEvsCamera_1_0>& pCamera)  override;
     Return<sp<IEvsDisplay_1_0>> openDisplay()  override;
     Return<void> closeDisplay(const ::android::sp<IEvsDisplay_1_0>& display)  override;
     Return<EvsDisplayState> getDisplayState()  override;
@@ -120,6 +120,7 @@ private:
     static bool qualifyCaptureDevice(const char* deviceName);
     static bool filterVideoFromConfigure(char *deviceName);
     static CameraRecord* findCameraById(const std::string& cameraId);
+    static void enumerateDisplays();
 
     static std::unique_ptr<ConfigManager> sConfigManager;
 
@@ -147,6 +148,10 @@ private:
     static std::mutex                       sLock;
 
     static wp<EvsDisplay>          sActiveDisplay; // Weak pointer. Object destructs if client dies.
+    static sp<IAutomotiveDisplayProxyService> sDisplayProxy;
+    static std::unordered_map<uint8_t,
+                              uint64_t>       sDisplayPortList;
+    static uint64_t                           sInternalDisplayId;
 };
 
 } // namespace implementation
