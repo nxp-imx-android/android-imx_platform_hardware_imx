@@ -20,4 +20,4 @@ allow hal_evs_driver device:dir { watch };
 allow hal_evs_driver sysfs:dir { read open };
 allow hal_evs_driver dmabuf_heap_device:chr_file { read open ioctl };
 allow hal_evs_driver dmabuf_system_heap_device:chr_file { read open ioctl };
-allow hal_evs_driver automotive_display_service:fd { use };
+#allow hal_evs_driver automotive_display_service:fd { use };
