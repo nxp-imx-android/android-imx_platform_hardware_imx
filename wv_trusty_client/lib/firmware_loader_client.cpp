@@ -33,8 +33,32 @@
 #include <firmware_loader_client.h>
 #include <log/log.h>
 #include <trusty/tipc.h>
+#include <getopt.h>
 
 #define TRUSTY_DEVICE_NAME "/dev/trusty-ipc-dev0"
+
+constexpr const char kTrustyDefaultDeviceName[] = "/dev/trusty-ipc-dev0";
+static const char* dev_name = kTrustyDefaultDeviceName;
+
+static const char* _sopts = "hD:";
+static const struct option _lopts[] = {
+        {"help", no_argument, 0, 'h'},
+        {"dev", required_argument, 0, 'D'},
+        {0, 0, 0, 0},
+};
+
+static const char* usage =
+        "Usage: %s [options] package-file\n"
+        "\n"
+        "options:\n"
+        "  -h, --help            prints this message and exit\n"
+        "  -D, --dev name        Trusty device name\n"
+        "\n";
+
+static void print_usage_and_exit(const char* prog, int code) {
+    fprintf(stderr, usage, prog);
+    exit(code);
+}
 
 using android::base::unique_fd;
 using std::string;
@@ -192,4 +216,38 @@ err_send:
 err_tipc_connect:
 err_read_file:
     return rc;
+}
+
+static void parse_options(int argc, char** argv) {
+    int c;
+    int oidx = 0;
+
+    while (1) {
+        c = getopt_long(argc, argv, _sopts, _lopts, &oidx);
+        if (c == -1) {
+            break; /* done */
+        }
+
+        switch (c) {
+            case 'h':
+                print_usage_and_exit(argv[0], EXIT_SUCCESS);
+                break;
+
+            case 'D':
+                dev_name = strdup(optarg);
+                break;
+
+            default:
+                print_usage_and_exit(argv[0], EXIT_FAILURE);
+        }
+    }
+}
+
+int main(int argc, char** argv) {
+    parse_options(argc, argv);
+    if (optind + 1 != argc) {
+        print_usage_and_exit(argv[0], EXIT_FAILURE);
+    }
+    int rc = load_firmware_package(argv[optind]);
+    return rc == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
