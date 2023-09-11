@@ -481,7 +481,7 @@ status_t CameraProviderHwlImpl::CreateCameraDeviceHwl(
         physicalIds.push_back(0);
     }
 
-    *camera_device_hwl = CameraDeviceHwlImpl::Create(camera_id, devPaths, physicalIds,
+    *camera_device_hwl = CameraDeviceHwlImpl::Create(camera_id, std::move(devPaths), std::move(physicalIds),
         mCameraDef.cam_blit_copy_hw, mCameraDef.cam_blit_csc_hw, mCameraDef.jpeg_hw.c_str(),
         mCameraDef.mUseCpuEncoder, &cam_metadata, std::move(target_physical_devices), mCallback);
 
