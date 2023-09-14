@@ -253,6 +253,7 @@ CameraDeviceSessionHwlImpl::CameraDeviceSessionHwlImpl(PhysicalMetaMapPtr physic
     mPreSubmitRequestTime = 0;
     mImgProcThread = NULL;
     mWorkThread = NULL;
+    setDstPhyAddr.clear();
 
     physical_meta_map_ = std::move(physical_devices);
 }
@@ -291,6 +292,7 @@ CameraDeviceSessionHwlImpl::~CameraDeviceSessionHwlImpl()
         delete m_meta;
         m_meta = NULL;
     }
+    setDstPhyAddr.clear();
 }
 
 PipelineInfo* CameraDeviceSessionHwlImpl::GetPipelineInfo(uint32_t id)
@@ -523,6 +525,10 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
     ImxStreamBuffer *pImxStreamBuffer = NULL;
     std::vector<ImxStreamBuffer *> v4l2BufferList;
     ImageFeed *imgFeed = NULL;
+    uint64_t timestamp_ns = 0;
+    uint64_t readout_timestamp_ns = 0;
+    uint64_t readTime = 0;
+    uint32_t clock = mUseCpuEncoder ? SYSTEM_TIME_MONOTONIC : SYSTEM_TIME_BOOTTIME;
 
     if (frameRequest == NULL)
         return BAD_VALUE;
@@ -564,6 +570,9 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
                 goto fail;
             }
 
+            // For logical camera, use first physical camera's timestamp.
+            if (timestamp_ns == 0)
+                timestamp_ns = systemTime(clock);
 
             pImxStreamBuffer = pVideoStream->onFrameAcquire();
             if (pImxStreamBuffer == NULL) {
@@ -572,12 +581,16 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
                 goto fail;
             }
 
+            if (readout_timestamp_ns == 0)
+                readout_timestamp_ns = systemTime(clock);
+
             v4l2BufferList.push_back(pImxStreamBuffer);
         }
 
         ALOGV("%s: v4l2BufferList.size %zu", __func__, v4l2BufferList.size());
 
     } else {
+        timestamp_ns = systemTime(clock);
         pImxStreamBuffer = pVideoStreams[0]->onFrameAcquire();
         // Fix me. Since onFrameAcquire will select by 3s timeout, and has recover
         // tactic, should not return NULL. If so, need handle the request properly.
@@ -585,10 +598,30 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
         if (pImxStreamBuffer == NULL) {
             ALOGE("%s: onFrameAcquire failed", __func__);
         }
+        readout_timestamp_ns = systemTime(clock);
     }
 
-    if (mDebug)
+    readTime = readout_timestamp_ns - timestamp_ns;
+    if (strstr(mSensorData.camera_name, ISP_SENSOR_NAME)) {
+        std::unique_ptr<ISPWrapper>& ispWrapper = ((ISPCameraMMAPStream *)pVideoStreams[0])->getIspWrapper();
+        uint64_t exposure_time = ispWrapper->getExposureTime();
+
+        if (readTime < exposure_time) {
+            ALOGW("%s: frame %d readTime %lu is less than exposure_time %lu, adjust", __func__, frame, readTime, exposure_time);
+            readout_timestamp_ns = timestamp_ns + exposure_time;
+        }
+
+        if (readTime >= exposure_time + mSensorData.minframeduration/2) {
+            ALOGW("%s: frame %d readTime %lu is great than exposure_time %lu + (mSensorData.minframeduration/2) %lu, adjust",
+                __func__, frame, readTime, exposure_time, mSensorData.minframeduration/2);
+            readout_timestamp_ns = timestamp_ns + exposure_time + mSensorData.minframeduration/2 - 1;
+        }
+    }
+
+    if (mDebug) {
+        ALOGI("%s: frame %d readTime %lu", __func__, frame, readTime);
         ItvlStat(mPreCapAndFeedTime, (char *)"CapAndFeed(), v4l2 capture");
+    }
 
     imgFeed = (ImageFeed *)malloc(sizeof(ImageFeed));
     if (imgFeed == NULL) {
@@ -604,6 +637,9 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
 
     imgFeed->frameRequest = frameRequest;
     imgFeed->frame = frame;
+    imgFeed->timestamp_ns = timestamp_ns;
+    imgFeed->readout_timestamp_ns = readout_timestamp_ns;
+
 
     mImgProcThread->feed(imgFeed);
     return 0;
@@ -737,19 +773,14 @@ int CameraDeviceSessionHwlImpl::HandleImage()
         return 0;
     }
 
-    uint64_t timestamp = 0;
-    if (is_logical_request_)
-        timestamp = imgFeed->v4l2BufferList[0]->mTimeStamp;
-    else
-        timestamp = imgFeed->v4l2Buffer->mTimeStamp;
-
     // notify shutter
     if (pInfo->pipeline_callback.notify) {
         NotifyMessage msg{
             .type = MessageType::kShutter,
             .message.shutter = {
                 .frame_number = frame,
-                .timestamp_ns = timestamp}};
+                .timestamp_ns = imgFeed->timestamp_ns,
+                .readout_timestamp_ns = imgFeed->readout_timestamp_ns}};
 
         pInfo->pipeline_callback.notify(pipeline_id, msg);
     }
@@ -864,7 +895,7 @@ int CameraDeviceSessionHwlImpl::HandleImage()
                     physical_metadata_ = HalCameraMetadata::Create(1, 10);
 
                 // Sensor timestamp for all physical devices must be the same.
-                HandleMetaLocked(physical_metadata_, timestamp);
+                HandleMetaLocked(physical_metadata_, imgFeed->timestamp_ns);
 
                 result->physical_camera_results[it] = std::move(physical_metadata_);
             }
@@ -891,7 +922,7 @@ int CameraDeviceSessionHwlImpl::HandleImage()
                                 ret.data(), ret.size());
     }
 
-    HandleMetaLocked(result->result_metadata, timestamp);
+    HandleMetaLocked(result->result_metadata, imgFeed->timestamp_ns);
 
     // call back to process result
     if (pInfo->pipeline_callback.process_pipeline_result) {
@@ -1055,6 +1086,7 @@ static void DumpStream(void *src, uint32_t srcSize, void *dst, uint32_t dstSize,
 status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2Outbuf(ImxStreamBuffer *srcBuf, StreamBuffer &output_buffers, FenceFdInfo &outFences, CameraMetadata &requestMeta)
 {
     int ret = 0;
+    bool isSkipHandle = false;
     if (srcBuf == NULL)
         return BAD_VALUE;
 
@@ -1083,15 +1115,38 @@ status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2Outbuf(ImxStreamBuffer *srcBu
     if (dstBuf == NULL)
         return BAD_VALUE;
 
+    // limit the container size
+    ImxStream *src = srcBuf->mStream;
+    ImxStream *dst = dstBuf->mStream;
+    if (setDstPhyAddr.size() >= 20) {
+        ALOGW("%s: erase the previous old addr: 0x%lx", __func__, *(setDstPhyAddr.begin()));
+        setDstPhyAddr.erase(setDstPhyAddr.begin());
+    }
+
+    // Adapt for Camra2.apk. The picture resolution may differ from preview resolution.
+    // If resize for preview stream, there will be obvious changes in the preview when taking picture.
+    // And if there is a new dst addr, the process will not be skipped, otherwise it will flash green.
+    if ((src->width() != dst->width()) || (src->height() != dst->height()) &&
+        dst->isPreview() && src->isPictureIntent()) {
+        if (!setDstPhyAddr.empty() && (setDstPhyAddr.find(dstBuf->mPhyAddr) != setDstPhyAddr.end())) {
+            isSkipHandle = true;
+            ALOGW("%s: resize from %dx%d to %dx%d, skip preview stream while taking picture", __func__, src->width(), src->height(), dst->width(), dst->height());
+        } else {
+            ALOGW("%s: Don't skip the preview stream handle, new dst phy addr 0x%lx appear", __func__, dstBuf->mPhyAddr);
+        }
+    }
+    setDstPhyAddr.insert(dstBuf->mPhyAddr);
+
     uint64_t t1 = systemTime();
 
     if (dstBuf->mStream->format() == HAL_PIXEL_FORMAT_BLOB) {
         mJpegBuilder->reset();
         mJpegBuilder->setMetadata(&requestMeta);
-
-        ret = processJpegBuffer(srcBuf, dstBuf, &requestMeta);
-    } else
-        processFrameBuffer(srcBuf, dstBuf, &requestMeta);
+        processJpegBuffer(srcBuf, dstBuf, &requestMeta);
+    } else {
+        if (!isSkipHandle)
+            processFrameBuffer(srcBuf, dstBuf, &requestMeta);
+    }
 
     uint64_t t2 = systemTime();
 
@@ -1432,8 +1487,8 @@ status_t CameraDeviceSessionHwlImpl::HandleMetaLocked(std::unique_ptr<HalCameraM
         resultMeta->Set(ANDROID_SENSOR_GREEN_SPLIT, &green_split, 1);
 
         // Ref https://developer.android.com/reference/android/hardware/camera2/CaptureResult#SENSOR_ROLLING_SHUTTER_SKEW
-        // Ref emulated camera, use min frame duration, 1/30 s.
-        static const int64_t rolling_shutter_skew = 33333333; // ns
+        // Ref emulated camera, use min frame duration, 1/60 s.
+        static const int64_t rolling_shutter_skew = mSensorData.minframeduration; // ns
         resultMeta->Set(ANDROID_SENSOR_ROLLING_SHUTTER_SKEW, &rolling_shutter_skew, 1);
 
         // Ref https://developer.android.com/reference/android/hardware/camera2/CaptureResult#STATISTICS_SCENE_FLICKER
@@ -1521,8 +1576,8 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
     }
 
     pipeline_info->pipeline_id = pipeline_id_;
-    pipeline_info->physical_camera_id = physical_camera_id;
-    pipeline_info->pipeline_callback = hwl_pipeline_callback;
+    pipeline_info->physical_camera_id = std::move(physical_camera_id);
+    pipeline_info->pipeline_callback = std::move(hwl_pipeline_callback);
 
     int stream_num = request_config.streams.size();
     if (stream_num == 0) {
@@ -1637,6 +1692,9 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
 
     map_pipeline_info[pipeline_id_] = pipeline_info;
     pipeline_id_++;
+
+    /* clear setDstPhyAddr */
+    setDstPhyAddr.clear();
 
     return OK;
 }
@@ -1829,6 +1887,9 @@ void CameraDeviceSessionHwlImpl::DestroyPipelines()
 
     map_pipeline_info.clear();
     pipelines_built_ = false;
+
+    /* clear setDstPhyAddr */
+    setDstPhyAddr.clear();
 }
 
 status_t CameraDeviceSessionHwlImpl::SubmitRequests(

@@ -1044,7 +1044,7 @@ bool ExternalCameraConfig::updateFpsList(tinyxml2::XMLElement* fpsList,
         limits.push_back(limit);
         row = row->NextSiblingElement("Limit");
     }
-    fpsLimits = limits;
+    fpsLimits = std::move(limits);
     return true;
 }
 

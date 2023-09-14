@@ -436,7 +436,7 @@ Return<void> NxpMapper::get(void* rawHandle, const MetadataType& metadataType,
         return Void();
     }
 
-    get(memHandle, metadataType, hidlCb);
+    get(memHandle, metadataType, std::move(hidlCb));
     return Void();
 }
 
@@ -920,7 +920,7 @@ Return<void> NxpMapper::dumpBuffer(void* rawHandle, dumpBuffer_cb hidlCb) {
         return Void();
     }
 
-    return dumpBuffer(memHandle, hidlCb);
+    return dumpBuffer(memHandle, std::move(hidlCb));
 }
 
 Return<void> NxpMapper::dumpBuffer(gralloc_handle_t memHandle,
@@ -945,7 +945,7 @@ Return<void> NxpMapper::dumpBuffer(gralloc_handle_t memHandle,
     auto metadata_get_callback = [&](Error, hidl_vec<uint8_t> metadata) {
         MetadataDump metadataDump;
         metadataDump.metadataType = metadataType;
-        metadataDump.metadata = metadata;
+        metadataDump.metadata = std::move(metadata);
         metadataDumps.push_back(metadataDump);
     };
 

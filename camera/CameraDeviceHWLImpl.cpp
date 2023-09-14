@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2020 The Android Open Source Project
+ * Copyright 2023 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,10 +38,10 @@ std::unique_ptr<CameraDeviceHwl> CameraDeviceHwlImpl::Create(
     CameraDeviceHwlImpl *device = NULL;
 
     if(strstr(cam_metadata->camera_name, ISP_SENSOR_NAME))
-        device = new ISPCameraDeviceHwlImpl(camera_id, devPaths, physicalIds, cam_copy_hw, cam_csc_hw,
+        device = new ISPCameraDeviceHwlImpl(camera_id, std::move(devPaths), std::move(physicalIds), cam_copy_hw, cam_csc_hw,
                             hw_jpeg, use_cpu_encoder, cam_metadata, std::move(physical_devices), callback);
     else
-        device = new CameraDeviceHwlImpl(camera_id, devPaths, physicalIds, cam_copy_hw, cam_csc_hw,
+        device = new CameraDeviceHwlImpl(camera_id, std::move(devPaths), std::move(physicalIds), cam_copy_hw, cam_csc_hw,
                             hw_jpeg, use_cpu_encoder, cam_metadata, std::move(physical_devices), callback);
 
     if (device == nullptr) {
@@ -72,12 +73,12 @@ CameraDeviceHwlImpl::CameraDeviceHwlImpl(
         mUseCpuEncoder(use_cpu_encoder),
         physical_device_map_(std::move(physical_devices))
 {
-    mDevPath = devPaths;
+    mDevPath = std::move(devPaths);
     for (int i = 0; i < (int)mDevPath.size(); ++i) {
         ALOGI("%s, mDevPath[%d] %s", __func__, i, *mDevPath[i]);
     }
 
-    mPhysicalIds = physicalIds;
+    mPhysicalIds = std::move(physicalIds);
     for (int i = 0; i < (int)mPhysicalIds.size(); ++i) {
         ALOGI("%s, mPhysicalIds %u", __func__, mPhysicalIds[i]);
     }
@@ -217,6 +218,30 @@ status_t CameraDeviceHwlImpl::Initialize()
     return OK;
 }
 
+bool CameraDeviceHwlImpl::PickResByMetaData(int width, int height)
+{
+    bool bPicked = true;
+
+    if (mSensorData.mGivenResNum > 0) {
+        bPicked = false;
+        for (int i = 0; i < mSensorData.mGivenResNum; i++) {
+            if ((mSensorData.mGivenRes[i].width == width) && (mSensorData.mGivenRes[i].height == height)) {
+                bPicked = true;
+                break;
+            }
+        }
+    }
+
+    if (!bPicked)
+        return false;
+
+    if ((width >= mSensorData.mMinWidth) && (height >= mSensorData.mMinHeight) &&
+        (width <= mSensorData.mMaxWidth) && (height <= mSensorData.mMaxHeight))
+        return true;
+
+    return false;
+}
+
 status_t CameraDeviceHwlImpl::initSensorStaticData()
 {
     int32_t fd = open(*mDevPath[0], O_RDWR);
@@ -256,7 +281,8 @@ status_t CameraDeviceHwlImpl::initSensorStaticData()
     index = 0;
     char TmpStr[20];
     int previewCnt = 0, pictureCnt = 0;
-    int frmfps = 30;
+    int maxFrmfps = 0;
+    int frmfps = 0;
     struct v4l2_frmsizeenum cam_frmsize;
     struct v4l2_frmivalenum vid_frmval;
     while (ret == 0) {
@@ -270,6 +296,12 @@ status_t CameraDeviceHwlImpl::initSensorStaticData()
             continue;
         }
         ALOGI("enum frame size w:%d, h:%d, format 0x%x", cam_frmsize.discrete.width, cam_frmsize.discrete.height, cam_frmsize.pixel_format);
+
+        bool bPicked = PickResByMetaData(cam_frmsize.discrete.width, cam_frmsize.discrete.height);
+        if (!bPicked) {
+            ALOGI("%s: res %dx%d is not picked due to settings in config json", __func__, cam_frmsize.discrete.width, cam_frmsize.discrete.height);
+            continue;
+        }
 
         if (cam_frmsize.discrete.width == 0 ||
             cam_frmsize.discrete.height == 0) {
@@ -286,22 +318,34 @@ status_t CameraDeviceHwlImpl::initSensorStaticData()
         vid_frmval.width = cam_frmsize.discrete.width;
         vid_frmval.height = cam_frmsize.discrete.height;
 
-        // some camera did not support the VIDIOC_ENUM_FRAMEINTERVALS, such as ap1302
-        int ret2 = ioctl(fd, VIDIOC_ENUM_FRAMEINTERVALS, &vid_frmval);
-        if (ret2 == 0) {
+        maxFrmfps = 0;
+        while (ioctl(fd, VIDIOC_ENUM_FRAMEINTERVALS, &vid_frmval) == 0) {
+            if (vid_frmval.discrete.numerator == 0)
+                break;
+
             frmfps = vid_frmval.discrete.denominator /  vid_frmval.discrete.numerator;
+            ALOGI("fps %d", frmfps);
+            if (frmfps > maxFrmfps)
+              maxFrmfps = frmfps;
+
+            vid_frmval.index++;
         }
+        ALOGI("maxFrmfps %d", maxFrmfps);
+
+        // some camera did not support the VIDIOC_ENUM_FRAMEINTERVALS, such as ap1302
+        if (maxFrmfps == 0)
+            maxFrmfps = 30;
 
         // If w/h ratio is not same with senserW/sensorH, framework assume that
         // first crop little width or little height, then scale.
         // 176x144 not work in this mode.
         if (!(cam_frmsize.discrete.width == 176 &&
-                cam_frmsize.discrete.height == 144) && frmfps >= 5) {
+                cam_frmsize.discrete.height == 144) && maxFrmfps >= 5) {
             mPictureResolutions[pictureCnt++] = cam_frmsize.discrete.width;
             mPictureResolutions[pictureCnt++] = cam_frmsize.discrete.height;
         }
 
-        if (frmfps >= 15) {
+        if (maxFrmfps >= 15) {
             mPreviewResolutions[previewCnt++] = cam_frmsize.discrete.width;
             mPreviewResolutions[previewCnt++] = cam_frmsize.discrete.height;
         }
@@ -329,6 +373,12 @@ status_t CameraDeviceHwlImpl::initSensorStaticData()
     ALOGI("mMaxWidth:%d, mMaxHeight:%d", mMaxWidth, mMaxHeight);
 
     close(fd);
+
+    if ((mMaxWidth == 0) || (mMaxHeight == 0)) {
+        ALOGI("%s: remove camera id %d due to max size is %dx%d", __func__, camera_id_, mMaxWidth, mMaxHeight);
+        mCallback.camera_device_status_change(camera_id_, CameraDeviceStatus::kNotPresent);
+    }
+
     return NO_ERROR;
 }
 

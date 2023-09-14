@@ -1,3 +1,10 @@
+/*
+ * Copyright 2023 NXP
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ */
+
 #include <unistd.h>
 #include <fstab/fstab.h>
 #include <android-base/logging.h>

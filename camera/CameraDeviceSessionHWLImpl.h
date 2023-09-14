@@ -271,6 +271,8 @@ private:
 
     typedef struct tag_ImageFeed {
         uint32_t frame;
+        uint64_t timestamp_ns;
+        uint64_t readout_timestamp_ns;
         ImxStreamBuffer *v4l2Buffer;
         FrameRequest *frameRequest;
         std::vector<ImxStreamBuffer *> v4l2BufferList; // for logical camera
@@ -402,6 +404,9 @@ public:
     int32_t m_raw_v4l2_format = -1;
     int8_t m_color_arrange = -1;
     int mUseCpuEncoder;
+
+private:
+    std::set<uint64_t> setDstPhyAddr;
 };
 
 }  // namespace android

@@ -320,8 +320,8 @@ capture_data:
             return NULL;
         }
 
-        ALOGW("%s: select fd %d blocked %d s on %dx%d, %d fps, camera recover count %d",
-            __func__, mDev, SELECT_TIMEOUT_SECONDS, mWidth, mHeight, mFps, mRecoverCount);
+        ALOGW("%s: select fd %d blocked %d s at frame %d, on %dx%d, %d fps, camera recover count %d",
+            __func__, mDev, SELECT_TIMEOUT_SECONDS, mFrames, mWidth, mHeight, mFps, mRecoverCount);
 
         ret = ConfigAndStart(mFormat, mWidth, mHeight, mFps, mCaptureIntent, mSceneMode, true);
         if(ret) {
@@ -340,12 +340,6 @@ capture_data:
         mV4l2Lock.unlock();
         return NULL;
     }
-
-    uint64_t timestamp = 0;
-    if (mSession->mUseCpuEncoder)
-        timestamp = systemTime(SYSTEM_TIME_MONOTONIC);
-    else
-        timestamp = systemTime(SYSTEM_TIME_BOOTTIME);
 
     ALOGV("VIDIOC_DQBUF ok, idx %d", cfilledbuffer.index);
 
@@ -374,7 +368,6 @@ capture_data:
 
     mV4l2Lock.unlock();
 
-    mBuffers[cfilledbuffer.index]->mTimeStamp = timestamp;
     return mBuffers[cfilledbuffer.index];
 }
 
