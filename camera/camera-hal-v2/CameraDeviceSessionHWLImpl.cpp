@@ -1399,6 +1399,16 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequests(uint32_t frame_number,
             configHeight = maxStreamHeight;
         }
 
+        // libcamera support 4k/1080p for os08a20
+        if (strstr(mSensorData.camera_name, "os08a20")) {
+            configWidth = maxStreamWidth;
+            configHeight = maxStreamHeight;
+            if ((configWidth <= 1920) && (configHeight <= 1080)) {
+                configWidth = 1920;
+                configHeight = 1080;
+            }
+        }
+
         ret = ConfigLibcameraLocked(mSensorData.mLibcameraBuffers, m_libcamera_stream_format,
                                     configWidth, configHeight);
         if (ret) {

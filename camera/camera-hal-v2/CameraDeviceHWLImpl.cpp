@@ -249,7 +249,7 @@ status_t CameraDeviceHwlImpl::initSensorStaticData() {
         ALOGI("SupportedPreviewSizes: %d x %d", mPreviewResolutions[i], mPreviewResolutions[i + 1]);
     }
 
-    int fpsRange_os08a20[] = {10, 30, 15, 30, 30, 30};
+    int fpsRange_os08a20[] = {10, 30, 15, 30, 30, 30, 15, 60, 60, 60};
     int fpsRange_ap1302[] = {10, 30, 15, 30, 30, 30, 15, 60, 60, 60};
     int fpsRange_ov5640[] = {10, 30, 15, 30, 30, 30};
     int fpsRange_mx95mbcam[] = {10, 30, 15, 30, 30, 30};
