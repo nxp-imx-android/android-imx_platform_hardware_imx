@@ -529,6 +529,10 @@ status_t CameraProviderHwlImpl::GetConcurrentStreamingCameraIds(
     return OK;
 }
 
+status_t CameraProviderHwlImpl::DumpState(int fd) {
+     return OK;
+}
+
 status_t CameraProviderHwlImpl::IsConcurrentStreamCombinationSupported(
         const std::vector<CameraIdAndStreamConfiguration>& configs, bool* is_supported) {
     if (is_supported == NULL)

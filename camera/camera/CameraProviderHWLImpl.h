@@ -72,6 +72,8 @@ public:
     status_t GetConcurrentStreamingCameraIds(
             std::vector<std::unordered_set<uint32_t>>* combinations) override;
 
+    status_t DumpState(int fd) override;
+
     status_t IsConcurrentStreamCombinationSupported(
             const std::vector<CameraIdAndStreamConfiguration>& configs,
             bool* is_supported) override;
