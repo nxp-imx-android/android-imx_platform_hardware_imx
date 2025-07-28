@@ -15,9 +15,6 @@
 // This is the NXP camera module
 
 soong_namespace {
-  imports: [
-    "hardware/google/camera",
-  ],
 }
 
 imx_camera_defaults {
