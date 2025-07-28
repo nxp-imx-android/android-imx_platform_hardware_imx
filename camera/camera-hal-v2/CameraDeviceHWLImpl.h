@@ -145,6 +145,7 @@ public:
     int mTargetFpsRange[MAX_FPS_RANGE];
     int mMaxWidth = 0;
     int mMaxHeight = 0;
+    libcamera::StreamFormats mSupportedFormats;
 
     // vpu and capture limitation.
     int mVpuSupportFmt[MAX_VPU_SUPPORT_FORMAT];

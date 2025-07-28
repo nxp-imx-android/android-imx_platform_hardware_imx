@@ -236,6 +236,8 @@ private:
     status_t ConfigLibcameraLocked(uint32_t bufferNum, uint32_t format, uint32_t width,
                                    uint32_t height);
     status_t PickAndConfigLibcamera(std::vector<HwlPipelineRequest> &requests);
+    void GetConfigSize(int halFmt, uint32_t refWidth, uint32_t refHeight, uint32_t &configWidth,
+                       uint32_t &configHeight);
 
     void ReturnFrameBufferLocked();
     status_t queueRequestToLibcameraLocked(HalCameraMetadata *cameraMeta);
@@ -322,6 +324,7 @@ private:
     };
     CameraState state_;
     std::shared_ptr<libcamera::Camera> camera_;
+    libcamera::StreamFormats mSupportedFormats;
     libcamera::Stream *mLibCameraStream = NULL;
     std::list<std::unique_ptr<libcamera::FrameBuffer>> mFrameBuffersFree;
     std::list<std::unique_ptr<libcamera::FrameBuffer>> mFrameBuffersBusy;

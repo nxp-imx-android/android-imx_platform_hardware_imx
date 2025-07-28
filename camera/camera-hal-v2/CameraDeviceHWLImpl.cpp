@@ -99,7 +99,7 @@ status_t CameraDeviceHwlImpl::Initialize(std::shared_ptr<libcamera::Camera> &cam
 
     camera_ = camera;
     if (camera_ == nullptr) {
-        ALOGE("%s:  cameraManager->get(%s) failed", __func__, AP1302_95_NAME);
+        ALOGE("%s:  camera null", __func__);
         return BAD_VALUE;
     }
 
@@ -280,6 +280,19 @@ status_t CameraDeviceHwlImpl::initSensorStaticData() {
               mMaxHeight);
         mCallback.camera_device_status_change(camera_id_, CameraDeviceStatus::kNotPresent);
     }
+
+    // store supported formats
+    std::unique_ptr<libcamera::CameraConfiguration> config;
+    config = camera_->generateConfiguration({libcamera::StreamRole::Viewfinder});
+    if (config == NULL) {
+        ALOGE("%s: generateConfiguration for Viewfinder failed", __func__);
+        return BAD_VALUE;
+    }
+
+    mSupportedFormats = config->at(0).formats();
+
+    std::vector<libcamera::Size> yuyv_sizes = mSupportedFormats.sizes(libcamera::formats::YUYV);
+    for (auto size : yuyv_sizes) ALOGI("%s: yuyv size %s", __func__, size.toString().c_str());
 
     return NO_ERROR;
 }
