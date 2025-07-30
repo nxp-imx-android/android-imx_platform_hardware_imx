@@ -60,6 +60,9 @@ int32_t changeSensorFormats(int *src, int *dst, int len) {
             case v4l2_fourcc('Y', 'U', 'V', '4'):
                 dst[k++] = HAL_PIXEL_FORMAT_YCbCr_444_888;
                 break;
+            case v4l2_fourcc('R', 'G', 'B', '3'):
+                dst[k++] = HAL_PIXEL_FORMAT_RGB_888;
+                break;
 
             default:
                 ALOGE("Error: format:%c%c%c%c not supported!", src[i] & 0xFF, (src[i] >> 8) & 0xFF,

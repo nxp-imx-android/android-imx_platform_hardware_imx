@@ -443,6 +443,29 @@ status_t CameraMetadata::createMetadata(CameraDeviceHwlImpl *pDev,
         stallDuration[streamConfigIdx + 3] = 0;
     }
 
+    if (strstr(mSensorData.camera_name, "mx95mbcam")) {
+        ResCount = pDev->mPreviewResolutionCount / 2;
+        for (ResIdx = 0; ResIdx < ResCount; ResIdx++) {
+            streamConfigIdx =
+                    pDev->mPictureResolutionCount * 2 + pDev->mPreviewResolutionCount * 4 + ResIdx * 4;
+
+            streamConfig[streamConfigIdx] = HAL_PIXEL_FORMAT_RGB_888;
+            streamConfig[streamConfigIdx + 1] = pDev->mPreviewResolutions[ResIdx * 2];
+            streamConfig[streamConfigIdx + 2] = pDev->mPreviewResolutions[ResIdx * 2 + 1];
+            streamConfig[streamConfigIdx + 3] = ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT;
+
+            minFrmDuration[streamConfigIdx] = HAL_PIXEL_FORMAT_RGB_888;
+            minFrmDuration[streamConfigIdx + 1] = pDev->mPreviewResolutions[ResIdx * 2];
+            minFrmDuration[streamConfigIdx + 2] = pDev->mPreviewResolutions[ResIdx * 2 + 1];
+            minFrmDuration[streamConfigIdx + 3] = mSensorData.minframeduration; // ns
+
+            stallDuration[streamConfigIdx] = HAL_PIXEL_FORMAT_RGB_888;
+            stallDuration[streamConfigIdx + 1] = pDev->mPreviewResolutions[ResIdx * 2];
+            stallDuration[streamConfigIdx + 2] = pDev->mPreviewResolutions[ResIdx * 2 + 1];
+            stallDuration[streamConfigIdx + 3] = 0;
+        }
+    }
+
     // add raw format for isp camera
     if (strstr(mSensorData.camera_name, ISP_SENSOR_NAME)) {
         streamConfigIdx += 4;

@@ -176,7 +176,9 @@ status_t CameraDeviceSessionHwlImpl::Initialize(uint32_t camera_id,
     mSensorData = pDev->mSensorData;
     if (strcmp(mSensorData.v4l2_format, "nv12") == 0)
         m_libcamera_stream_format = HAL_PIXEL_FORMAT_YCBCR_420_888;
-    else
+    else if (strcmp(mSensorData.v4l2_format, "rgb3") == 0) {
+        m_libcamera_stream_format = HAL_PIXEL_FORMAT_RGB_888;
+    } else
         m_libcamera_stream_format = HAL_PIXEL_FORMAT_YCBCR_422_I;
 
     m_bConfigLibcameraByIntent = false;
@@ -584,6 +586,9 @@ static libcamera::PixelFormat HalFromat2PixelFormat(int halFmt) {
         case HAL_PIXEL_FORMAT_BLOB:
             pixelFmt = libcamera::formats::YUYV;
             break;
+        case HAL_PIXEL_FORMAT_RGB_888:
+            pixelFmt = libcamera::formats::RGB888;
+            break;
         default:
             ALOGW("%s: unsupported HalFromat 0x%x", __func__, halFmt);
             break;
@@ -931,6 +936,9 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
                 if (strcmp(mSensorData.v4l2_format, "nv12") == 0) {
                     ALOGI("HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED, use nv12");
                     hal_stream.override_format = HAL_PIXEL_FORMAT_YCBCR_420_888;
+                } else if (strcmp(mSensorData.v4l2_format, "rgb3") == 0) {
+                    ALOGI("HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED, use rgb3");
+                    hal_stream.override_format = HAL_PIXEL_FORMAT_RGB_888;
                 } else
                     hal_stream.override_format = HAL_PIXEL_FORMAT_YCBCR_422_I;
 
@@ -1133,6 +1141,11 @@ static uint32_t GetPlansInfo(const libcamera::StreamConfiguration &streamConfig,
             plansInfo.num = 1;
             plansInfo.plans[0].offset = 0;
             plansInfo.plans[0].size = width * height * 2;
+            break;
+        case libcamera::formats::RGB888:
+            plansInfo.num = 1;
+            plansInfo.plans[0].offset = 0;
+            plansInfo.plans[0].size = width * height * 3;
             break;
         default:
             ALOGE("%s: unsupported pixelFormat %s", __func__,
