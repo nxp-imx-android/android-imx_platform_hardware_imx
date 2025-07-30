@@ -430,6 +430,9 @@ int convertPixelFormatToG2DFormat(int format) {
         case HAL_PIXEL_FORMAT_YCrCb_420_SP:
             nFormat = G2D_NV21;
             break;
+        case HAL_PIXEL_FORMAT_RGB_888:
+            nFormat = G2D_RGB888;
+            break;
         default:
             ALOGE("%s:%d, Error: format:0x%x not supported!", __func__, __LINE__, format);
             break;
@@ -639,12 +642,14 @@ int ImageProcess::ConvertImageByG2DBlit(ImxImageBuffer &dstBuf, ImxImageBuffer &
     }
 
     // can't do csc for some formats.
-    if (!(((dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) ||
+    if (!((dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) ||
            (dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP) ||
            ((dstBuf.mFormat == HAL_PIXEL_FORMAT_YCrCb_420_SP) &&
             (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_422_I)) ||
            ((srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_422_I) &&
-            (dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_422_I))))) {
+            (dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_422_I)) ||
+           ((srcBuf.mFormat == HAL_PIXEL_FORMAT_RGB_888) &&
+            (dstBuf.mFormat == HAL_PIXEL_FORMAT_RGB_888)))) {
         return -EINVAL;
     }
 
@@ -1237,6 +1242,9 @@ static void HalPixelFormatToOclPixelFormat(uint32_t &halPixelFormat,
             break;
         case HAL_PIXEL_FORMAT_YCbCr_422_SP:
             oclPixelFormat = OCL_FORMAT_NV16;
+            break;
+        case HAL_PIXEL_FORMAT_RGB_888:
+            oclPixelFormat = OCL_FORMAT_RGB888;
             break;
         default:
             ALOGW("==xx %s: unsupported halPixelFormat %d, set oclPixelFormat to OCL_FORMAT_YUYV",

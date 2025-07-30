@@ -768,6 +768,9 @@ int convertPixelFormatToV4L2Format(int format, bool invert) {
         case HAL_PIXEL_FORMAT_RGBA_8888:
             nFormat = v4l2_fourcc('A', 'B', '2', '4');
             break;
+        case HAL_PIXEL_FORMAT_RGB_888:
+            nFormat = v4l2_fourcc('R', 'G', 'B', '3');
+            break;
 
         default:
             ALOGE("%s: Error! format:0x%x not supported!", __func__, format);
@@ -797,6 +800,9 @@ int convertV4L2FormatToPixelFormat(uint32_t fourcc) {
             break;
         case v4l2_fourcc('Y', 'U', 'V', '4'):
             format = HAL_PIXEL_FORMAT_YCbCr_444_888;
+            break;
+        case v4l2_fourcc('R', 'G', 'B', '3'):
+            format = HAL_PIXEL_FORMAT_RGB_888;
             break;
         default:
             ALOGE("%s: Error! fourcc:0x%x not supported!", __func__, fourcc);
@@ -833,6 +839,9 @@ int32_t getSizeByForamtRes(int32_t format, uint32_t width, uint32_t height, bool
         case HAL_PIXEL_FORMAT_YCbCr_422_SP:
         case HAL_PIXEL_FORMAT_RAW16:
             size = alignedw * alignedh * 2;
+            break;
+        case HAL_PIXEL_FORMAT_RGB_888:
+            size = alignedw * alignedh * 3;
             break;
 
         default:
