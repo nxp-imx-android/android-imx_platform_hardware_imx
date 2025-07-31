@@ -128,6 +128,114 @@ struct audio_card* AudioCardManager::getCardForBus(const char *bus_name)
     return card;
 }
 
+void AudioCardManager::convertChannelS32(const void *buffer, size_t bytes, int channels) {
+    int32_t *data_src = (int32_t *)buffer;
+    int32_t *data_dst = (int32_t *)buffer;
+    int32_t dataFL, dataFR, dataC, dataLFE, dataBL, dataBR, dataSL, dataSR;
+    int i;
+
+    if (channels == 4) {
+        for (i = 0; i < (int)bytes / (4 * channels); i++) {
+            dataFL = *data_src++;
+            dataFR = *data_src++;
+            dataBL = *data_src++;
+            dataBR = *data_src++;
+            *data_dst++ = dataFL;
+            *data_dst++ = dataBL;
+            *data_dst++ = dataFR;
+            *data_dst++ = dataBR;
+        }
+    } else if (channels == 6) {
+        for (i = 0; i < (int)bytes / (4 * channels); i++) {
+            dataFL = *data_src++;
+            dataFR = *data_src++;
+            dataC = *data_src++;
+            dataLFE = *data_src++;
+            dataBL = *data_src++;
+            dataBR = *data_src++;
+            *data_dst++ = dataFL;
+            *data_dst++ = dataBL;
+            *data_dst++ = dataC;
+            *data_dst++ = dataFR;
+            *data_dst++ = dataBR;
+            *data_dst++ = dataLFE;
+        }
+    } else if (channels == 8) {
+        for (i = 0; i < (int)bytes / (4 * channels); i++) {
+            dataFL = *data_src++;
+            dataFR = *data_src++;
+            dataC = *data_src++;
+            dataLFE = *data_src++;
+            dataBL = *data_src++;
+            dataBR = *data_src++;
+            dataSL = *data_src++;
+            dataSR = *data_src++;
+            *data_dst++ = dataFL;
+            *data_dst++ = dataBL;
+            *data_dst++ = dataC;
+            *data_dst++ = dataSL;
+            *data_dst++ = dataFR;
+            *data_dst++ = dataBR;
+            *data_dst++ = dataLFE;
+            *data_dst++ = dataSR;
+        }
+    }
+}
+
+void AudioCardManager::convertChannelS16(const void *buffer, size_t bytes, int channels) {
+    int16_t *data_src = (int16_t *)buffer;
+    int16_t *data_dst = (int16_t *)buffer;
+    int16_t dataFL, dataFR, dataC, dataLFE, dataBL, dataBR, dataSL, dataSR;
+    int i;
+
+    if (channels == 4) {
+        for (i = 0; i < (int)bytes / (2 * channels); i++) {
+            dataFL = *data_src++;
+            dataFR = *data_src++;
+            dataBL = *data_src++;
+            dataBR = *data_src++;
+            *data_dst++ = dataFL;
+            *data_dst++ = dataBL;
+            *data_dst++ = dataFR;
+            *data_dst++ = dataBR;
+        }
+    } else if (channels == 6) {
+        for (i = 0; i < (int)bytes / (2 * channels); i++) {
+            dataFL = *data_src++;
+            dataFR = *data_src++;
+            dataC = *data_src++;
+            dataLFE = *data_src++;
+            dataBL = *data_src++;
+            dataBR = *data_src++;
+            *data_dst++ = dataFL;
+            *data_dst++ = dataBL;
+            *data_dst++ = dataC;
+            *data_dst++ = dataFR;
+            *data_dst++ = dataBR;
+            *data_dst++ = dataLFE;
+        }
+    } else if (channels == 8) {
+        for (i = 0; i < (int)bytes / (2 * channels); i++) {
+            dataFL = *data_src++;
+            dataFR = *data_src++;
+            dataC = *data_src++;
+            dataLFE = *data_src++;
+            dataBL = *data_src++;
+            dataBR = *data_src++;
+            dataSL = *data_src++;
+            dataSR = *data_src++;
+            *data_dst++ = dataFL;
+            *data_dst++ = dataBL;
+            *data_dst++ = dataC;
+            *data_dst++ = dataSL;
+            *data_dst++ = dataFR;
+            *data_dst++ = dataBR;
+            *data_dst++ = dataLFE;
+            *data_dst++ = dataSR;
+        }
+    }
+}
+
 std::vector<struct audio_card *>AudioCardManager::mCards;
 std::vector<struct mixer *>AudioCardManager::mMixers;
 

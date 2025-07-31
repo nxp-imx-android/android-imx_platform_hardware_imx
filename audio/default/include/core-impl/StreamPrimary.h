@@ -71,6 +71,7 @@ class StreamPrimary : public StreamAlsa {
     bool mPrimaryOutput = false;
     bool mDirectOutput = false;
     bool mFirstTransfer = false;
+    bool mConvertChannel = false;
     struct audio_card *mCard = NULL;
     struct resampler_itfe *mResampler = NULL;
     int16_t *mResamplerBuffer = NULL;

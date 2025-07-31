@@ -322,6 +322,15 @@ void StreamPrimary::stop() {
         return ::android::OK;
     }
 
+    if (!mIsInput && mConvertChannel &&
+            (mConfig->channels == 4 || mConfig->channels == 6 || mConfig->channels == 8)) {
+        if (mConfig->format == PCM_FORMAT_S16_LE) {
+            AudioCardManager::convertChannelS16(buffer, frameCount * mFrameSizeBytes, mConfig->channels);
+        } else if (mConfig->format == PCM_FORMAT_S32_LE) {
+            AudioCardManager::convertChannelS32(buffer, frameCount * mFrameSizeBytes, mConfig->channels);
+        }
+    }
+
     if (mDump && !mIsInput)
         dump(buffer, frameCount * mFrameSizeBytes, kDumpPrimaryOutputFile);
 
@@ -475,6 +484,11 @@ std::vector<alsa::DeviceProfile> StreamPrimary::getDeviceProfiles() {
             mIsStereoToMono = false;
             mIsS32ToS16 = false;
             mConfig = mSavedConfig;
+        }
+
+        if (strstr(card->driver_name, "cs42888")) {
+            mConvertChannel = true;
+            LOG(INFO) << __func__ << ": Convert channels.";
         }
 
         char soc_name[PROPERTY_VALUE_MAX];
