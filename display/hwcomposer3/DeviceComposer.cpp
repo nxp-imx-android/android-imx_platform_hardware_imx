@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2024 NXP.
+ * Copyright 2017-2025 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -140,6 +140,7 @@ DeviceComposer::DeviceComposer() {
 #ifdef G2D_FORMAT_CONVERSION
     mG2dConvertBuffer.hnd = NULL;
     memset(&mG2dConvertBuffer.info, 0, sizeof(mG2dConvertBuffer.info));
+    mOclCvt = std::make_unique<OclConverter>();
 #endif
 }
 
@@ -421,13 +422,18 @@ int DeviceComposer::composeLayerLocked(Layer* layer, G2dBuffer& layerBuffer,
             ALOGE("%s: fail to prepare g2d temporary buffer", __FUNCTION__);
             return -EINVAL;
         }
-        struct g2d_surfaceEx sSurfaceX;
-        memset(&sSurfaceX, 0, sizeof(sSurfaceX));
-        memset(&dSurfaceX, 0, sizeof(dSurfaceX));
-        setG2dSurface(sSurfaceX, layerBuffer, srect);
-        setG2dSurface(dSurfaceX, mG2dConvertBuffer, srect);
-        blitSurface(&sSurfaceX, &dSurfaceX);
-
+        if (mOclCvt->isValid()) {
+            auto ret = mOclCvt->openclConvert(layerBuffer, mG2dConvertBuffer);
+            if (ret)
+                ALOGE("%s: OpenCL CSC convert fail", __FUNCTION__);
+        } else {
+            struct g2d_surfaceEx sSurfaceX;
+            memset(&sSurfaceX, 0, sizeof(sSurfaceX));
+            memset(&dSurfaceX, 0, sizeof(dSurfaceX));
+            setG2dSurface(sSurfaceX, layerBuffer, srect);
+            setG2dSurface(dSurfaceX, mG2dConvertBuffer, srect);
+            blitSurface(&sSurfaceX, &dSurfaceX);
+        }
         layerBuffPtr = &mG2dConvertBuffer;
     } else {
         layerBuffPtr = &layerBuffer;

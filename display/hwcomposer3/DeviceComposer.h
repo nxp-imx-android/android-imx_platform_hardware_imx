@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2024 NXP.
+ * Copyright 2017-2025 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,8 +20,9 @@
 #include <g2dExt.h>
 #include <utils/threads.h>
 
-#include "Layer.h"
 #include "BufferInfo.h"
+#include "Layer.h"
+#include "OpenCLConverter.h"
 #include "gralloc_handle.h"
 
 namespace aidl::android::hardware::graphics::composer3::impl {
@@ -140,6 +141,7 @@ private:
 
     void* mHelperHandle = NULL;
     void* mG2dHandle = NULL;
+    std::unique_ptr<OclConverter> mOclCvt;
 };
 
 } // namespace aidl::android::hardware::graphics::composer3::impl
