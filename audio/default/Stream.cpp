@@ -876,9 +876,7 @@ void StreamCommonImpl::setWorkerThreadPriority(pid_t workerTid) {
     // FAST workers should be run with a SCHED_FIFO scheduler, however the host process
     // might be lacking the capability to request it, thus a failure to set is not an error.
     if (auto flags = getContext().getFlags();
-        (flags.getTag() == AudioIoFlags::Tag::input &&
-         isBitPositionFlagSet(flags.template get<AudioIoFlags::Tag::input>(),
-                              AudioInputFlags::FAST)) ||
+        (flags.getTag() == AudioIoFlags::Tag::input) ||
         (flags.getTag() == AudioIoFlags::Tag::output &&
          (isBitPositionFlagSet(flags.template get<AudioIoFlags::Tag::output>(),
                                AudioOutputFlags::FAST) ||
