@@ -143,13 +143,13 @@ bool CameraDeviceHwlImpl::PickResByMetaData(int width, int height) {
     return false;
 }
 
-static int resCandidatePreview_os08a20[] = {320, 240, 640, 480, 1280, 720, 1920, 1080, 3840, 2160};
-static int resCandidatePicture_os08a20[] = {320, 240, 640, 480, 1280, 720, 1920, 1080, 3840, 2160};
+static int resCandidatePreview_os08a20[] = {320, 240, 640, 480, 1280, 720, 1920, 1080, 1920, 1440, 3840, 2160};
+static int resCandidatePicture_os08a20[] = {320, 240, 640, 480, 1280, 720, 1920, 1080, 1920, 1440, 3840, 2160};
 static int resCandidatePreview_ap1302[] = {320, 240, 640, 480, 1280, 720, 1280, 800};
 static int resCandidatePicture_ap1302[] = {320, 240, 640, 480, 1280, 720, 1280, 800};
-static int resCandidatePreview_ov5640[] = {320, 240, 640, 480, 1024, 768, 1280, 720, 1920, 1080};
+static int resCandidatePreview_ov5640[] = {320, 240, 640, 480, 1024, 768, 1280, 720, 1920, 1080, 1920, 1440};
 static int resCandidatePicture_ov5640[] = {320,  240, 640,  480,  1024, 768,
-                                           1280, 720, 1920, 1080, 2592, 1944};
+                                           1280, 720, 1920, 1080, 1920, 1440, 2592, 1944};
 static int resCandidatePreview_mx95mbcam[] = {320, 240, 640, 480, 1280, 720, 1920, 1080, 1920, 1280};
 static int resCandidatePicture_mx95mbcam[] = {320, 240, 640, 480, 1280, 720, 1920, 1080, 1920, 1280};
 
