@@ -279,8 +279,8 @@ int32_t VideoStream::postConfigureLocked(uint32_t format, uint32_t width, uint32
         }
     }
 
-    // Tripple the max lag time in theory.
-    mMaxLagNs = mNumBuffers * 1000000000LL * 3 / mFps;
+    // Increase the max lag time to five times
+    mMaxLagNs = mNumBuffers * 1000000000LL * 5 / mFps;
     ALOGI("%s: set mMaxLagNs to %" PRIu64 " ns, mNumBuffers %u, mFps %u", __FUNCTION__, mMaxLagNs,
           mNumBuffers, mFps);
 
