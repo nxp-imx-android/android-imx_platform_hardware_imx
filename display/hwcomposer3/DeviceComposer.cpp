@@ -408,6 +408,10 @@ int DeviceComposer::composeLayerLocked(Layer* layer, G2dBuffer& layerBuffer,
         ALOGE("%s: invalid srect or drect", __FUNCTION__);
         return 0;
     }
+    if (alpha == 0) {
+        DEBUG_LOG_G2D("%s: global_alpha is 0(transparent), skip such layer", __FUNCTION__);
+        return 0;
+    }
 
     if (type == Composition::SOLID_COLOR) {
         prepareSolidColorBuffer(targetBuffer);
