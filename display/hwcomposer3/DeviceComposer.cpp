@@ -487,6 +487,9 @@ int DeviceComposer::composeLayerLocked(Layer* layer, G2dBuffer& layerBuffer,
 #endif
         } else if (mSolidColorBuffer.hnd) {
             setG2dSurface(sSurfaceX, mSolidColorBuffer, drect);
+#ifndef G2D_LIMITATION_PXP
+            sSurface.clrcolor = 0xff << 24;
+#endif
         } else {
             return -EINVAL;
         }
@@ -499,7 +502,12 @@ int DeviceComposer::composeLayerLocked(Layer* layer, G2dBuffer& layerBuffer,
 
         if ((mode != common::BlendMode::NONE) && !bypass) {
             enableFunction(getHandle(), G2D_GLOBAL_ALPHA, true);
-            enableFunction(getHandle(), G2D_BLEND, true);
+#ifndef G2D_LIMITATION_PXP
+            if (type == Composition::SOLID_COLOR)
+                enableFunction(getHandle(), G2D_BLEND_DIM, true);
+            else
+#endif
+                enableFunction(getHandle(), G2D_BLEND, true);
         }
 
         if (needDither)
@@ -511,7 +519,12 @@ int DeviceComposer::composeLayerLocked(Layer* layer, G2dBuffer& layerBuffer,
             enableFunction(getHandle(), G2D_DITHER, false);
 
         if ((mode != common::BlendMode::NONE) && !bypass) {
-            enableFunction(getHandle(), G2D_BLEND, false);
+#ifndef G2D_LIMITATION_PXP
+            if (type == Composition::SOLID_COLOR)
+                enableFunction(getHandle(), G2D_BLEND_DIM, false);
+            else
+#endif
+                enableFunction(getHandle(), G2D_BLEND, false);
             enableFunction(getHandle(), G2D_GLOBAL_ALPHA, false);
         }
     }
