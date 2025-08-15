@@ -161,6 +161,7 @@ ndk::ScopedAStatus ExternalCameraDevice::open(
 
     session->mSessionNeedHardwareDec = mNeedHardwareDec;
     session->mInterBufFormat = mInterBufFormat;
+    session->mSessionDeviceCardName = mDeviceCardName;
 
     if (session->isInitFailed()) {
         ALOGE("%s: camera device session init failed", __FUNCTION__);
@@ -935,6 +936,8 @@ std::vector<SupportedV4L2Format> ExternalCameraDevice::getCandidateSupportedForm
     int ret = TEMP_FAILURE_RETRY(ioctl(fd, VIDIOC_QUERYCAP, &vidCap));
     ALOGI("%s: name=%s, card name=%s, bus info %s\n", __func__, (char*)vidCap.driver,
           (char*)vidCap.card, (char*)vidCap.bus_info);
+
+    mDeviceCardName = (char*)vidCap.card;
 
     mNeedHardwareDec = false;
     char hardwareDecDeviceList[HARDWARE_DEC_DEVICE_SIZE];

@@ -25,7 +25,7 @@ class ExternalISPWrapper {
 public:
     ExternalISPWrapper(int32_t fd);
     ~ExternalISPWrapper();
-    int32_t process(CameraMetadata& pMeta);
+    int32_t process(CameraMetadata& pMeta, const char* deviceCardName);
     int32_t processAWB(uint8_t mode, bool force = false);
     int32_t processAeMode(uint8_t mode, bool force = false);
     int32_t processAfMode(uint8_t mode, bool force = false);

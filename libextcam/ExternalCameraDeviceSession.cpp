@@ -3486,7 +3486,7 @@ bool ExternalCameraDeviceSession::OutputThread::threadLoop() {
     }
 
     // ISP process based on meta
-    m_IspWrapper->process(req->setting);
+    m_IspWrapper->process(req->setting, parent->getDeviceCardName().c_str());
 
     std::unique_lock<std::mutex> lk(mBufferLock);
     // Convert input V4L2 frame to YU12 of the same size

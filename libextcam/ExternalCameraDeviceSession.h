@@ -89,6 +89,7 @@ public:
     bool isClosed();
     bool mSessionNeedHardwareDec = false;
     uint32_t mInterBufFormat = V4L2_PIX_FMT_NV12;
+    std::string mSessionDeviceCardName = "";
 
     ScopedAStatus close() override;
 
@@ -132,6 +133,7 @@ public:
 
     virtual Size getMaxThumbSize() { return mMaxThumbResolution; }
     virtual Size getMaxJpegSize() { return mMaxJpegResolution; }
+    virtual std::string getDeviceCardName() { return mSessionDeviceCardName; }
 
     // Called by CameraDevice to dump active device states
     binder_status_t dump(int fd, const char** args, uint32_t numArgs) override;

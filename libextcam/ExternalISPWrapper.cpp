@@ -182,7 +182,7 @@ int32_t ExternalISPWrapper::processAWB(uint8_t mode, bool force) {
     v4l2_queryctrl queryctrl;
     ret = queryV4L2Control(m_fd, V4L2_CID_WHITE_BALANCE_TEMPERATURE, queryctrl);
     if (ret != 0) {
-        ALOGE("%s, control 0x%08x not support!", __func__, V4L2_CID_EXPOSURE_ABSOLUTE);
+        ALOGE("%s, control 0x%08x not support!", __func__, V4L2_CID_WHITE_BALANCE_TEMPERATURE);
         m_lastAwbMode = mode;
         return -1;
     }
@@ -511,7 +511,7 @@ using namespace android::hardware::camera::device::implementation;
 
 // Current tactic: don't return if some meta process failed,
 // since may have other meta to process.
-int32_t ExternalISPWrapper::process(CameraMetadata& meta) {
+int32_t ExternalISPWrapper::process(CameraMetadata& meta, const char* deviceCardName) {
     if (meta.isEmpty()) {
         return BAD_VALUE;
     }
@@ -532,7 +532,10 @@ int32_t ExternalISPWrapper::process(CameraMetadata& meta) {
     // ExposureTime
     entry = meta.find(ANDROID_SENSOR_EXPOSURE_TIME);
     if (entry.count > 0) {
-        (void)processExposureTime(entry.data.i64[0]);
+        // skip for c270 uvc type(card name=UVC Camera) to avoid block issue
+        if (!strstr(deviceCardName, "UVC Camera")) {
+            (void)processExposureTime(entry.data.i64[0]);
+        }
     }
 
     // ExposureGain

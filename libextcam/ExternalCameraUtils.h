@@ -356,6 +356,7 @@ struct OutputThreadInterface {
     // virtual Size getMaxThumbSize() { Size zeroSize = {0, 0}; return zeroSize; }
     virtual Size getMaxThumbSize() { return {0, 0}; }
     virtual Size getMaxJpegSize() { return {0, 0}; }
+    virtual std::string getDeviceCardName() { return ""; }
 };
 
 // A CPU copy of a mapped V4L2Frame. Will map the input V4L2 frame.

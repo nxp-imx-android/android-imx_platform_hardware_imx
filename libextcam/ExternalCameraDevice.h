@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2022 The Android Open Source Project
- * Copyright 2023 NXP.
+ * Copyright 2023 NXP, 2025 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -134,6 +134,7 @@ private:
     CroppingType mCroppingType;
     bool mNeedHardwareDec = false;
     uint32_t mInterBufFormat = V4L2_PIX_FMT_NV12;
+    std::string mDeviceCardName = "";
 
     std::weak_ptr<ExternalCameraDeviceSession> mSession =
             std::weak_ptr<ExternalCameraDeviceSession>();
