@@ -71,7 +71,7 @@ public:
                                                    bool state,
                                                    HdcpLevels /* levels */)>;
     HWC3::Error setHdcpChangedCallback(const HdcpChangedCallback& callback);
-    void setHdcpState(bool state);
+    void setHdcpState(bool state, bool isPrimary);
 
 private:
     HWC3::Error stop();

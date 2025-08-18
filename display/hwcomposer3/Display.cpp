@@ -1107,8 +1107,8 @@ void Display::setHdcpChangedCallback(const HdcpChangedCallback& callback) {
     mHdcpThread.setHdcpChangedCallback(callback);
 }
 
-void Display::setHdcpState(bool state) {
-    mHdcpThread.setHdcpState(state);
+void Display::setHdcpState(bool state, bool isPrimary) {
+    mHdcpThread.setHdcpState(state, isPrimary);
 }
 
 HWC3::Error Display::startHdcpNegotiation(const aidl::android::hardware::drm::HdcpLevels& levels) {
@@ -1126,7 +1126,6 @@ HWC3::Error Display::startHdcpNegotiation(const aidl::android::hardware::drm::Hd
            return HWC3::Error::Unsupported;
        } else {
            // start hdcp
-           setHdcpState(true);
            auto ret = mComposer->startHdcp(this);
            if (ret != HWC3::Error::None) {
                ALOGE("%s: hwc display:%" PRId64 " cannot get Vsync timestamp", __FUNCTION__, mId);

@@ -175,7 +175,7 @@ public:
     using HdcpChangedCallback = std::function<void(long /* displayId */,
                                                    bool state,
                                                    aidl::android::hardware::drm::HdcpLevels /* levels */)>;
-    void setHdcpState(bool state);
+    void setHdcpState(bool state, bool isPrimary);
     void setHdcpChangedCallback(const HdcpChangedCallback& callback);
 private:
     bool hasConfig(int32_t configId) const;

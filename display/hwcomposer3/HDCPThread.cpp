@@ -143,13 +143,19 @@ void HDCPThread::updateHdcpLevels(std::string hdcpCap,
     }
 }
 
-void HDCPThread::setHdcpState(bool state) {
+void HDCPThread::setHdcpState(bool state, bool isPrimary) {
     DEBUG_LOG("%s HDCP Thread for hwc display:%" PRIu64, __FUNCTION__, mHwcId);
 
     std::unique_lock<std::mutex> lock(mStateMutex);
-    if (mHdcpState != state) {
-        mHdcpState = state;
-        (*mHdcpChangedCallbacks)(mDisplay->getHwcId(), mHdcpState, mLevels);
+    if (!isPrimary) {
+        // for external display, hdcp state will be changed according to secure layer.
+        if (mHdcpState != state) {
+            mHdcpState = state;
+            (*mHdcpChangedCallbacks)(mDisplay->getHwcId(), mHdcpState, mLevels);
+        }
+    } else {
+        // for primary display, hdcp will be always on.
+        (*mHdcpChangedCallbacks)(mDisplay->getHwcId(), /* hdcp_state */true, mLevels);
     }
 }
 
