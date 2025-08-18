@@ -55,7 +55,7 @@ std::unique_ptr<CameraProviderHwlImpl> CameraProviderHwlImpl::Create() {
 }
 
 status_t CameraProviderHwlImpl::Initialize() {
-    ALOGI("enter %s", __func__);
+    ALOGI("enter %s, this %p", __func__, this);
 
     mCameraCfgParser.Init();
     mCameraDef = mCameraCfgParser.mcamera();
@@ -81,6 +81,7 @@ status_t CameraProviderHwlImpl::Initialize() {
 
 // virtual ~CameraProviderHwlImpl();
 CameraProviderHwlImpl::~CameraProviderHwlImpl() {
+    ALOGI("enter %s, this %p", __func__, this);
     fsl::ImageProcess* imageProcess = fsl::ImageProcess::getInstance();
     delete imageProcess;
 
@@ -317,9 +318,11 @@ status_t CameraProviderHwlImpl::IsConcurrentStreamCombinationSupported(
 
     *is_supported = false;
 
+
     // Judge the steam config by related camera. Not Judge the "combine" of 2 cameras.
     // If there do have hardware limits for 2 cameras to work at the same time, need cosider it.
     for (auto& config : configs) {
+        ALOGI("%s: config.camera_id %u, this %p", __func__, config.camera_id, this);
         auto iter = device_map.find(config.camera_id);
         if (iter == device_map.end()) {
             ALOGE("%s: Unknown camera id: %u", __func__, config.camera_id);
@@ -327,6 +330,7 @@ status_t CameraProviderHwlImpl::IsConcurrentStreamCombinationSupported(
         }
 
         CameraDeviceHwl* pCamera = iter->second;
+        ALOGI("%s: pCamera %p", __func__, pCamera);
         if (pCamera == NULL) {
             ALOGE("%s: Unexpected, pCamera is null for id %d", __func__, config.camera_id);
             return BAD_VALUE;

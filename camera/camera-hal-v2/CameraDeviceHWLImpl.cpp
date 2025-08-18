@@ -71,6 +71,7 @@ CameraDeviceHwlImpl::CameraDeviceHwlImpl(uint32_t camera_id, ImxEngine cam_copy_
         mCamBlitCscType(cam_csc_hw),
         mUseCpuEncoder(use_cpu_encoder),
         physical_device_map_(std::move(physical_devices)) {
+    ALOGI("enter %s, this %p", __func__, this);
     strncpy(mJpegHw, hw_jpeg, JPEG_HW_NAME_LEN);
     mJpegHw[JPEG_HW_NAME_LEN - 1] = 0;
 
@@ -84,6 +85,7 @@ CameraDeviceHwlImpl::CameraDeviceHwlImpl(uint32_t camera_id, ImxEngine cam_copy_
 }
 
 CameraDeviceHwlImpl::~CameraDeviceHwlImpl() {
+    ALOGI("enter %s, this %p", __func__, this);
     if (m_meta) {
         delete m_meta;
         m_meta = NULL;
@@ -95,7 +97,7 @@ CameraDeviceHwlImpl::~CameraDeviceHwlImpl() {
 }
 
 status_t CameraDeviceHwlImpl::Initialize(std::shared_ptr<libcamera::Camera> &camera) {
-    ALOGI("%s", __func__);
+    ALOGI("enter %s, this %p", __func__, this);
 
     camera_ = camera;
     if (camera_ == nullptr) {
