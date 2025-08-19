@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 NXP
+ * Copyright 2024-2025 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,13 +38,16 @@ struct HandleInfo {
     uint32_t offsets[kBufferMaxPlanes];
     uint32_t sizes[kBufferMaxPlanes];
     char* name;    /* only for debug log, pointer to handle->name */
-    uint64_t phys; /* only for legacy imx */
-    uint64_t base; /* only for legacy imx */
+    uint64_t phys;
+    uint64_t base;
+    uint64_t buffer_id;
     std::string sname;
 };
 
 int getInfoFromHandle(buffer_handle_t handle, HandleInfo* info);
 int getPhysFromHandle(buffer_handle_t handle, uint64_t* outPhys);
 int setPhysToHandle(buffer_handle_t handle, uint64_t phys);
+int lockBuffer(buffer_handle_t handle, HandleInfo& info);
+int unlockBuffer(buffer_handle_t handle, HandleInfo& info);
 
 } // namespace aidl::android::hardware::graphics::composer3::impl

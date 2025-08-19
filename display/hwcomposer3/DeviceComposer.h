@@ -34,10 +34,25 @@ typedef int (*hwc_func4)(void* handle, void* arg1, void* arg2, void* arg3);
 typedef int (*hwc_func5)(void* handle, void* arg1, void* arg2, void* arg3, void* arg4);
 typedef void* (*hwc_buf_func)(void* arg1);
 
+enum {
+    G2D_CACHE_TYPE_NONE,
+    G2D_CACHE_TYPE_SCALING,
+    G2D_CACHE_TYPE_ROTATION,
+    G2D_CACHE_TYPE_CSC, // format conversion
+};
+
+struct G2dInterBuffer {
+    int64_t layerId;
+    int type;
+    buffer_handle_t hnd;
+    HandleInfo info;
+};
+
 struct G2dBuffer {
     buffer_handle_t hnd;
     HandleInfo info;
     uint64_t originPhys; // used in lockSurface()/unlockSurface()
+    G2dInterBuffer* interPtr;
 };
 
 using ::android::Mutex;
@@ -57,6 +72,7 @@ public:
                                  bool secure);
     int freeDeviceFrameBuffer(std::vector<buffer_handle_t>& buffers);
     int freeSolidColorBuffer();
+    int onLayerDestroy(Layer* layer);
 
     std::tuple<bool, ::android::base::unique_fd> composeLayers(std::vector<Layer*> layers,
                                                                buffer_handle_t target);
@@ -66,6 +82,7 @@ private:
 
     // clear worm hole introduced by layers not cover whole screen.
     int clearWormHole(std::vector<Layer*>& layers, G2dBuffer& target);
+    G2dInterBuffer* preComposition(Layer* layer, buffer_handle_t handle);
     // compose display layer.
     int composeLayerLocked(Layer* layer, G2dBuffer& layerBuffer, G2dBuffer& targetBuffer,
                            bool bypass);
@@ -116,6 +133,7 @@ private:
 #ifdef G2D_FORMAT_CONVERSION
     G2dBuffer mG2dConvertBuffer;
 #endif
+    std::unordered_map<uint64_t, G2dInterBuffer> mG2dCachedBuffers;
 
     hwc_func3 mGetAlignedSize;
     hwc_func2 mGetFlipOffset;

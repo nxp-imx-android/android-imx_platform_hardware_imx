@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 NXP
+ * Copyright 2024-2025 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,6 +47,7 @@ int getInfoFromHandle(buffer_handle_t handle, HandleInfo *info) {
         info->name = nullptr;
         info->phys = memHandle->phys;
         info->base = reinterpret_cast<uint64_t>(memHandle->base);
+        info->buffer_id = memHandle->backing_store_id;
 #if defined(DEBUG_NXP_HWC) || defined(DEBUG_NXP_HWC_G2D)
         if (memHandle->attr_base != MAP_FAILED) {
             ::android::GraphicBufferMapper::get().getName(handle, &info->sname);
@@ -84,6 +85,7 @@ int getInfoFromHandle(buffer_handle_t handle, HandleInfo *info) {
         info->name = const_cast<char *>(memHandle->name);
         info->phys = memHandle->phys; /* only for legacy imx */
         info->base = memHandle->base;
+        info->buffer_id = memHandle->backing_store_id;
     } else {
         ALOGE("%s: Cannot recognize buffer handle", __FUNCTION__);
         return -1;
@@ -123,6 +125,34 @@ int setPhysToHandle(buffer_handle_t handle, uint64_t phys) {
         ALOGE("%s: Cannot recognize buffer handle", __FUNCTION__);
         return -1;
     }
+
+    return 0;
+}
+
+int lockBuffer(buffer_handle_t handle, HandleInfo &info) {
+    void *vaddr = nullptr;
+    int usage = info.usage | GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN;
+    const ::android::Rect rect{0, 0, static_cast<int32_t>(info.width),
+                               static_cast<int32_t>(info.height)};
+    auto status = ::android::GraphicBufferMapper::get().lock(const_cast<native_handle_t *>(handle),
+                                                             usage, rect, &vaddr);
+    if (status || vaddr == nullptr) {
+        ALOGE("%s: GraphicBufferMapper lock buffer:%s failed!", __FUNCTION__, info.name);
+        return -EINVAL;
+    }
+    info.base = (uint64_t)vaddr;
+
+    return 0;
+}
+
+int unlockBuffer(buffer_handle_t handle, HandleInfo &info) {
+    auto status =
+            ::android::GraphicBufferMapper::get().unlock(const_cast<native_handle_t *>(handle));
+    if (status) {
+        ALOGE("%s: GraphicBufferMapper unlock buffer:%s failed!", __FUNCTION__, info.name);
+        return -EINVAL;
+    }
+    info.base = 0;
 
     return 0;
 }
