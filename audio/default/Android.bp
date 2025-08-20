@@ -31,6 +31,7 @@ cc_library {
         "bluetooth/ModuleBluetooth.cpp",
         "bluetooth/StreamBluetooth.cpp",
         "compress/StreamCompress.cpp",
+        "StreamMmap.cpp",
         "deprecated/StreamSwitcher.cpp",
         "primary/PrimaryMixer.cpp",
         "primary/StreamPrimary.cpp",

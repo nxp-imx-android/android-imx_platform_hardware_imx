@@ -236,6 +236,17 @@ void AudioCardManager::convertChannelS16(const void *buffer, size_t bytes, int c
     }
 }
 
+void AudioCardManager::printPcmConfig(struct pcm_config *config)
+{
+    if (config) {
+        LOG(INFO) << "  channels: " << config->channels;
+        LOG(INFO) << "  rate: " << config->rate;
+        LOG(INFO) << "  period_size: " << config->period_size;
+        LOG(INFO) << "  period_count: " << config->period_count;
+        LOG(INFO) << "  format: " << config->format;
+    }
+}
+
 std::vector<struct audio_card *>AudioCardManager::mCards;
 std::vector<struct mixer *>AudioCardManager::mMixers;
 

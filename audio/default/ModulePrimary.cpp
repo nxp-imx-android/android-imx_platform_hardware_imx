@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2023 The Android Open Source Project
- * Copyright 2024 NXP
+ * Copyright 2024-2025 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,6 +30,7 @@
 #include <media/stagefright/foundation/MediaDefs.h>
 #include "core-impl/AudioCardManager.h"
 #include "core-impl/StreamCompress.h"
+#include "core-impl/StreamMmap.h"
 
 using aidl::android::hardware::audio::common::areAllBitPositionFlagsSet;
 using aidl::android::hardware::audio::common::hasMmapFlag;
@@ -94,8 +95,7 @@ ndk::ScopedAStatus ModulePrimary::createInputStream(StreamContext&& context,
                                                     const std::vector<MicrophoneInfo>& microphones,
                                                     std::shared_ptr<StreamIn>* result) {
     if (context.isMmap()) {
-        // "Stub" is used because there is no support for MMAP audio I/O on CVD.
-        return createStreamInstance<StreamInMmapStub>(result, std::move(context), sinkMetadata,
+        return createStreamInstance<StreamInMmap>(result, std::move(context), sinkMetadata,
                                                       microphones);
     }
     return createStreamInstance<StreamInPrimary>(result, std::move(context), sinkMetadata,
@@ -106,8 +106,7 @@ ndk::ScopedAStatus ModulePrimary::createOutputStream(
         StreamContext&& context, const SourceMetadata& sourceMetadata,
         const std::optional<AudioOffloadInfo>& offloadInfo, std::shared_ptr<StreamOut>* result) {
     if (context.isMmap()) {
-        // "Stub" is used because there is no support for MMAP audio I/O on CVD.
-        return createStreamInstance<StreamOutMmapStub>(result, std::move(context), sourceMetadata,
+        return createStreamInstance<StreamOutMmap>(result, std::move(context), sourceMetadata,
                                                        offloadInfo);
     } else if (areAllBitPositionFlagsSet(
                        context.getFlags().get<AudioIoFlags::output>(),
@@ -136,6 +135,7 @@ ndk::ScopedAStatus ModulePrimary::createOutputStream(
 ndk::ScopedAStatus ModulePrimary::createMmapBuffer(const AudioPortConfig& portConfig,
                                                    int32_t bufferSizeFrames, int32_t frameSizeBytes,
                                                    MmapBufferDescriptor* desc) {
+    bufferSizeFrames = MMAP_BUFFER_SIZE;
     const size_t bufferSizeBytes = static_cast<size_t>(bufferSizeFrames) * frameSizeBytes;
     // The actual mmap buffer for I/O is created after the stream exits standby, via
     // 'IStreamCommon.createMmapBuffer'. But we must return a valid file descriptor here because
@@ -158,7 +158,7 @@ ndk::ScopedAStatus ModulePrimary::createMmapBuffer(const AudioPortConfig& portCo
 }
 
 int32_t ModulePrimary::getNominalLatencyMs(const AudioPortConfig& portConfig) {
-    static constexpr int32_t kLowLatencyMs = 5;
+    static constexpr int32_t kLowLatencyMs = MMAP_BUFFER_MS;
     static constexpr int32_t kStandardLatencyMs = 16;
     return hasMmapFlag(portConfig.flags.value()) ? kLowLatencyMs : kStandardLatencyMs;
 }
