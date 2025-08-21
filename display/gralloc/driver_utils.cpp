@@ -261,7 +261,8 @@ std::string getPixelFormatString(int32_t format) {
 
 std::string getUsageString(uint64_t usage) {
     std::vector<std::string> usages;
-    if (usage & static_cast<uint64_t>(BufferUsage::CPU_READ_OFTEN)) {
+    if ((usage & static_cast<uint64_t>(BufferUsage::CPU_READ_OFTEN)) ==
+        static_cast<uint64_t>(BufferUsage::CPU_READ_OFTEN)) {
         usage &= ~static_cast<uint64_t>(BufferUsage::CPU_READ_OFTEN);
         usages.push_back("CPU_READ_OFTEN");
     }
@@ -269,7 +270,8 @@ std::string getUsageString(uint64_t usage) {
         usage &= ~static_cast<uint64_t>(BufferUsage::CPU_READ_RARELY);
         usages.push_back("CPU_READ_RARELY");
     }
-    if (usage & static_cast<uint64_t>(BufferUsage::CPU_WRITE_OFTEN)) {
+    if ((usage & static_cast<uint64_t>(BufferUsage::CPU_WRITE_OFTEN)) ==
+        static_cast<uint64_t>(BufferUsage::CPU_WRITE_OFTEN)) {
         usage &= ~static_cast<uint64_t>(BufferUsage::CPU_WRITE_OFTEN);
         usages.push_back("CPU_WRITE_OFTEN");
     }
