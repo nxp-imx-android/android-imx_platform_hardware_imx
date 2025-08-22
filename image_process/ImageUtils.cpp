@@ -901,6 +901,7 @@ int AllocPhyBuffer(uint32_t width, uint32_t height, uint32_t format, ImxImageBuf
     outBufInfo.mFormat = format;
     outBufInfo.mWidth = width;
     outBufInfo.mHeight = height;
+    outBufInfo.mHeightSpan  = height;
     outBufInfo.mVirtAddr = vaddr;
     outBufInfo.mPhyAddr = phyAddr;
     outBufInfo.mFd = sharedFd;

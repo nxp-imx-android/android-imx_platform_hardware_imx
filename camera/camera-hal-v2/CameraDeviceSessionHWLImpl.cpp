@@ -686,6 +686,7 @@ status_t CameraDeviceSessionHwlImpl::ConfigLibcameraLocked(uint32_t bufferNum, u
     for (uint32_t i = 0; i < bufferNum; i++) {
         uint32_t bufferStride;
         ImxImageBuffer srcBuf;
+        memset(&srcBuf, 0, sizeof(srcBuf));
 
         uint32_t allocWidth = configWidth;
         if (strstr(mSocType, "imx8mn") || strstr(mSocType, "imx8qm") ||
