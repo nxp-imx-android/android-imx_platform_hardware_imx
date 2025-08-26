@@ -95,7 +95,7 @@ ndk::ScopedAStatus ExternalCameraDevice::getResourceCost(CameraResourceCost* _ai
         return fromStatus(Status::ILLEGAL_ARGUMENT);
     }
 
-    _aidl_return->resourceCost = 100;
+    _aidl_return->resourceCost = 50;
     return fromStatus(Status::OK);
 }
 

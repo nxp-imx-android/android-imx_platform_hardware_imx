@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2023 NXP.
+ *  Copyright 2020-2023, 2025 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -57,7 +57,7 @@ public:
 
     // Override functions in CameraDeviceHwl.
     status_t GetResourceCost(CameraResourceCost *cost) const override {
-        cost->resource_cost = 100;
+        cost->resource_cost = 50;
         return OK;
     }
 
