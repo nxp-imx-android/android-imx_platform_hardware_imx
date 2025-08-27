@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020 NXP.
+ *  Copyright 2020, 2025 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -373,6 +373,8 @@ status_t CameraMetadata::createMetadata(CameraDeviceHwlImpl *pDev,
     int32_t streamConfig[MAX_RESOLUTION_SIZE * 6]; // MAX_RESOLUTION_SIZE/2 * 2 * 6;
     int64_t minFrmDuration[MAX_RESOLUTION_SIZE * 6];
     int64_t stallDuration[MAX_RESOLUTION_SIZE * 6];
+    char mSocType[128];
+    property_get("ro.boot.soc_type", mSocType, "");
 
     // TODO: It's better to get those info in seperate camera, and get the accurate fps.
     ResCount = pDev->mPreviewResolutionCount / 2;
@@ -388,6 +390,11 @@ status_t CameraMetadata::createMetadata(CameraDeviceHwlImpl *pDev,
         minFrmDuration[streamConfigIdx + 1] = pDev->mPreviewResolutions[ResIdx * 2];
         minFrmDuration[streamConfigIdx + 2] = pDev->mPreviewResolutions[ResIdx * 2 + 1];
         minFrmDuration[streamConfigIdx + 3] = mSensorData.minframeduration; // ns
+        if (strstr(mSocType, "imx95") &&
+            (minFrmDuration[streamConfigIdx + 1] == 3840 &&
+             minFrmDuration[streamConfigIdx + 2] == 2160)) {
+            minFrmDuration[streamConfigIdx + 3] = 33333333;
+        }
 
         stallDuration[streamConfigIdx] = HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED;
         stallDuration[streamConfigIdx + 1] = pDev->mPreviewResolutions[ResIdx * 2];
@@ -436,6 +443,11 @@ status_t CameraMetadata::createMetadata(CameraDeviceHwlImpl *pDev,
         minFrmDuration[streamConfigIdx + 1] = pDev->mPreviewResolutions[ResIdx * 2];
         minFrmDuration[streamConfigIdx + 2] = pDev->mPreviewResolutions[ResIdx * 2 + 1];
         minFrmDuration[streamConfigIdx + 3] = mSensorData.minframeduration; // ns
+        if (strstr(mSocType, "imx95") &&
+            (minFrmDuration[streamConfigIdx + 1] == 3840 &&
+             minFrmDuration[streamConfigIdx + 2] == 2160)) {
+            minFrmDuration[streamConfigIdx + 3] = 33333333;
+        }
 
         stallDuration[streamConfigIdx] = HAL_PIXEL_FORMAT_YCBCR_420_888;
         stallDuration[streamConfigIdx + 1] = pDev->mPreviewResolutions[ResIdx * 2];
