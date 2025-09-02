@@ -130,9 +130,6 @@ private:
 
     G2dBuffer mTarget;
     G2dBuffer mSolidColorBuffer;
-#ifdef G2D_FORMAT_CONVERSION
-    G2dBuffer mG2dConvertBuffer;
-#endif
     std::unordered_map<uint64_t, G2dInterBuffer> mG2dCachedBuffers;
 
     hwc_func3 mGetAlignedSize;

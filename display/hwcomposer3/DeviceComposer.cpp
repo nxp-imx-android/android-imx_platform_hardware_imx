@@ -139,11 +139,7 @@ DeviceComposer::DeviceComposer() {
 
     mSolidColorBuffer.hnd = NULL;
     memset(&mSolidColorBuffer.info, 0, sizeof(mSolidColorBuffer.info));
-#ifdef G2D_FORMAT_CONVERSION
-    mG2dConvertBuffer.hnd = NULL;
-    memset(&mG2dConvertBuffer.info, 0, sizeof(mG2dConvertBuffer.info));
     mOclCvt = std::make_unique<OclConverter>();
-#endif
 }
 
 DeviceComposer::~DeviceComposer() {
@@ -151,12 +147,6 @@ DeviceComposer::~DeviceComposer() {
         unlockSurface(mSolidColorBuffer);
         ::android::GraphicBufferAllocator::get().free(mSolidColorBuffer.hnd);
     }
-#ifdef G2D_FORMAT_CONVERSION
-    if (mG2dConvertBuffer.hnd == NULL) {
-        unlockSurface(mG2dConvertBuffer);
-        ::android::GraphicBufferAllocator::get().free(mG2dConvertBuffer.hnd);
-    }
-#endif
     if (mG2dHandle != NULL) {
         dlclose(mG2dHandle);
     }
@@ -385,64 +375,98 @@ int DeviceComposer::onLayerDestroy(Layer* layer) {
 }
 
 G2dInterBuffer* DeviceComposer::preComposition(Layer* layer, buffer_handle_t handle) {
-#ifdef PXP_LIMITATION_DOWN_SCALE
+#if !defined(PXP_LIMITATION_DOWN_SCALE) && !defined(G2D_FORMAT_CONVERSION)
+    return nullptr;
+#else
     auto id = layer->getId();
     auto type = layer->getCompositionType();
+
+    if ((type != Composition::DEVICE) || (handle == nullptr))
+        return nullptr;
+
+    HandleInfo inBufInfo;
+    if (getInfoFromHandle(handle, &inBufInfo) != 0)
+        return nullptr;
+
+    uint32_t dstW = 0, dstH = 0, dstFormat = 0, dstUsage = 0;
+    int cachedBufferType = G2D_CACHE_TYPE_NONE;
     common::Rect drect = layer->getDisplayFrame();
-    uint32_t dstW = (drect.right - drect.left);
-    uint32_t dstH = (drect.bottom - drect.top);
+    uint32_t dispW = (drect.right - drect.left);
+    uint32_t dispH = (drect.bottom - drect.top);
     common::Rect srect = layer->getSourceCropInt();
-    uint32_t srcW = srect.right - srect.left;
-    uint32_t srcH = srect.bottom - srect.top;
-
-    if ((type == Composition::DEVICE) && (handle != nullptr) && ((srcW > dstW) || (srcH > dstH))) {
+    uint32_t cropW = srect.right - srect.left;
+    uint32_t cropH = srect.bottom - srect.top;
+#if defined(PXP_LIMITATION_DOWN_SCALE)
+    if ((cropW > dispW) || (cropH > dispH)) {
         DEBUG_LOG_G2D("%s: layer %" PRId64 " scaling(src: %d x %d to dst: %d x %d)", __FUNCTION__,
-                      layer->getId(), srcW, srcH, w, h);
+                      id, cropW, cropH, dispW, dispH);
+        dstW = dispW;
+        dstH = dispH;
+        dstFormat = inBufInfo.format;
+        dstUsage = inBufInfo.usage;
+        cachedBufferType = G2D_CACHE_TYPE_SCALING;
+    } else
+#elif defined(G2D_FORMAT_CONVERSION)
+    if (inBufInfo.format == HAL_PIXEL_FORMAT_P010_TILED) {
+        /* HAL_PIXEL_FORMAT_P010_TILED is packed 10bit NV12(NV15) with DRM_FORMAT_MOD_AMPHION_TILED
+         * modifier, need to convert to linear 8bit NV12 format. So DPU can process it.
+         */
+        DEBUG_LOG_G2D("%s: layer %" PRId64 " format conversion(0x%x --> 0x%x)", __FUNCTION__, id,
+                      inBufInfo.format, HAL_PIXEL_FORMAT_YCbCr_420_SP);
+        dstW = inBufInfo.width;
+        dstH = inBufInfo.height;
+        dstFormat = HAL_PIXEL_FORMAT_YCbCr_420_SP;
+        dstUsage = inBufInfo.usage;
+        cachedBufferType = G2D_CACHE_TYPE_CSC;
+    } else
+#endif
+    {
+        return nullptr;
+    }
 
-        bool reuseBuff = true;
-        HandleInfo inBufInfo;
-        if (getInfoFromHandle(handle, &inBufInfo) != 0)
-            return nullptr;
-
-        buffer_handle_t outHandle;
-        HandleInfo outBufInfo;
-        if (mG2dCachedBuffers.find(id) != mG2dCachedBuffers.end()) {
-            auto interBuf = mG2dCachedBuffers[id];
-            if (interBuf.info.buffer_id == inBufInfo.buffer_id) {
-                return &(mG2dCachedBuffers[id]);
-            } else if ((dstW == interBuf.info.width) && (dstH == interBuf.info.height) &&
-                       (inBufInfo.format == interBuf.info.format) &&
-                       (inBufInfo.usage == interBuf.info.usage)) {
-                reuseBuff = true;
-                outHandle = interBuf.hnd;
-                outBufInfo = interBuf.info;
-            } else {
-                reuseBuff = false;
-                mG2dCachedBuffers.erase(id);
-                ::android::GraphicBufferAllocator::get().free(interBuf.hnd);
-            }
+    bool reuseBuff = true;
+    buffer_handle_t outHandle;
+    HandleInfo outBufInfo;
+    if (mG2dCachedBuffers.find(id) != mG2dCachedBuffers.end()) {
+        auto interBuf = mG2dCachedBuffers[id];
+        if (interBuf.info.buffer_id == inBufInfo.buffer_id) {
+            return &(mG2dCachedBuffers[id]);
+        } else if ((dstW == interBuf.info.width) && (dstH == interBuf.info.height) &&
+                   (dstFormat == interBuf.info.format) && (dstUsage == interBuf.info.usage)) {
+            reuseBuff = true;
+            outHandle = interBuf.hnd;
+            outBufInfo = interBuf.info;
         } else {
             reuseBuff = false;
+            mG2dCachedBuffers.erase(id);
+            ::android::GraphicBufferAllocator::get().free(interBuf.hnd);
         }
+    } else {
+        reuseBuff = false;
+    }
 
-        if (!reuseBuff) {
-            uint32_t outStride;
-            auto status =
-                    ::android::GraphicBufferAllocator::get().allocate(dstW, dstH, inBufInfo.format,
-                                                                      1, inBufInfo.usage,
-                                                                      &outHandle, &outStride,
-                                                                      "HwcG2dCacheBuffer");
-            if (status != ::android::OK) {
-                ALOGE("%s: failed to allocate g2d cache buffer", __FUNCTION__);
-                return nullptr;
-            }
-            if (getInfoFromHandle(outHandle, &outBufInfo) != 0)
-                return nullptr;
+    DEBUG_LOG_G2D("%s:layer id=%" PRId64 ", %s buffer:%d x %d, format=0x%x, usage=0x%x", __func__,
+                  id, reuseBuff ? "reuse" : "new", dstW, dstH, dstFormat, dstUsage);
+    if (!reuseBuff) {
+        uint32_t outStride;
+        auto status =
+                ::android::GraphicBufferAllocator::get().allocate(dstW, dstH, dstFormat, 1,
+                                                                  dstUsage, &outHandle, &outStride,
+                                                                  "HwcG2dCacheBuffer");
+        if (status != ::android::OK) {
+            ALOGE("%s: failed to allocate g2d cache buffer", __FUNCTION__);
+            return nullptr;
         }
+        if (getInfoFromHandle(outHandle, &outBufInfo) != 0)
+            return nullptr;
+    }
 
+    if (cachedBufferType == G2D_CACHE_TYPE_SCALING) {
         lockBuffer(outHandle, outBufInfo);
         lockBuffer(handle, inBufInfo);
+    }
 
+    if (cachedBufferType == G2D_CACHE_TYPE_SCALING) {
         common::PixelFormat format = static_cast<common::PixelFormat>(inBufInfo.format);
         if ((format == common::PixelFormat::RGBA_8888) ||
             (format == common::PixelFormat::RGBX_8888) ||
@@ -454,11 +478,11 @@ G2dInterBuffer* DeviceComposer::preComposition(Layer* layer, buffer_handle_t han
             const int srcStrideBytes = static_cast<int>(inBufInfo.strides[0]);
             const int dstStrideBytes = static_cast<int>(outBufInfo.strides[0]);
 
-            auto result = libyuv::ARGBScale(srcBuffer, srcStrideBytes, srcW, srcH, dstBuffer,
+            auto result = libyuv::ARGBScale(srcBuffer, srcStrideBytes, cropW, cropH, dstBuffer,
                                             dstStrideBytes, dstW, dstH, libyuv::kFilterNone);
             if (result)
-                ALOGE("%s: libyuv ARGBScale(%dx%d -> %dx%d) operation fail", __FUNCTION__, srcW,
-                      srcH, dstW, dstH);
+                ALOGE("%s: libyuv ARGBScale(%dx%d -> %dx%d) operation fail", __FUNCTION__, cropW,
+                      cropH, dstW, dstH);
         } else if (format == common::PixelFormat::YV12) {
             uint8_t* srcY = (uint8_t*)(inBufInfo.base);
             uint8_t* srcU = srcY + inBufInfo.offsets[1];
@@ -477,21 +501,36 @@ G2dInterBuffer* DeviceComposer::preComposition(Layer* layer, buffer_handle_t han
                                             dstV, outBufInfo.strides[2], dstWidth, dstHeight,
                                             libyuv::kFilterNone);
             if (result)
-                ALOGE("%s: libyuv I420Scale(%dx%d -> %dx%d) operation fail", __FUNCTION__, srcW,
-                      srcH, dstW, dstH);
+                ALOGE("%s: libyuv I420Scale(%dx%d -> %dx%d) operation fail", __FUNCTION__, cropW,
+                      cropH, dstW, dstH);
         }
+    } else if (cachedBufferType == G2D_CACHE_TYPE_CSC) {
+        G2dBuffer srcBuff{handle, inBufInfo};
+        G2dBuffer dstBuff{outHandle, outBufInfo};
+        if (mOclCvt->isValid()) {
+            auto ret = mOclCvt->openclConvert(srcBuff, dstBuff);
+            if (ret)
+                ALOGE("%s: OpenCL CSC convert fail", __FUNCTION__);
+        } else {
+            struct g2d_surfaceEx sSurfaceX, dSurfaceX;
+            memset(&sSurfaceX, 0, sizeof(sSurfaceX));
+            memset(&dSurfaceX, 0, sizeof(dSurfaceX));
+            setG2dSurface(sSurfaceX, srcBuff, srect);
+            setG2dSurface(dSurfaceX, dstBuff, srect);
+            blitSurface(&sSurfaceX, &dSurfaceX);
+        }
+    }
 
-        G2dInterBuffer newBuff{id, G2D_CACHE_TYPE_SCALING, outHandle, outBufInfo};
-        mG2dCachedBuffers.emplace(id, newBuff);
+    G2dInterBuffer newBuff{id, cachedBufferType, outHandle, outBufInfo};
+    mG2dCachedBuffers.emplace(id, newBuff);
 
+    if (cachedBufferType == G2D_CACHE_TYPE_SCALING) {
         unlockBuffer(handle, inBufInfo);
         unlockBuffer(outHandle, outBufInfo);
-
-        return &(mG2dCachedBuffers[id]);
     }
-#endif
 
-    return nullptr;
+    return &(mG2dCachedBuffers[id]);
+#endif
 }
 
 int DeviceComposer::composeLayerLocked(Layer* layer, G2dBuffer& layerBuffer,
@@ -506,7 +545,6 @@ int DeviceComposer::composeLayerLocked(Layer* layer, G2dBuffer& layerBuffer,
     auto mode = layer->getBlendMode();
     auto transform = layer->getTransform();
     auto alpha = (uint8_t)(layer->getPlaneAlpha() * 255);
-    G2dBuffer* layerBuffPtr = nullptr;
 
     common::Rect srect = layer->getSourceCropInt();
     common::Rect drect = layer->getDisplayFrame();
@@ -538,35 +576,6 @@ int DeviceComposer::composeLayerLocked(Layer* layer, G2dBuffer& layerBuffer,
     if (type == Composition::SOLID_COLOR) {
         prepareSolidColorBuffer(targetBuffer);
     }
-#ifdef G2D_FORMAT_CONVERSION
-    if (layerBuffer.info.format == HAL_PIXEL_FORMAT_P010_TILED) {
-        /* HAL_PIXEL_FORMAT_P010_TILED is packed 10bit NV12(NV15) with DRM_FORMAT_MOD_AMPHION_TILED
-         * modifier, need to convert to linear 8bit NV12 format. So DPU can process it.
-         */
-        if (prepareG2dTempBuffer(layerBuffer, HAL_PIXEL_FORMAT_YCbCr_420_SP, &mG2dConvertBuffer) ==
-            -1) {
-            ALOGE("%s: fail to prepare g2d temporary buffer", __FUNCTION__);
-            return -EINVAL;
-        }
-        if (mOclCvt->isValid()) {
-            auto ret = mOclCvt->openclConvert(layerBuffer, mG2dConvertBuffer);
-            if (ret)
-                ALOGE("%s: OpenCL CSC convert fail", __FUNCTION__);
-        } else {
-            struct g2d_surfaceEx sSurfaceX;
-            memset(&sSurfaceX, 0, sizeof(sSurfaceX));
-            memset(&dSurfaceX, 0, sizeof(dSurfaceX));
-            setG2dSurface(sSurfaceX, layerBuffer, srect);
-            setG2dSurface(dSurfaceX, mG2dConvertBuffer, srect);
-            blitSurface(&sSurfaceX, &dSurfaceX);
-        }
-        layerBuffPtr = &mG2dConvertBuffer;
-    } else {
-        layerBuffPtr = &layerBuffer;
-    }
-#else
-    layerBuffPtr = &layerBuffer;
-#endif
 
     memset(&dSurfaceX, 0, sizeof(dSurfaceX));
     setG2dSurface(dSurfaceX, targetBuffer, drect);
@@ -594,19 +603,17 @@ int DeviceComposer::composeLayerLocked(Layer* layer, G2dBuffer& layerBuffer,
         memset(&sSurfaceX, 0, sizeof(sSurfaceX));
         struct g2d_surface& sSurface = sSurfaceX.base;
 
-        if (!(type == Composition::SOLID_COLOR) && layerBuffPtr->hnd) {
-            if ((layerBuffPtr->interPtr != nullptr) &&
-                (layerBuffPtr->interPtr->type == G2D_CACHE_TYPE_SCALING))
-                setG2dSurface(sSurfaceX, *layerBuffPtr, drect);
+        if (!(type == Composition::SOLID_COLOR) && layerBuffer.hnd) {
+            if ((layerBuffer.interPtr != nullptr) &&
+                (layerBuffer.interPtr->type == G2D_CACHE_TYPE_SCALING))
+                setG2dSurface(sSurfaceX, layerBuffer, drect);
             else
-                setG2dSurface(sSurfaceX, *layerBuffPtr, srect);
+                setG2dSurface(sSurfaceX, layerBuffer, srect);
 #ifndef G2D_LIMITATION_PXP // PXP G2D don't support DITHER
             if ((targetBuffer.info.format == static_cast<uint32_t>(common::PixelFormat::RGB_565)) &&
-                (layerBuffPtr->info.format ==
-                         static_cast<uint32_t>(common::PixelFormat::RGBA_8888) ||
-                 layerBuffPtr->info.format ==
-                         static_cast<uint32_t>(common::PixelFormat::RGBX_8888) ||
-                 layerBuffPtr->info.format ==
+                (layerBuffer.info.format == static_cast<uint32_t>(common::PixelFormat::RGBA_8888) ||
+                 layerBuffer.info.format == static_cast<uint32_t>(common::PixelFormat::RGBX_8888) ||
+                 layerBuffer.info.format ==
                          static_cast<uint32_t>(common::PixelFormat::BGRA_8888))) {
                 needDither = true;
             }
