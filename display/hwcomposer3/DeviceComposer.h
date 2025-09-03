@@ -46,6 +46,7 @@ struct G2dInterBuffer {
     int type;
     buffer_handle_t hnd;
     HandleInfo info;
+    uint64_t originBufferId;
 };
 
 struct G2dBuffer {

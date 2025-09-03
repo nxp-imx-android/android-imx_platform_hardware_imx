@@ -473,7 +473,7 @@ G2dInterBuffer* DeviceComposer::preComposition(Layer* layer, buffer_handle_t han
     HandleInfo outBufInfo;
     if (mG2dCachedBuffers.find(id) != mG2dCachedBuffers.end()) {
         auto interBuf = mG2dCachedBuffers[id];
-        if (interBuf.info.buffer_id == inBufInfo.buffer_id) {
+        if (interBuf.originBufferId == inBufInfo.buffer_id) {
             return &(mG2dCachedBuffers[id]);
         } else if ((dstW == interBuf.info.width) && (dstH == interBuf.info.height) &&
                    (dstFormat == interBuf.info.format) && (dstUsage == interBuf.info.usage)) {
@@ -489,8 +489,8 @@ G2dInterBuffer* DeviceComposer::preComposition(Layer* layer, buffer_handle_t han
         reuseBuff = false;
     }
 
-    DEBUG_LOG_G2D("%s:layer id=%" PRId64 ", %s buffer:%d x %d, format=0x%x, usage=0x%x", __func__,
-                  id, reuseBuff ? "reuse" : "new", dstW, dstH, dstFormat, dstUsage);
+    DEBUG_LOG_G2D("%s:layer id=%" PRId64 ", %s buffer:%d x %d, format=0x%x, usage=0x%x",
+                  __FUNCTION__, id, reuseBuff ? "reuse" : "new", dstW, dstH, dstFormat, dstUsage);
     if (!reuseBuff) {
         uint32_t outStride;
         auto status =
@@ -552,8 +552,10 @@ G2dInterBuffer* DeviceComposer::preComposition(Layer* layer, buffer_handle_t han
         convertBuffer(handle, inBufInfo, outHandle, outBufInfo, opencl_prefered);
     }
 
-    G2dInterBuffer newBuff{id, cachedBufferType, outHandle, outBufInfo};
-    mG2dCachedBuffers.emplace(id, newBuff);
+    if (!reuseBuff) {
+        G2dInterBuffer newBuff{id, cachedBufferType, outHandle, outBufInfo, inBufInfo.buffer_id};
+        mG2dCachedBuffers.emplace(id, newBuff);
+    }
 
     if (cachedBufferType == G2D_CACHE_TYPE_SCALING) {
         unlockBuffer(handle, inBufInfo);
