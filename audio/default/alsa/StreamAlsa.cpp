@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2023 The Android Open Source Project
+ * Copyright 2024-2025 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,6 +28,9 @@
 
 #include "core-impl/StreamAlsa.h"
 
+#include <cutils/properties.h>
+#include <fstream>
+
 using aidl::android::hardware::audio::common::getChannelCount;
 
 namespace aidl::android::hardware::audio::core {
@@ -38,7 +42,13 @@ StreamAlsa::StreamAlsa(StreamContext* context, const Metadata& metadata, int rea
       mSampleRate(getContext().getSampleRate()),
       mIsInput(isInput(metadata)),
       mConfig(alsa::getPcmConfig(getContext(), mIsInput)),
-      mReadWriteRetries(readWriteRetries) {}
+      mReadWriteRetries(readWriteRetries) {
+    mDump = property_get_bool("persist.vendor.audio.dump", false);
+    if (mDump) {
+        std::ofstream ifile(kDumpAlsaInputFile, std::ios::trunc);
+        std::ofstream ofile(kDumpAlsaOutputFile, std::ios::trunc);
+    }
+}
 
 StreamAlsa::~StreamAlsa() {
     cleanupWorker();
@@ -146,12 +156,28 @@ StreamAlsa::~StreamAlsa() {
     mAlsaDeviceProxies = std::move(alsaDeviceProxies);
     mSources = std::move(sources);
     mSinks = std::move(sinks);
-    mIoThreadIsRunning = true;
+    mIoThreadIsRunning = false;
     for (size_t i = 0; i < mAlsaDeviceProxies.size(); ++i) {
         mIoThreads.emplace_back(mIsInput ? &StreamAlsa::inputIoThread : &StreamAlsa::outputIoThread,
                                 this, i);
     }
     return ::android::OK;
+}
+
+void StreamAlsa::dump(const void *buffer, size_t bytes, const char *name) {
+    if ((buffer == NULL) || (bytes == 0) || (name == NULL))
+        return;
+
+    int fdDump = open(name, O_CREAT | O_APPEND | O_WRONLY, S_IRWXU | S_IRWXG);
+    if (fdDump < 0) {
+        ALOGW("%s: file open error, srcFile: %s, fd %d", __func__, name, fdDump);
+        return;
+    }
+
+    write(fdDump, buffer, bytes);
+    ::close(fdDump);
+
+    return;
 }
 
 ::android::status_t StreamAlsa::transfer(void* buffer, size_t frameCount, size_t* actualFrameCount,
@@ -163,31 +189,20 @@ StreamAlsa::~StreamAlsa() {
     const size_t bytesToTransfer = frameCount * mFrameSizeBytes;
     unsigned maxLatency = 0;
     if (mIsInput) {
-        const size_t i = 0;  // For the input case, only support a single device.
-        LOG(VERBOSE) << __func__ << ": reading from sink " << i;
-        ssize_t framesRead = mSources[i]->read(buffer, frameCount);
-        LOG_IF(FATAL, framesRead < 0) << "Error reading from the pipe: " << framesRead;
-        if (ssize_t framesMissing = static_cast<ssize_t>(frameCount) - framesRead;
-            framesMissing > 0) {
-            LOG(WARNING) << __func__ << ": incomplete data received, inserting " << framesMissing
-                         << " frames of silence";
-            memset(static_cast<char*>(buffer) + framesRead * mFrameSizeBytes, 0,
-                   framesMissing * mFrameSizeBytes);
-        }
-        maxLatency = proxy_get_latency(mAlsaDeviceProxies[i].get());
+        // For input case, only support single device.
+        proxy_read_with_retries(mAlsaDeviceProxies[0].get(), buffer, bytesToTransfer,
+                                mReadWriteRetries);
+        maxLatency = proxy_get_latency(mAlsaDeviceProxies[0].get());
+        if (mDump)
+            dump(buffer, bytesToTransfer, kDumpAlsaInputFile);
     } else {
         alsa::applyGain(buffer, mGain, bytesToTransfer, mConfig.value().format, mConfig->channels);
-        for (size_t i = 0; i < mAlsaDeviceProxies.size(); ++i) {
-            LOG(VERBOSE) << __func__ << ": writing into sink " << i;
-            ssize_t framesWritten = mSinks[i]->write(buffer, frameCount);
-            LOG_IF(FATAL, framesWritten < 0) << "Error writing into the pipe: " << framesWritten;
-            if (ssize_t framesLost = static_cast<ssize_t>(frameCount) - framesWritten;
-                framesLost > 0) {
-                LOG(WARNING) << __func__ << ": sink " << i << " incomplete data sent, dropping "
-                             << framesLost << " frames";
-            }
-            maxLatency = std::max(maxLatency, proxy_get_latency(mAlsaDeviceProxies[i].get()));
+        for (auto& proxy : mAlsaDeviceProxies) {
+            proxy_write_with_retries(proxy.get(), buffer, bytesToTransfer, mReadWriteRetries);
+            maxLatency = std::max(maxLatency, proxy_get_latency(proxy.get()));
         }
+        if (mDump)
+            dump(buffer, bytesToTransfer, kDumpAlsaOutputFile);
     }
     *actualFrameCount = frameCount;
     maxLatency = std::min(maxLatency, static_cast<unsigned>(std::numeric_limits<int32_t>::max()));
@@ -197,8 +212,7 @@ StreamAlsa::~StreamAlsa() {
 
 ::android::status_t StreamAlsa::refinePosition(StreamDescriptor::Position* position) {
     if (mAlsaDeviceProxies.empty()) {
-        LOG(WARNING) << __func__ << ": no opened devices";
-        return ::android::NO_INIT;
+        return ::android::OK;
     }
     // Since the proxy can only count transferred frames since its creation,
     // we override its counter value with ours and let it to correct for buffered frames.
@@ -218,6 +232,9 @@ StreamAlsa::~StreamAlsa() {
             ret == 0) {
             if (hwFrames > std::numeric_limits<int64_t>::max()) {
                 hwFrames -= std::numeric_limits<int64_t>::max();
+            }
+            if (getContext().getFormat().encoding == "audio/vnd.sony.dsd") {
+                hwFrames = hwFrames * 4;
             }
             position->frames = static_cast<int64_t>(hwFrames);
             position->timeNs = audio_utils_ns_from_timespec(&timestamp);

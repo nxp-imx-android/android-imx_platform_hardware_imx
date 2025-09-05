@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2023 The Android Open Source Project
+ * Copyright 2025 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -91,6 +92,13 @@ ModuleBluetooth::ModuleBluetooth(std::unique_ptr<Module::Configuration>&& config
     }
 }
 
+ndk::ScopedAStatus ModuleBluetooth::getBluetooth(
+        std::shared_ptr<IBluetooth>* _aidl_return) {
+    *_aidl_return = getBt().getInstance();
+    LOG(DEBUG) << __func__ << ": returning instance of IBluetooth: " << _aidl_return->get();
+    return ndk::ScopedAStatus::ok();
+}
+
 ndk::ScopedAStatus ModuleBluetooth::getBluetoothA2dp(
         std::shared_ptr<IBluetoothA2dp>* _aidl_return) {
     *_aidl_return = getBtA2dp().getInstance();
@@ -102,6 +110,14 @@ ndk::ScopedAStatus ModuleBluetooth::getBluetoothLe(std::shared_ptr<IBluetoothLe>
     *_aidl_return = getBtLe().getInstance();
     LOG(DEBUG) << __func__ << ": returning instance of IBluetoothLe: " << _aidl_return->get();
     return ndk::ScopedAStatus::ok();
+}
+
+ChildInterface<Bluetooth>& ModuleBluetooth::getBt() {
+    if (!mBluetooth) {
+        auto handle = ndk::SharedRefBase::make<Bluetooth>();
+        mBluetooth = handle;
+    }
+    return mBluetooth;
 }
 
 ChildInterface<BluetoothA2dp>& ModuleBluetooth::getBtA2dp() {

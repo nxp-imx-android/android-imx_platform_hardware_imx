@@ -336,8 +336,13 @@ StreamInWorkerLogic::Status StreamInWorkerLogic::cycle() {
         case Tag::flush:
             if (mState == StreamDescriptor::State::PAUSED) {
                 if (::android::status_t status = mDriver->flush(); status == ::android::OK) {
-                    populateReply(&reply, mIsConnected);
-                    mState = StreamDescriptor::State::STANDBY;
+                    if (::android::status_t status = mDriver->standby(); status == ::android::OK) {
+                        populateReply(&reply, mIsConnected);
+                        mState = StreamDescriptor::State::STANDBY;
+                    } else {
+                        LOG(ERROR) << __func__ << ": standby failed: " << status;
+                        mState = StreamDescriptor::State::ERROR;
+                    }
                 } else {
                     LOG(ERROR) << __func__ << ": flush failed: " << status;
                     mState = StreamDescriptor::State::ERROR;
@@ -877,9 +882,7 @@ void StreamCommonImpl::setWorkerThreadPriority(pid_t workerTid) {
     // FAST workers should be run with a SCHED_FIFO scheduler, however the host process
     // might be lacking the capability to request it, thus a failure to set is not an error.
     if (auto flags = getContext().getFlags();
-        (flags.getTag() == AudioIoFlags::Tag::input &&
-         isBitPositionFlagSet(flags.template get<AudioIoFlags::Tag::input>(),
-                              AudioInputFlags::FAST)) ||
+        (flags.getTag() == AudioIoFlags::Tag::input) ||
         (flags.getTag() == AudioIoFlags::Tag::output &&
          (isBitPositionFlagSet(flags.template get<AudioIoFlags::Tag::output>(),
                                AudioOutputFlags::FAST) ||

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2022 The Android Open Source Project
+ * Copyright 2025 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1388,6 +1389,35 @@ ndk::ScopedAStatus Module::setAudioPortConfigImpl(
         *applied = true;
         LOG(DEBUG) << __func__ << ": " << mType << ": updated port config "
                    << out_suggested->toString();
+
+        const AudioDevice audioDevice =
+                out_suggested->ext.get<AudioPortExt::Tag::device>().device;
+
+        if (audioDevice.type.type == AudioDeviceType::OUT_BUS &&
+                audioDevice.type.connection.empty()) {
+            mCard = AudioCardManager::getCardForDevice(audioDevice);
+            if (mCard) {
+                struct mixer_ctl *ctl = NULL;
+                struct mixer *mixer;
+                unsigned int j;
+                std::vector<int32_t> gain = out_suggested->gain.value().values;
+                int out_vol_min = mCard->out_volume_min;
+                int out_vol_max = mCard->out_volume_max;
+                int volume = (int)(out_vol_min + ((500.0f + (float)gain[0]) / 500.0f) * (out_vol_max - out_vol_min));
+
+                mixer = mixer_open(mCard->card);
+                if (mixer) {
+                    ctl = mixer_get_ctl_by_name(mixer, mCard->out_volume_ctl->ctl_name);
+                    if (ctl) {
+                        /* This ensures multiple (i.e. stereo) values are set jointly */
+                        for (j = 0; j < mixer_ctl_get_num_values(ctl); j++) {
+                            mixer_ctl_set_value(ctl, j, volume);
+                        }
+                    }
+                    mixer_close(mixer);
+                }
+            }
+        }
     } else {
         LOG(DEBUG) << __func__ << ": " << mType << ": not applied; existing config ? "
                    << (existing != configs.end()) << "; requested is valid? " << requestedIsValid
