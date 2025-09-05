@@ -97,10 +97,9 @@ class StreamMmapStub : public StreamCommonImpl, public DriverMmapStubImpl {
                                            std::vector<VendorParameter>* _aidl_return) override;
     ndk::ScopedAStatus setVendorParameters(const std::vector<VendorParameter>& in_parameters,
                                            bool in_async) override;
+    ndk::ScopedAStatus createMmapBuffer(MmapBufferDescriptor* _aidl_return) override;
 
   private:
-    ndk::ScopedAStatus createMmapBuffer(MmapBufferDescriptor* desc);
-
     ndk::ScopedFileDescriptor mSharedMemoryFd;
 };
 

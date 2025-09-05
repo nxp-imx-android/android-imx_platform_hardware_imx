@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2023 The Android Open Source Project
- * Copyright 2025 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,12 +39,10 @@ class ModuleBluetooth final : public Module {
         ::aidl::android::hardware::bluetooth::audio::PcmConfiguration pcmConfig;
     };
 
-    ChildInterface<Bluetooth>& getBt();
     ChildInterface<BluetoothA2dp>& getBtA2dp();
     ChildInterface<BluetoothLe>& getBtLe();
     BtProfileHandles getBtProfileManagerHandles();
 
-    ndk::ScopedAStatus getBluetooth(std::shared_ptr<IBluetooth>* _aidl_return) override;
     ndk::ScopedAStatus getBluetoothA2dp(std::shared_ptr<IBluetoothA2dp>* _aidl_return) override;
     ndk::ScopedAStatus getBluetoothLe(std::shared_ptr<IBluetoothLe>* _aidl_return) override;
     ndk::ScopedAStatus getMicMute(bool* _aidl_return) override;
@@ -55,6 +52,8 @@ class ModuleBluetooth final : public Module {
             const ::aidl::android::media::audio::common::AudioPortConfig& in_requested,
             ::aidl::android::media::audio::common::AudioPortConfig* out_suggested,
             bool* _aidl_return) override;
+
+    ndk::ScopedAStatus supportsVariableLatency(bool* _aidl_return) override;
 
     ndk::ScopedAStatus checkAudioPatchEndpointsMatch(
             const std::vector<::aidl::android::media::audio::common::AudioPortConfig*>& sources,
@@ -81,6 +80,8 @@ class ModuleBluetooth final : public Module {
     int32_t getNominalLatencyMs(
             const ::aidl::android::media::audio::common::AudioPortConfig& portConfig) override;
 
+    binder_status_t dump(int fd, const char** args, uint32_t numArgs) override;
+
     ndk::ScopedAStatus createProxy(
             const ::aidl::android::media::audio::common::AudioPort& audioPort,
             int32_t instancePortId, CachedProxy& proxy);
@@ -90,7 +91,6 @@ class ModuleBluetooth final : public Module {
 
     static constexpr int kCreateProxyRetries = 5;
     static constexpr int kCreateProxyRetrySleepMs = 75;
-    ChildInterface<Bluetooth> mBluetooth;
     ChildInterface<BluetoothA2dp> mBluetoothA2dp;
     ChildInterface<BluetoothLe> mBluetoothLe;
     std::map<int32_t /*instantiated device port ID*/, CachedProxy> mProxies;

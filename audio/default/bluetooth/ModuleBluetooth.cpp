@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2023 The Android Open Source Project
- * Copyright 2025 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -92,13 +91,6 @@ ModuleBluetooth::ModuleBluetooth(std::unique_ptr<Module::Configuration>&& config
     }
 }
 
-ndk::ScopedAStatus ModuleBluetooth::getBluetooth(
-        std::shared_ptr<IBluetooth>* _aidl_return) {
-    *_aidl_return = getBt().getInstance();
-    LOG(DEBUG) << __func__ << ": returning instance of IBluetooth: " << _aidl_return->get();
-    return ndk::ScopedAStatus::ok();
-}
-
 ndk::ScopedAStatus ModuleBluetooth::getBluetoothA2dp(
         std::shared_ptr<IBluetoothA2dp>* _aidl_return) {
     *_aidl_return = getBtA2dp().getInstance();
@@ -110,14 +102,6 @@ ndk::ScopedAStatus ModuleBluetooth::getBluetoothLe(std::shared_ptr<IBluetoothLe>
     *_aidl_return = getBtLe().getInstance();
     LOG(DEBUG) << __func__ << ": returning instance of IBluetoothLe: " << _aidl_return->get();
     return ndk::ScopedAStatus::ok();
-}
-
-ChildInterface<Bluetooth>& ModuleBluetooth::getBt() {
-    if (!mBluetooth) {
-        auto handle = ndk::SharedRefBase::make<Bluetooth>();
-        mBluetooth = handle;
-    }
-    return mBluetooth;
 }
 
 ChildInterface<BluetoothA2dp>& ModuleBluetooth::getBtA2dp() {
@@ -179,6 +163,12 @@ ndk::ScopedAStatus ModuleBluetooth::setAudioPortConfig(const AudioPortConfig& in
         return generateDefaultPortConfig(port, config);
     };
     return Module::setAudioPortConfigImpl(in_requested, fillConfig, out_suggested, _aidl_return);
+}
+
+ndk::ScopedAStatus ModuleBluetooth::supportsVariableLatency(bool* _aidl_return) {
+    LOG(DEBUG) << __func__ << ": " << getType();
+    *_aidl_return = true;
+    return ndk::ScopedAStatus::ok();
 }
 
 ndk::ScopedAStatus ModuleBluetooth::checkAudioPatchEndpointsMatch(
@@ -293,6 +283,18 @@ int32_t ModuleBluetooth::getNominalLatencyMs(const AudioPortConfig& portConfig) 
     }
     LOG(ERROR) << __func__ << ": no connection or proxy found for " << portConfig.toString();
     return Module::getNominalLatencyMs(portConfig);
+}
+
+binder_status_t ModuleBluetooth::dump(int fd, const char** args, uint32_t numArgs) {
+    if (!::aidl::android::hardware::audio::common::hasArgument(
+                args, numArgs,
+                ::aidl::android::hardware::audio::common::kDumpFromAudioServerArgument)) {
+        // Streams are dumped as part of audio flinger threads dump,
+        // no need for a separate dump since the module itself does not
+        // have anything interesting.
+        Module::dump(fd, args, numArgs);
+    }
+    return ::android::OK;
 }
 
 ndk::ScopedAStatus ModuleBluetooth::createProxy(const AudioPort& audioPort, int32_t instancePortId,

@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2022 The Android Open Source Project
- * Copyright 2025 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +28,6 @@
 
 #include "core-impl/ChildInterface.h"
 #include "core-impl/Stream.h"
-#include <core-impl/AudioCardManager.h>
 
 namespace aidl::android::hardware::audio::core {
 
@@ -147,7 +145,6 @@ class Module : public BnModule {
 
     // The maximum stream buffer size is 1 GiB = 2 ** 30 bytes;
     static constexpr int32_t kMaximumStreamBufferSizeBytes = 1 << 30;
-    struct audio_card *mCard = NULL;
 
   private:
     struct VendorDebug {
@@ -277,6 +274,7 @@ class Module : public BnModule {
     bool setAudioPortConfigGain(
             const ::aidl::android::media::audio::common::AudioPort& port,
             const ::aidl::android::media::audio::common::AudioGainConfig& gainRequested);
+    ndk::ScopedAStatus validateAudioTrackAttributeTags(const std::vector<std::string>& tags);
 };
 
 std::ostream& operator<<(std::ostream& os, Module::Type t);

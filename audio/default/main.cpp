@@ -25,7 +25,6 @@
 #include <android/binder_ibinder_platform.h>
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
-#include <cutils/properties.h>
 
 #include "core-impl/AudioPolicyConfigXmlConverter.h"
 #include "core-impl/ChildInterface.h"
@@ -77,17 +76,8 @@ int main() {
     // Guaranteed log for b/210919187 and logd_integration_test
     LOG(INFO) << "Init for Audio AIDL HAL";
 
-    static constexpr const char *apmXmlConfigFileName = "audio_policy_configuration.xml";
-    static constexpr const char *apmMultichannelXmlConfigFileName = "audio_policy_configuration_multichannel.xml";
-    std::string file;
-    // Set androidboot.audio.multichannel=1 in bootargs to enable it
-    if (property_get_int32("ro.boot.audio.multichannel", 0)) {
-        file = ::android::audio_find_readable_configuration_file(apmMultichannelXmlConfigFileName);
-    } else {
-        file = ::android::audio_find_readable_configuration_file(apmXmlConfigFileName);
-    }
-    LOG(INFO) << "Load audio policy configuration file from " << file;
-    AudioPolicyConfigXmlConverter audioPolicyConverter{file};
+    AudioPolicyConfigXmlConverter audioPolicyConverter{
+            ::android::audio_get_audio_policy_config_file()};
 
     // Make the default config service
     auto config = ndk::SharedRefBase::make<Config>(audioPolicyConverter);
