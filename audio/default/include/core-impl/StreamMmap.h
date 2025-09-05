@@ -28,7 +28,6 @@
 namespace aidl::android::hardware::audio::core {
 
 #define MMAP_SAMPLE_RATE 48000
-#define MMAP_FORMAT PCM_FORMAT_S16_LE
 
 /* period size : period ms : buffer ms
          512   :   10.7    :   42.7

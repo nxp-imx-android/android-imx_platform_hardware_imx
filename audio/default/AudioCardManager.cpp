@@ -247,6 +247,22 @@ void AudioCardManager::printPcmConfig(struct pcm_config *config)
     }
 }
 
+pcm_format AudioCardManager::pcm_format_from_audio_format(audio_format_t format) {
+    switch (format) {
+        case AUDIO_FORMAT_PCM_16_BIT:
+            return PCM_FORMAT_S16_LE;
+        case AUDIO_FORMAT_PCM_24_BIT_PACKED:
+            return PCM_FORMAT_S24_3LE;
+        case AUDIO_FORMAT_PCM_32_BIT:
+            return PCM_FORMAT_S32_LE;
+        case AUDIO_FORMAT_PCM_8_24_BIT:
+            return PCM_FORMAT_S24_LE;
+        case AUDIO_FORMAT_PCM_FLOAT: /* there is no equivalent for float */
+        default:
+            return PCM_FORMAT_INVALID;
+    }
+}
+
 std::vector<struct audio_card *>AudioCardManager::mCards;
 std::vector<struct mixer *>AudioCardManager::mMixers;
 

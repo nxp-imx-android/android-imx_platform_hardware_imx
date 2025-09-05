@@ -266,7 +266,8 @@ struct pcm* StreamMmap::openPcm() {
 
     config.channels = aidl::android::hardware::audio::common::getChannelCount(mContext.getChannelLayout());
     config.rate = MMAP_SAMPLE_RATE;
-    config.format = MMAP_FORMAT;
+    config.format = AudioCardManager::pcm_format_from_audio_format(
+            VALUE_OR_FATAL(aidl2legacy_AudioFormatDescription_audio_format_t(mContext.getFormat())));
     config.period_size = MMAP_PERIOD_SIZE;
     config.period_count = MMAP_PERIOD_COUNT;
     AudioCardManager::printPcmConfig(&config);
