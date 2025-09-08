@@ -183,7 +183,7 @@ static inline int32_t max(int32_t a, int32_t b) {
 }
 
 inline bool isRectEmpty(common::Rect& rect) {
-    return ((rect.right < rect.left) || (rect.bottom < rect.top));
+    return ((rect.right <= rect.left) || (rect.bottom <= rect.top));
 }
 
 inline bool rectIntersect(const common::Rect& with, common::Rect& result) {
