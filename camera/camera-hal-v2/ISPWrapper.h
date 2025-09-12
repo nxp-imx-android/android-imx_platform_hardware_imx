@@ -42,7 +42,7 @@ using google_camera_hal::HalCameraMetadata;
 
 class ISPWrapper {
 public:
-    ISPWrapper();
+    ISPWrapper(CameraSensorMetadata *pSensorData);
     ~ISPWrapper();
     int process(HalCameraMetadata *pMeta, libcamera::ControlList &controls);
     int processAWB(uint8_t mode, libcamera::ControlList &controls, bool force = false);
@@ -53,6 +53,8 @@ public:
 
     uint8_t m_ae_mode;
     int32_t m_exposure_gain;
+    CameraSensorMetadata *m_SensorData;
+
 private:
     int enableAWB(bool enable, libcamera::ControlList &controls);
 

@@ -32,7 +32,8 @@
 
 namespace android {
 
-ISPWrapper::ISPWrapper() {
+ISPWrapper::ISPWrapper(CameraSensorMetadata *pSensorData) {
+    m_SensorData = pSensorData;
     // Set ISP feature to it's default value.
     m_awb_mode = ANDROID_CONTROL_AWB_MODE_AUTO;
     m_ae_mode = ANDROID_CONTROL_AE_MODE_ON;
@@ -170,17 +171,15 @@ int ISPWrapper::processExposureGain(int32_t gain, libcamera::ControlList &contro
     return 0;
 }
 
-#define EXPOSURE_TIME_NS_MIN 116000
-#define EXPOSURE_TIME_NS_MAX 33216000
 int ISPWrapper::processExposureTime(int64_t exposureNs, libcamera::ControlList &controls,
                                     bool force) {
     if ((m_exposure_time == exposureNs) && (force == false))
         return 0;
 
-    if (exposureNs > EXPOSURE_TIME_NS_MAX)
-        exposureNs = EXPOSURE_TIME_NS_MAX;
-    if (exposureNs < EXPOSURE_TIME_NS_MIN)
-        exposureNs = EXPOSURE_TIME_NS_MIN;
+    if (exposureNs > m_SensorData->mExposureNsMax)
+        exposureNs = m_SensorData->mExposureNsMax;
+    if (exposureNs < m_SensorData->mExposureNsMin)
+        exposureNs = m_SensorData->mExposureNsMin;
 
     // first disable aec
     processAeMode(ANDROID_CONTROL_AE_MODE_OFF, controls);

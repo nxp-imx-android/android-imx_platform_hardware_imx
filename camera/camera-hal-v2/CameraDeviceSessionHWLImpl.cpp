@@ -131,6 +131,7 @@ status_t CameraDeviceSessionHwlImpl::Initialize(uint32_t camera_id,
     mDevPath = pDev->mDevPath;
 
     CameraSensorMetadata *cam_metadata = &(pDev->mSensorData);
+    m_IspWrapper = std::make_unique<ISPWrapper>(cam_metadata);
 
     if ((physical_meta_map_.get() != nullptr) && (!physical_meta_map_->empty())) {
         is_logical_device_ = true;
@@ -233,7 +234,6 @@ CameraDeviceSessionHwlImpl::CameraDeviceSessionHwlImpl(PhysicalMetaMapPtr physic
     camera_ = nullptr;
 
     physical_meta_map_ = std::move(physical_devices);
-    m_IspWrapper = std::make_unique<ISPWrapper>();
 }
 
 CameraDeviceSessionHwlImpl::~CameraDeviceSessionHwlImpl() {
@@ -672,6 +672,22 @@ status_t CameraDeviceSessionHwlImpl::ConfigLibcameraLocked(uint32_t bufferNum, u
     if (ret) {
         ALOGE("%s: Failed to configure camera %s", __func__, camera_->id().c_str());
         return -EINVAL;
+    }
+
+    // After configure, get the exposure time limits from camera controls
+    const libcamera::ControlInfoMap &controls = camera_->controls();
+    auto exposureTimeIt = controls.find(libcamera::controls::ExposureTime.id());
+    if (exposureTimeIt != controls.end()) {
+        const libcamera::ControlInfo &exposureInfo = exposureTimeIt->second;
+        ALOGI("%s: Exposure time range: min %ld us, max %ld us, default %ld us", __func__,
+              exposureInfo.min().get<int64_t>(), exposureInfo.max().get<int64_t>(),
+              exposureInfo.def().get<int64_t>());
+        m_IspWrapper->m_SensorData->mExposureNsMin =
+                (exposureInfo.min().get<int64_t>()) * NS_PER_US;
+        m_IspWrapper->m_SensorData->mExposureNsMax =
+                (exposureInfo.max().get<int64_t>()) * NS_PER_US;
+    } else {
+        ALOGW("%s: ExposureTime control not found in camera controls", __func__);
     }
 
     libCameraStreamSet = camera_->streams();
