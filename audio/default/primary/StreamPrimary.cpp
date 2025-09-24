@@ -424,8 +424,11 @@ done:
             (getContext().getFormat().encoding == "audio/vnd.sony.dsd")) {
         return StreamAlsa::refinePosition(position);
     }
-    // Since not all data is actually sent to the HAL, use the position maintained by Stream class
-    // which accounts for all frames passed from / to the client.
+    if (!mIsInput) {
+        int64_t buffer_size = mConfig->period_size * mConfig->period_count;
+        position->frames = position->frames > buffer_size ?
+            (position->frames - buffer_size) : 0;
+    }
     return ::android::OK;
 }
 
