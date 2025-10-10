@@ -34,10 +34,12 @@
 
 #include <deque>
 #include <list>
-
+#include <queue>
 #include "ExternalISPWrapper.h"
 #include "HwDecoder.h"
 #include "ImageProcess.h"
+#include "VideoDecoderBase.h"
+#include <C2PlatformSupport.h>
 
 using namespace fsl;
 
@@ -184,7 +186,7 @@ public:
         std::condition_variable mRequestDoneCond; // signaled when a request is done
     };
 
-    class OutputThread : public SimpleThread {
+    class OutputThread : public SimpleThread, public VideoDecoderBase::Client {
     public:
         OutputThread(std::weak_ptr<OutputThreadInterface> parent, CroppingType,
                      const common::V1_0::helper::CameraMetadata&,
@@ -214,6 +216,17 @@ public:
         uint64_t mDecedFrames = 0;
         int initVpuThread();
         std::unique_ptr<ExternalISPWrapper> m_IspWrapper;
+
+        int setDecoderParams(uint32_t width, uint32_t height);
+        void releaseDecoder();
+        // from VideoDecoderBase
+        void notifySourceChanged(uint32_t flag, VideoFormat* pFormat) override;
+        void notifyPictureReady(int32_t pictureId, uint64_t timestamp) override;
+        void notifyInputBufferUsed(int32_t input_id) override;
+        void notifySkipInputBuffer(int32_t input_id) override;
+        void notifyError(status_t err) override;
+        void notifyEos() override;
+        bool mUseDecoder2;
 
     protected:
         static const int kFlushWaitTimeoutSec = 3; // 3 sec
@@ -299,6 +312,15 @@ public:
 
         bool mUseHalBufManager = false;
         ImxEngine mEngine = ENG_CPU;
+
+        sp<VideoDecoderBase> mDecoder2;
+        mutable std::mutex mFramesSignalLock;
+        std::condition_variable mFramesSignal;
+        std::queue<int32_t> mReadyFrame;
+        std::shared_ptr<C2BlockPool> mOutputBlockPool;
+        uint32_t mWidth;
+        uint32_t mHeight;
+        int getOutputBuffer(int timeout);
     };
 
 private:

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2021-2023 NXP.
+ *  Copyright 2021-2025 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -56,21 +56,21 @@ struct DecoderBufferInfo {
     uint64_t mUsage = 0;
 };
 
-struct VideoRect {
+struct VideoRect2 {
     uint32_t left = 0;
     uint32_t top = 0;
     uint32_t right = 0;
     uint32_t bottom = 0;
 };
 
-struct VideoFormat {
+struct VideoFormat2 {
     int pixelFormat = 0;
     uint32_t width = DEFAULT_FRM_WIDTH;
     uint32_t height = DEFAULT_FRM_HEIGHT;
     uint32_t stride = DEFAULT_FRM_WIDTH;
     uint32_t bufferNum = 0;
     uint32_t bufferSize = 0;
-    VideoRect rect;
+    VideoRect2 rect;
 };
 
 struct VideoFramePlane {
@@ -142,8 +142,8 @@ private:
     DecoderDev* pDev;
     int32_t mFd;
 
-    VideoFormat mInputFormat;
-    VideoFormat mOutputFormat;
+    VideoFormat2 mInputFormat;
+    VideoFormat2 mOutputFormat;
 
     enum v4l2_buf_type mOutBufType;
     enum v4l2_buf_type mCapBufType;

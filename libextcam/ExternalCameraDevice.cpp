@@ -318,7 +318,6 @@ status_t ExternalCameraDevice::initCameraCharacteristics() {
     return OK;
 }
 
-#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #define UPDATE(tag, data, size)                        \
     do {                                               \
         if (metadata->update((tag), (data), (size))) { \

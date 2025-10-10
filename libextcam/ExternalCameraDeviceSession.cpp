@@ -44,6 +44,7 @@
 #define HAVE_JPEG // required for libyuv.h to export MJPEG decode APIs
 #include <libyuv.h>
 #include <libyuv/convert.h>
+#include <media/stagefright/MediaDefs.h>
 
 class SingletonWrap {
 public:
@@ -284,6 +285,10 @@ void ExternalCameraDeviceSession::closeOutputThread() {
     if (mOutputThread != nullptr) {
         mOutputThread->flush();
         mOutputThread->requestExitAndWait();
+
+        if (mOutputThread->mUseDecoder2) {
+            mOutputThread->releaseDecoder();
+        }
 
         if (mOutputThread->mDecoder) {
             mOutputThread->mDecoder->Stop();
@@ -965,7 +970,6 @@ Status ExternalCameraDeviceSession::switchToOffline(
     return Status::OK;
 }
 
-#define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
 #define UPDATE(md, tag, data, size)               \
     do {                                          \
         if ((md).update((tag), (data), (size))) { \
@@ -2550,34 +2554,66 @@ int ExternalCameraDeviceSession::OutputThread::initVpuThread() {
     }
 
     Size maxJpegSize = parent->getMaxJpegSize();
-    mDecoder = new HwDecoder(maxJpegSize.width, maxJpegSize.height);
-    if (!mDecoder) {
-        ALOGE("%s: Create HwDecoder Instance for MJPEG failed \n", __FUNCTION__);
-        return -errno;
-    }
 
     status_t err = UNKNOWN_ERROR;
     char socType[128] = {0};
     property_get("ro.boot.soc_type", socType, "");
     ALOGI("%s: socType :%s \n", __FUNCTION__, socType);
-    err = mDecoder->Init(socType);
-    if (err) {
-        if (mDecoder) {
-            mDecoder->Destroy();
-            mDecoder->freeOutputBuffers();
-        }
-        return -errno;
-    }
 
-    err = mDecoder->Start();
-    if (err) {
-        if (mDecoder) {
-            mDecoder->Destroy();
-            mDecoder->freeOutputBuffers();
-        }
-        return -errno;
-    }
+    int32_t value = property_get_int32("vendor.media.camera.vpu", 1);
+    if (value == 1)
+        mUseDecoder2 = true;
+    else
+        mUseDecoder2 = false;
 
+    if (mUseDecoder2) {
+        mDecoder2 = CreateVideoDecoderInstance(MEDIA_MIMETYPE_VIDEO_MJPEG, false);
+        if (!mDecoder2) {
+            ALOGE("%s: Create mDecoder2 Instance for MJPEG failed \n", __FUNCTION__);
+            return -errno;
+        }
+        err = mDecoder2->init((VideoDecoderBase::Client*)this);
+        if (err) {
+            releaseDecoder();
+            return -errno;
+        }
+
+        err = setDecoderParams(maxJpegSize.width, maxJpegSize.height);
+        if (err) {
+            releaseDecoder();
+            return -errno;
+        }
+
+        err = mDecoder2->start();
+        if (err) {
+            releaseDecoder();
+            return -errno;
+        }
+    } else {
+
+        mDecoder = new HwDecoder(maxJpegSize.width, maxJpegSize.height);
+        if (!mDecoder) {
+            ALOGE("%s: Create HwDecoder Instance for MJPEG failed \n", __FUNCTION__);
+            return -errno;
+        }
+        err = mDecoder->Init(socType);
+        if (err) {
+            if (mDecoder) {
+                mDecoder->Destroy();
+                mDecoder->freeOutputBuffers();
+            }
+            return -errno;
+        }
+
+        err = mDecoder->Start();
+        if (err) {
+            if (mDecoder) {
+                mDecoder->Destroy();
+                mDecoder->freeOutputBuffers();
+            }
+            return -errno;
+        }
+    }
     mDecedFrames = 0;
 
     return OK;
@@ -3171,7 +3207,12 @@ int ExternalCameraDeviceSession::OutputThread::VpuDecGetBuffer(uint8_t* inData, 
     inputbuf->size = inDataSize;
 
     int ret = 0;
-    ret = mDecoder->queueInputBuffer(std::move(inputbuf));
+    if (mUseDecoder2) {
+        ret = mDecoder2->queueInput(inData, inDataSize, mDecedFrames, 0, -1,
+                                    static_cast<int32_t>(mDecedFrames));
+    } else {
+        ret = mDecoder->queueInputBuffer(std::move(inputbuf));
+    }
     if (ret) {
         usleep(5000);
         return ret;
@@ -3191,8 +3232,14 @@ int ExternalCameraDeviceSession::OutputThread::VpuDecGetBuffer(uint8_t* inData, 
 
     if (mDebug)
         t1 = systemTime();
-    // mjpeg decoded to nv12/nv16/yuyv raw data
-    ret = mDecoder->exportDecodedBuf(mDecodedData, mDecWaitTimeoutMs);
+
+    if (mUseDecoder2) {
+        ret = getOutputBuffer(mDecWaitTimeoutMs);
+    } else {
+        // mjpeg decoded to nv12/nv16/yuyv raw data
+        ret = mDecoder->exportDecodedBuf(mDecodedData, mDecWaitTimeoutMs);
+    }
+
     if (mDebug) {
         t2 = systemTime();
         ALOGI("exportDecodedBuf use %lld ns, %lld ms, decoded size %dx%d", (long long)t2 - t1,
@@ -3264,7 +3311,13 @@ void ExternalCameraDeviceSession::OutputThread::VpuDecReturnBuffer() {
 
     mYu12Frame->getData(&outData, &dataSize);
     munmap((void *)outData, dataSize);
-    mDecoder->returnOutputBufferToDecoder(mDecodedData.bufId);
+
+    if (mUseDecoder2) {
+        ALOGV("VpuDecReturnBuffer id=%d", mDecodedData.bufId);
+        mDecoder2->returnOutputBufferToDecoder(mDecodedData.bufId);
+    } else {
+        mDecoder->returnOutputBufferToDecoder(mDecodedData.bufId);
+    }
 
     return;
 }
@@ -3864,7 +3917,104 @@ bool ExternalCameraDeviceSession::OutputThread::threadLoop() {
     signalRequestDone();
     return true;
 }
+void ExternalCameraDeviceSession::OutputThread::notifySourceChanged(uint32_t flag, VideoFormat* pFormat) {
+    if (!pFormat)
+        return;
 
+    if (flag & RESOLUTION_CHANGED) {
+        mWidth = pFormat->width;
+        mHeight = pFormat->height;
+        mDecodedData.format = pFormat->pixelFormat;
+        ALOGV("notifySourceChanged width=%u,height=%u,format=0x%x", mWidth, mHeight, pFormat->pixelFormat);
+    }
+}
+void ExternalCameraDeviceSession::OutputThread::notifyPictureReady(int32_t pictureId,
+                                                                   uint64_t timestamp) {
+    std::unique_lock<std::mutex> mlk(mFramesSignalLock);
+    mReadyFrame.push(pictureId);
+    ALOGV("notifyPictureReady id=%d, ts=%lld", pictureId, (long long)timestamp);
+    mFramesSignal.notify_all();
+}
+int ExternalCameraDeviceSession::OutputThread::getOutputBuffer(int timeoutMs) {
+    std::unique_lock<std::mutex> mlk(mFramesSignalLock);
+
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(timeoutMs);
+    int32_t out_id = -1;
+    GraphicBlockInfo* info;
+    while (true) {
+        auto st = mFramesSignal.wait_for(mlk, timeout);
+        if (st == std::cv_status::timeout) {
+            ALOGW("%s: wait decoder output timeout!", __FUNCTION__);
+            return BAD_VALUE;
+        }
+        if (mReadyFrame.empty())
+            break;
+
+        out_id = mReadyFrame.front();
+        info = mDecoder2->getGraphicBlockById(out_id);
+        if (info) {
+            mDecodedData.fd = info->mDMABufFd;
+            mDecodedData.width = mWidth;
+            mDecodedData.height = mHeight;
+            mDecodedData.bufId = info->mBlockId;
+            mDecodedData.format = info->mPixelFormat;
+            ALOGV("getOutputBuffer id=%d, fd=%d", info->mBlockId, info->mDMABufFd);
+            mReadyFrame.pop();
+            return 0;
+        }
+
+        mReadyFrame.pop();
+        break;
+    }
+    return -1;
+}
+
+void ExternalCameraDeviceSession::OutputThread::notifyInputBufferUsed(int32_t input_id) {}
+void ExternalCameraDeviceSession::OutputThread::notifySkipInputBuffer(int32_t input_id) {}
+void ExternalCameraDeviceSession::OutputThread::notifyError(status_t err) {}
+void ExternalCameraDeviceSession::OutputThread::notifyEos() {}
+int ExternalCameraDeviceSession::OutputThread::setDecoderParams(uint32_t width, uint32_t height) {
+    int ret = 0;
+    c2_status_t err = C2_OK;
+
+    VideoFormat vFormat;
+    mDecoder2->getConfig(DEC_CONFIG_INPUT_FORMAT, &vFormat);
+    vFormat.width = width;
+    vFormat.height = height;
+    vFormat.bufferSize = 2 * 1024 * 1024;
+    mDecoder2->setConfig(DEC_CONFIG_INPUT_FORMAT, &vFormat);
+
+    memset(&vFormat, 0, sizeof(VideoFormat));
+    mDecoder2->getConfig(DEC_CONFIG_OUTPUT_FORMAT, &vFormat);
+    vFormat.width = width;
+    vFormat.height = height;
+    vFormat.pixelFormat = HAL_PIXEL_FORMAT_YCbCr_422_I;
+    mDecoder2->setConfig(DEC_CONFIG_OUTPUT_FORMAT, &vFormat);
+
+    (void)mDecoder2->setConfig(DEC_CONFIG_OUTPUT_MAX_WIDTH, (void*)&width);
+    (void)mDecoder2->setConfig(DEC_CONFIG_OUTPUT_MAX_HEIGHT, (void*)&height);
+
+    err = GetCodec2BlockPool(C2BlockPool::BASIC_GRAPHIC, nullptr, &mOutputBlockPool);
+    if (err == C2_OK && mOutputBlockPool->getLocalId() == C2BlockPool::BASIC_GRAPHIC) {
+        // can't C2BasicGraphicBlockPool because it doesn't have a pool manager
+        err = CreateCodec2BlockPool(C2PlatformAllocatorStore::GRALLOC, nullptr, &mOutputBlockPool);
+        if (err)
+            return (int)err;
+
+        ret = mDecoder2->setGraphicBlockPool(mOutputBlockPool);
+        if (ret)
+            return ret;
+    }
+
+    return 0;
+}
+void ExternalCameraDeviceSession::OutputThread::releaseDecoder() {
+    if (mDecoder2) {
+        mDecoder2->destroy();
+        mDecoder2.clear();
+    }
+    mOutputBlockPool.reset();
+}
 // End ExternalCameraDeviceSession::OutputThread functions
 
 } // namespace implementation

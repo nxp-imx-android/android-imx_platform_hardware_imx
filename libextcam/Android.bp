@@ -87,6 +87,9 @@ cc_library_shared {
         "libstagefright_foundation",
         "libbase",
         "libimageprocess",
+        "lib_imx_c2_videodec_common",
+        "lib_imx_c2_v4l2_dec",
+        "libcodec2_vndk",
     ],
     static_libs: [
         "android.hardware.camera.common@1.0-helper",
@@ -112,6 +115,10 @@ cc_library_shared {
         "frameworks/native/libs/ui/include",
         "frameworks/native/libs/arect/include",
         "frameworks/native/libs/math/include",
+        "frameworks/av/media/libstagefright/include",
+        "vendor/nxp/imx_android_mm/codec2/video_dec/common",
+        "vendor/nxp/imx_android_mm/codec2/include",
+        "vendor/nxp/imx_android_mm/codec2/base/include",
     ],
 
     export_include_dirs: ["."],
