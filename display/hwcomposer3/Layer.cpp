@@ -39,6 +39,7 @@ Layer::Layer(Edid* edidParser, int64_t inLayerId) : mEdidParser(edidParser) {
         mId = sNextId++;
 
     mHdrMetadata.metadata_type = 0;
+    memset(&mBufferInfo, 0, sizeof(mBufferInfo));
 }
 
 HWC3::Error Layer::setCursorPosition(const common::Point& position) {
@@ -64,6 +65,10 @@ HWC3::Error Layer::setBuffer(buffer_handle_t buffer, const ndk::ScopedFileDescri
 
     if (buffer == nullptr) {
         ALOGE("%s: missing handle", __FUNCTION__);
+        return HWC3::Error::BadParameter;
+    }
+    if (getInfoFromHandle(buffer, &mBufferInfo) != 0) {
+        ALOGE("%s: bad buffer handle", __FUNCTION__);
         return HWC3::Error::BadParameter;
     }
 

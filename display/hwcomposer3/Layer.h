@@ -55,6 +55,7 @@ public:
 
     HWC3::Error setBuffer(buffer_handle_t buffer, const ndk::ScopedFileDescriptor& fence);
     FencedBuffer& getBuffer();
+    HandleInfo* getBufferInfo() { return &mBufferInfo; }
     buffer_handle_t waitAndGetBuffer();
 
     HWC3::Error setSurfaceDamage(const std::vector<std::optional<common::Rect>>& damage);
@@ -88,6 +89,7 @@ public:
 
     HWC3::Error setVisibleRegion(const std::vector<std::optional<common::Rect>>& visible);
     std::vector<common::Rect>& getVisibleRegion() { return mVisibleRegion; };
+    std::vector<common::Rect>* getVisibleRegionPtr() { return &mVisibleRegion; };
     std::size_t getNumVisibleRegions() const;
 
     HWC3::Error setZOrder(int32_t z);
@@ -118,6 +120,7 @@ private:
     int64_t mId;
     common::Point mCursorPosition;
     FencedBuffer mBuffer;
+    HandleInfo mBufferInfo;
     common::BlendMode mBlendMode = common::BlendMode::NONE;
     Color mColor = {0, 0, 0, 0};
     Composition mCompositionType = Composition::INVALID;

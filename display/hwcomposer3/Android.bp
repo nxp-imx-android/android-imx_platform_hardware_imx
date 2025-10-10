@@ -214,6 +214,7 @@ cc_binary {
         "-DLOG_TAG=\"NxpHWC\"",
         "-Wall",
         "-Wthread-safety",
+        "-DG2D_CACHED_COMPOSITION",
     ],
 }
 

@@ -305,7 +305,7 @@ HWC3::Error VirtualFrameComposer::presentDisplay(
                       outputFence.get());
             }
         }
-        mG2dComposer->convertBuffer(cvtSrc, *cvtSrcInfo, cvtDst, *cvtDstInfo, useOcl);
+        mG2dComposer->convertBuffer(cvtSrc, cvtSrcInfo, cvtDst, cvtDstInfo, useOcl);
     }
 
     *outDisplayFence = std::move(outputFence);

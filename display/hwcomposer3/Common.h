@@ -195,6 +195,13 @@ inline bool rectIntersect(const common::Rect& with, common::Rect& result) {
     return !isRectEmpty(result);
 }
 
+inline uint64_t calculateRect(common::Rect& rect) {
+    if ((rect.left < rect.right) && (rect.top < rect.bottom))
+        return (rect.right - rect.left) * (rect.bottom - rect.top);
+    else
+        return 0;
+}
+
 } // namespace aidl::android::hardware::graphics::composer3::impl
 
 #endif

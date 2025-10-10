@@ -34,11 +34,37 @@ typedef int (*hwc_func4)(void* handle, void* arg1, void* arg2, void* arg3);
 typedef int (*hwc_func5)(void* handle, void* arg1, void* arg2, void* arg3, void* arg4);
 typedef void* (*hwc_buf_func)(void* arg1);
 
+struct G2dInterLayer {
+    int64_t id;
+    int32_t zorder;
+    uint8_t alpha;
+    Composition type;
+    common::BlendMode mode;
+    common::Rect drect;
+    common::Rect srect;
+    common::Transform transform;
+    std::vector<common::Rect>* visible;
+    Layer* priv;
+    uint32_t keep_count;
+    uint64_t buffer_id;
+};
+
+#define LAYER_LEAST_KEEP_CNT 3
+#define LAYER_LEAST_ADJACENT_CNT 2
+#define G2D_INTERLAYER_ID (-1)
+struct G2dInterComposition {
+    buffer_handle_t hnd; // buffer that store intermediate composition reault
+    HandleInfo info;
+    std::vector<int64_t> composedIds;
+    std::vector<common::Rect> visible;
+    G2dInterLayer interlayer;
+};
+
 enum {
-    G2D_CACHE_TYPE_NONE,
-    G2D_CACHE_TYPE_SCALING,
-    G2D_CACHE_TYPE_ROTATION,
-    G2D_CACHE_TYPE_CSC, // format conversion
+    G2D_CONVERSION_TYPE_NONE,
+    G2D_CONVERSION_TYPE_SCALING,
+    G2D_CONVERSION_TYPE_ROTATION,
+    G2D_CONVERSION_TYPE_CSC, // format conversion
 };
 
 struct G2dInterBuffer {
@@ -51,9 +77,13 @@ struct G2dInterBuffer {
 
 struct G2dBuffer {
     buffer_handle_t hnd;
-    HandleInfo info;
+    HandleInfo* infoPtr;
     uint64_t originPhys; // used in lockSurface()/unlockSurface()
-    G2dInterBuffer* interPtr;
+    G2dInterBuffer* interPtr; // convert layer buffer(format/size/...)
+    G2dInterLayer* layer;     // cache composition result of some layers
+};
+struct G2dCachedBuffer : G2dBuffer {
+    HandleInfo info;
 };
 
 using ::android::Mutex;
@@ -76,8 +106,8 @@ public:
     int freeSolidColorBuffer();
     int onLayerDestroy(Layer* layer);
 
-    int convertBuffer(buffer_handle_t inBuf, HandleInfo& inInfo, buffer_handle_t outBuf,
-                      HandleInfo& outInfo, bool useOcl);
+    int convertBuffer(buffer_handle_t inBuf, HandleInfo* inInfoPtr, buffer_handle_t outBuf,
+                      HandleInfo* outInfoPtr, bool useOcl);
     std::tuple<bool, ::android::base::unique_fd> composeLayers(std::vector<Layer*> layers,
                                                                buffer_handle_t target);
 
@@ -85,11 +115,13 @@ private:
     void* getHandle();
 
     // clear worm hole introduced by layers not cover whole screen.
-    int clearWormHole(std::vector<Layer*>& layers, G2dBuffer& target);
+    int clearWormHole(std::vector<int64_t>& layerIds, G2dBuffer& target);
     G2dInterBuffer* preComposition(Layer* layer, buffer_handle_t handle);
     // compose display layer.
-    int composeLayerLocked(Layer* layer, G2dBuffer& layerBuffer, G2dBuffer& targetBuffer,
-                           bool bypass);
+    int composeLayerLocked(G2dBuffer& layerBuffer, G2dBuffer& targetBuffer, bool bypass);
+    std::optional<std::vector<int64_t>> cacheG2dLayersStats(std::vector<Layer*> layers);
+    void composeG2dLayers(std::vector<int64_t>& layerIds, G2dBuffer& targetBuffer);
+
     // sync 2D blit engine.
     int finishComposite();
     bool isFeatureSupported(g2d_feature feature);
@@ -132,9 +164,13 @@ private:
 
     bool mG2dPrefered;
 
-    G2dBuffer mTarget;
-    G2dBuffer mSolidColorBuffer;
-    std::unordered_map<uint64_t, G2dInterBuffer> mG2dCachedBuffers;
+    G2dCachedBuffer mTarget;
+    G2dCachedBuffer mSolidColorBuffer;
+    std::unordered_map<uint64_t, G2dInterBuffer> mInterBuffers; // used for conversion in layer
+
+    std::unordered_map<int64_t, G2dInterLayer> mCachedLayers;
+    int64_t mInterId = G2D_INTERLAYER_ID;
+    std::unordered_map<int64_t, G2dInterComposition> mCachedComposition;
 
     hwc_func3 mGetAlignedSize;
     hwc_func2 mGetFlipOffset;
