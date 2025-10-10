@@ -425,7 +425,7 @@ done:
         return StreamAlsa::refinePosition(position);
     }
     if (!mIsInput) {
-        int64_t buffer_size = mConfig->period_size * mConfig->period_count;
+        int64_t buffer_size = static_cast<int64_t>(mConfig->period_size) * mConfig->period_count;
         position->frames = position->frames > buffer_size ?
             (position->frames - buffer_size) : 0;
     }
