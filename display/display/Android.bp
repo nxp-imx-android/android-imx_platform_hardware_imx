@@ -104,6 +104,7 @@ bootstrap_go_package {
     pkgPath: "android/soong/vendor/nxp-opensource/imx/display/display",
     deps: [
         "blueprint",
+        "blueprint-proptools",
         "blueprint-pathtools",
         "soong",
         "soong-android",

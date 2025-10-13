@@ -23,6 +23,7 @@ bootstrap_go_package {
     pkgPath: "android/soong/vendor/nxp-opensource/imx/image_process",
     deps: [
         "blueprint",
+        "blueprint-proptools",
         "blueprint-pathtools",
         "soong",
         "soong-android",

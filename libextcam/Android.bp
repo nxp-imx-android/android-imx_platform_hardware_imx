@@ -24,6 +24,7 @@ bootstrap_go_package {
     pkgPath: "android/soong/vendor/nxp-opensource/imx/libextcam",
     deps: [
         "blueprint",
+        "blueprint-proptools",
         "blueprint-pathtools",
         "soong",
         "soong-android",

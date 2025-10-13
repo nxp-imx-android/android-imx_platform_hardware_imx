@@ -43,6 +43,7 @@ bootstrap_go_package {
     pkgPath: "android/soong/vendor/nxp-opensource/imx/memtrack",
     deps: [
         "blueprint",
+        "blueprint-proptools",
         "blueprint-pathtools",
         "soong",
         "soong-android",
