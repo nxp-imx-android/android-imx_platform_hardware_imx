@@ -287,7 +287,9 @@ void ExternalCameraDeviceSession::closeOutputThread() {
         mOutputThread->requestExitAndWait();
 
         if (mOutputThread->mUseDecoder2) {
+            #ifdef IMX_VPU_JPEG_DECODER
             mOutputThread->releaseDecoder();
+            #endif
         }
 
         if (mOutputThread->mDecoder) {
@@ -969,7 +971,9 @@ Status ExternalCameraDeviceSession::switchToOffline(
 
     return Status::OK;
 }
-
+#ifndef IMX_VPU_JPEG_DECODER
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
+#endif
 #define UPDATE(md, tag, data, size)               \
     do {                                          \
         if ((md).update((tag), (data), (size))) { \
@@ -2567,6 +2571,7 @@ int ExternalCameraDeviceSession::OutputThread::initVpuThread() {
         mUseDecoder2 = false;
 
     if (mUseDecoder2) {
+        #ifdef IMX_VPU_JPEG_DECODER
         mDecoder2 = CreateVideoDecoderInstance(MEDIA_MIMETYPE_VIDEO_MJPEG, false);
         if (!mDecoder2) {
             ALOGE("%s: Create mDecoder2 Instance for MJPEG failed \n", __FUNCTION__);
@@ -2589,6 +2594,7 @@ int ExternalCameraDeviceSession::OutputThread::initVpuThread() {
             releaseDecoder();
             return -errno;
         }
+        #endif
     } else {
 
         mDecoder = new HwDecoder(maxJpegSize.width, maxJpegSize.height);
@@ -3208,8 +3214,10 @@ int ExternalCameraDeviceSession::OutputThread::VpuDecGetBuffer(uint8_t* inData, 
 
     int ret = 0;
     if (mUseDecoder2) {
+        #ifdef IMX_VPU_JPEG_DECODER
         ret = mDecoder2->queueInput(inData, inDataSize, mDecedFrames, 0, -1,
                                     static_cast<int32_t>(mDecedFrames));
+        #endif
     } else {
         ret = mDecoder->queueInputBuffer(std::move(inputbuf));
     }
@@ -3234,7 +3242,9 @@ int ExternalCameraDeviceSession::OutputThread::VpuDecGetBuffer(uint8_t* inData, 
         t1 = systemTime();
 
     if (mUseDecoder2) {
+        #ifdef IMX_VPU_JPEG_DECODER
         ret = getOutputBuffer(mDecWaitTimeoutMs);
+        #endif
     } else {
         // mjpeg decoded to nv12/nv16/yuyv raw data
         ret = mDecoder->exportDecodedBuf(mDecodedData, mDecWaitTimeoutMs);
@@ -3314,7 +3324,9 @@ void ExternalCameraDeviceSession::OutputThread::VpuDecReturnBuffer() {
 
     if (mUseDecoder2) {
         ALOGV("VpuDecReturnBuffer id=%d", mDecodedData.bufId);
+        #ifdef IMX_VPU_JPEG_DECODER
         mDecoder2->returnOutputBufferToDecoder(mDecodedData.bufId);
+        #endif
     } else {
         mDecoder->returnOutputBufferToDecoder(mDecodedData.bufId);
     }
@@ -3917,6 +3929,7 @@ bool ExternalCameraDeviceSession::OutputThread::threadLoop() {
     signalRequestDone();
     return true;
 }
+#ifdef IMX_VPU_JPEG_DECODER
 void ExternalCameraDeviceSession::OutputThread::notifySourceChanged(uint32_t flag, VideoFormat* pFormat) {
     if (!pFormat)
         return;
@@ -4015,6 +4028,7 @@ void ExternalCameraDeviceSession::OutputThread::releaseDecoder() {
     }
     mOutputBlockPool.reset();
 }
+#endif
 // End ExternalCameraDeviceSession::OutputThread functions
 
 } // namespace implementation

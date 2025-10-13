@@ -38,7 +38,9 @@
 #include "ExternalISPWrapper.h"
 #include "HwDecoder.h"
 #include "ImageProcess.h"
+#ifdef IMX_VPU_JPEG_DECODER
 #include "VideoDecoderBase.h"
+#endif
 #include <C2PlatformSupport.h>
 
 using namespace fsl;
@@ -186,7 +188,11 @@ public:
         std::condition_variable mRequestDoneCond; // signaled when a request is done
     };
 
-    class OutputThread : public SimpleThread, public VideoDecoderBase::Client {
+    class OutputThread : public SimpleThread
+    #ifdef IMX_VPU_JPEG_DECODER
+    , public VideoDecoderBase::Client
+    #endif
+    {
     public:
         OutputThread(std::weak_ptr<OutputThreadInterface> parent, CroppingType,
                      const common::V1_0::helper::CameraMetadata&,
@@ -217,6 +223,7 @@ public:
         int initVpuThread();
         std::unique_ptr<ExternalISPWrapper> m_IspWrapper;
 
+        #ifdef IMX_VPU_JPEG_DECODER
         int setDecoderParams(uint32_t width, uint32_t height);
         void releaseDecoder();
         // from VideoDecoderBase
@@ -226,6 +233,7 @@ public:
         void notifySkipInputBuffer(int32_t input_id) override;
         void notifyError(status_t err) override;
         void notifyEos() override;
+        #endif
         bool mUseDecoder2;
 
     protected:
@@ -313,6 +321,7 @@ public:
         bool mUseHalBufManager = false;
         ImxEngine mEngine = ENG_CPU;
 
+        #ifdef IMX_VPU_JPEG_DECODER
         sp<VideoDecoderBase> mDecoder2;
         mutable std::mutex mFramesSignalLock;
         std::condition_variable mFramesSignal;
@@ -321,6 +330,7 @@ public:
         uint32_t mWidth;
         uint32_t mHeight;
         int getOutputBuffer(int timeout);
+        #endif
     };
 
 private:

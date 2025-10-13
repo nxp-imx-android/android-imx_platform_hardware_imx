@@ -317,7 +317,9 @@ status_t ExternalCameraDevice::initCameraCharacteristics() {
 
     return OK;
 }
-
+#ifndef IMX_VPU_JPEG_DECODER
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
+#endif
 #define UPDATE(tag, data, size)                        \
     do {                                               \
         if (metadata->update((tag), (data), (size))) { \

@@ -37,11 +37,13 @@ func extCamDefaults(ctx android.LoadHookContext) {
 			Android struct {
 				Enabled  *bool
 				Cppflags []string
+				Shared_libs []string
 			}
 		}
 	}
 	p := &props{}
 	var platform string = ctx.Config().VendorConfig("IMXPLUGIN").String("BOARD_PLATFORM")
+	var board string = ctx.Config().VendorConfig("IMXPLUGIN").String("BOARD_SOC_TYPE")
 	if strings.Contains(platform, "imx") {
 		p.Target.Android.Enabled = proptools.BoolPtr(true)
 	} else {
@@ -50,6 +52,12 @@ func extCamDefaults(ctx android.LoadHookContext) {
 
 	if ctx.Config().VendorConfig("IMXPLUGIN").String("TARGET_GRALLOC_VERSION") == "v4" {
 		p.Target.Android.Cppflags = append(p.Target.Android.Cppflags, "-DGRALLOC_VERSION=4")
+	}
+
+	if (strings.Contains(board, "IMX8MQ") || strings.Contains(board, "IMX8Q") || strings.Contains(board, "IMX95")) {
+		p.Target.Android.Cppflags = append(p.Target.Android.Cppflags, "-DIMX_VPU_JPEG_DECODER")
+		p.Target.Android.Shared_libs = append(p.Target.Android.Shared_libs, "lib_imx_c2_videodec_common")
+		p.Target.Android.Shared_libs = append(p.Target.Android.Shared_libs, "lib_imx_c2_v4l2_dec")
 	}
 
 	ctx.AppendProperties(p)

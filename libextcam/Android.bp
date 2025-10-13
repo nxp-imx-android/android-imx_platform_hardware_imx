@@ -87,8 +87,6 @@ cc_library_shared {
         "libstagefright_foundation",
         "libbase",
         "libimageprocess",
-        "lib_imx_c2_videodec_common",
-        "lib_imx_c2_v4l2_dec",
         "libcodec2_vndk",
     ],
     static_libs: [
