@@ -616,22 +616,26 @@ int DeviceComposer::composeLayerLocked(G2dBuffer& layerBuffer, G2dBuffer& target
     common::Rect& drect = layerBuffer.layer->drect;
 #ifdef DEBUG_NXP_HWC_G2D
     if (layerBuffer.hnd != nullptr) {
-        DEBUG_LOG_G2D("%s: compose layer id=%ld, %d x %d, zorder:0x%x, phys:0x%" PRIx64
+        DEBUG_LOG_G2D("%s: compose layer(%s) id=%ld, %d x %d, zorder:0x%x, phys:0x%" PRIx64
                       ", transform:%s, blend:%s, alpha:0x%x, name=%s",
-                      __FUNCTION__, layerBuffer.layer->id, layerBuffer.infoPtr->width,
-                      layerBuffer.infoPtr->height, layerBuffer.layer->zorder,
-                      layerBuffer.infoPtr->phys, toString(transform).c_str(),
-                      toString(mode).c_str(), alpha, layerBuffer.infoPtr->name);
+                      __FUNCTION__, toString(type).c_str(), layerBuffer.layer->id,
+                      layerBuffer.infoPtr->width, layerBuffer.infoPtr->height,
+                      layerBuffer.layer->zorder, layerBuffer.infoPtr->phys,
+                      toString(transform).c_str(), toString(mode).c_str(), alpha,
+                      layerBuffer.infoPtr->name);
     } else {
-        DEBUG_LOG_G2D("%s: compose layer id=%ld, zorder:0x%x, transform:%s, blend:%s, "
+        DEBUG_LOG_G2D("%s: compose layer(%s) id=%ld, zorder:0x%x, transform:%s, blend:%s, "
                       "alpha:0x%x, solid color layer",
-                      __FUNCTION__, layerBuffer.layer->id, layerBuffer.layer->zorder,
-                      toString(transform).c_str(), toString(mode).c_str(), alpha);
+                      __FUNCTION__, toString(type).c_str(), layerBuffer.layer->id,
+                      layerBuffer.layer->zorder, toString(transform).c_str(),
+                      toString(mode).c_str(), alpha);
     }
 #endif
 
-    if ((isRectEmpty(srect) && !(type == Composition::SOLID_COLOR)) || isRectEmpty(drect)) {
-        ALOGE("%s: invalid srect or drect", __FUNCTION__);
+    if (((layerBuffer.hnd != nullptr) && isRectEmpty(srect)) || isRectEmpty(drect)) {
+        ALOGE("%s: type=%s, invalid srect(%d, %d, %d, %d) or drect(%d, %d, %d, %d)", __FUNCTION__,
+              toString(type).c_str(), srect.left, srect.top, srect.right, srect.bottom, drect.left,
+              drect.top, drect.right, drect.bottom);
         return 0;
     }
     if (alpha == 0) {
@@ -639,7 +643,7 @@ int DeviceComposer::composeLayerLocked(G2dBuffer& layerBuffer, G2dBuffer& target
         return 0;
     }
 
-    if (type == Composition::SOLID_COLOR) {
+    if (layerBuffer.hnd == nullptr) {
         prepareSolidColorBuffer(targetBuffer);
     }
 
