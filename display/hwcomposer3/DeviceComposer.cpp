@@ -293,7 +293,7 @@ int DeviceComposer::prepareSolidColorBuffer(G2dBuffer& target) {
         rect.left = rect.top = 0;
         rect.right = static_cast<int>(mSolidColorBuffer.infoPtr->width);
         rect.bottom = static_cast<int>(mSolidColorBuffer.infoPtr->height);
-        clearRect(mSolidColorBuffer, rect);
+        clearRect(mSolidColorBuffer, rect, 0xff << 24);
     }
 
     return 0;
@@ -315,7 +315,7 @@ int DeviceComposer::finishComposite() {
     return 0;
 }
 
-int DeviceComposer::clearRect(G2dBuffer& buff, common::Rect& rect) {
+int DeviceComposer::clearRect(G2dBuffer& buff, common::Rect& rect, uint32_t color) {
     if (buff.hnd == NULL || isRectEmpty(rect)) {
         return 0;
     }
@@ -325,11 +325,11 @@ int DeviceComposer::clearRect(G2dBuffer& buff, common::Rect& rect) {
 
     memset(&surfaceX, 0, sizeof(surfaceX));
     setG2dSurface(surfaceX, buff, rect);
-    surface.clrcolor = 0xff << 24;
+    surface.clrcolor = color;
     clearFunction(getHandle(), &surface);
 
-    DEBUG_LOG_G2D("clearRect: rect(l:%d,t:%d,r:%d,b:%d)", rect.left, rect.top, rect.right,
-                  rect.bottom);
+    DEBUG_LOG_G2D("clearRect: rect(l:%d,t:%d,r:%d,b:%d) with color(0xABGR):0x%08x", rect.left,
+                  rect.top, rect.right, rect.bottom, color);
     return 0;
 }
 
@@ -360,12 +360,23 @@ int DeviceComposer::clearWormHole(std::vector<int64_t>& layerIds, G2dBuffer& tar
     const ::android::Rect* holes = NULL;
     size_t numRect = 0;
     holes = screen.getArray(&numRect);
+#ifdef DEBUG_NXP_HWC_G2D
+    std::string opaque_str;
+    char tempStr[64];
+    auto head = opaque.begin();
+    auto const tail = opaque.end();
+    while (head != tail) {
+        sprintf(tempStr, "[%d,%d,%d,%d]", head->left, head->top, head->right, head->bottom);
+        opaque_str += tempStr;
+        head++;
+    }
+    DEBUG_LOG_G2D("%s: clear %zu worm holes(opaque=%s)", __FUNCTION__, numRect, opaque_str.c_str());
+#endif
 
     // clear worm hole.
     struct g2d_surfaceEx surfaceX;
     memset(&surfaceX, 0, sizeof(surfaceX));
     struct g2d_surface& surface = surfaceX.base;
-    DEBUG_LOG_G2D("%s: clear %zu worm holes", __FUNCTION__, numRect);
     int clrcolor = 0x00 << 24; // make alpha be 0(transparent) for DRM_FORMAT_ABGR8888 like format.
     for (size_t i = 0; i < numRect; i++) {
         if (holes[i].isEmpty()) {
@@ -1183,11 +1194,6 @@ bool DeviceComposer::checkDeviceComposition(Layer* layer) {
     }
 
 #ifndef G2D_LIMITATION_PXP
-    if (layer->getCompositionType() == Composition::CLIENT) {
-        DEBUG_LOG("%s: Not process type=CLIENT layer", __FUNCTION__);
-        return false;
-    }
-
     if (layer->getColorTransform() != std::nullopt) {
         DEBUG_LOG("%s: g2d can't support color transform", __FUNCTION__);
         return false;
@@ -1352,7 +1358,6 @@ void DeviceComposer::composeG2dLayers(std::vector<int64_t>& layerIds, G2dBuffer&
     }
 
     lockSurface(targetBuffer);
-    clearWormHole(layerIds, targetBuffer);
 
     // to do composite.
     int i = 0, ret = 0;
@@ -1461,6 +1466,13 @@ std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
             // The intermediate buffer is allocated when prepare G2D framebuffer
             dstBuffer.hnd = mCachedComposition[mInterId].hnd;
             dstBuffer.infoPtr = &mCachedComposition[mInterId].info;
+
+            common::Rect rect;
+            rect.left = rect.top = 0;
+            rect.right = static_cast<int>(dstBuffer.infoPtr->width);
+            rect.bottom = static_cast<int>(dstBuffer.infoPtr->height);
+            clearRect(dstBuffer, rect, 0x00 << 24);
+
             composeG2dLayers(cacheIds, dstBuffer);
 
             common::BlendMode mode = common::BlendMode::NONE;

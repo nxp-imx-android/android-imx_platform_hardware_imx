@@ -134,7 +134,7 @@ private:
                         struct g2d_surface& dst);
     int prepareSolidColorBuffer(G2dBuffer& target);
     int prepareG2dTempBuffer(G2dBuffer& srcBuffer, uint32_t newFormat, G2dBuffer* tempBuffer);
-    int clearRect(G2dBuffer& buff, common::Rect& rect);
+    int clearRect(G2dBuffer& buff, common::Rect& rect, uint32_t color);
 
     int getAlignedSize(G2dBuffer& buff, int* width, int* height);
     int getFlipOffset(G2dBuffer& buff, uint32_t* offset);
