@@ -52,9 +52,10 @@
 
 // uncomment below to enable framebuffer dump feature
 // #define DEBUG_DUMP_FRAME
-
 // uncomment below to enable layer buffer dump feature
 // #define DEBUG_DUMP_LAYER_BUFFER
+// uncomment below to enable g2d intermediate composition result dump feature
+// #define DEBUG_DUMP_G2D_INTER_COMPOSITION
 
 #if 0 // Below already defined in Memory.h
 #define ALIGN_PIXEL_2(x) ((x + 1) & ~1)
@@ -140,8 +141,8 @@ void dumpRefreshRateEnd(DumpRefreshRate& dump, uint32_t vsyncPeriod, nsecs_t sta
 
 #ifdef DEBUG_DUMP_FRAME
 void debug_dump_framebuffer(buffer_handle_t handle);
-#ifdef DEBUG_DUMP_LAYER_BUFFER
-void debug_dump_layerbuffer(buffer_handle_t handle, uint32_t index);
+#if defined(DEBUG_DUMP_LAYER_BUFFER) || defined(DEBUG_DUMP_G2D_INTER_COMPOSITION)
+void debug_dump_layerbuffer(buffer_handle_t handle, int64_t index);
 #endif
 #endif
 

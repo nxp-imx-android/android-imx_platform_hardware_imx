@@ -290,7 +290,7 @@ static void dump_frame_to_file(void *pbuf, int size, char *filename) {
     }
 }
 
-static void dump_frame(buffer_handle_t handle, std::string prefix, uint32_t count, uint32_t index) {
+static void dump_frame(buffer_handle_t handle, std::string prefix, uint32_t count, int64_t index) {
     HandleInfo info;
     if (handle == nullptr || (getInfoFromHandle(handle, &info) != 0)) {
         ALOGE("%s: invalid native handle", __FUNCTION__);
@@ -301,7 +301,7 @@ static void dump_frame(buffer_handle_t handle, std::string prefix, uint32_t coun
     memset(filename, 0, 128);
     char *sequence = (char *)&(info.drm_format);
     std::string s(sequence, 4);
-    sprintf(filename, "/data/vendor/hwc/%s-%d-%s-%dx%d-%d.dat", prefix.c_str(), count, s.c_str(),
+    sprintf(filename, "/data/vendor/hwc/%s-%d-%s-%dx%d-%ld.dat", prefix.c_str(), count, s.c_str(),
             info.stride, info.height, index);
 
     if (info.base == 0) {
@@ -367,8 +367,8 @@ void debug_dump_framebuffer(buffer_handle_t handle) {
         }
     }
 }
-#ifdef DEBUG_DUMP_LAYER_BUFFER
-void debug_dump_layerbuffer(buffer_handle_t handle, uint32_t index) {
+#if defined(DEBUG_DUMP_LAYER_BUFFER) || defined(DEBUG_DUMP_G2D_INTER_COMPOSITION)
+void debug_dump_layerbuffer(buffer_handle_t handle, int64_t index) {
     if (start_dump || dump_frame_last) {
         dump_frame(handle, "layer", dumpped_count, index);
     }

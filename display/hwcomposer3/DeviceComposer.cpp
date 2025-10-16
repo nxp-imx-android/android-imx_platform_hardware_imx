@@ -21,6 +21,7 @@
 #include <hardware/gralloc.h>
 #include <inttypes.h>
 #include <libyuv.h>
+#include <sync/sync.h>
 #include <ui/GraphicBufferAllocator.h>
 #include <ui/GraphicBufferMapper.h>
 #include <ui/Rect.h>
@@ -1494,6 +1495,16 @@ std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
     if (!composeFence.ok())
         finishComposite();
 
+#ifdef DEBUG_DUMP_G2D_INTER_COMPOSITION
+    if (composeFence.ok()) {
+        int err = sync_wait(composeFence.get(), 3000);
+        if (err < 0 && errno == ETIME) {
+            ALOGE("%s waited on g2d fence %" PRId32 " for 3000 ms", __FUNCTION__,
+                  composeFence.get());
+        }
+    }
+    debug_dump_layerbuffer(mCachedComposition[mInterId].hnd, mInterId);
+#endif
     return std::make_tuple(true, std::move(composeFence));
 }
 
