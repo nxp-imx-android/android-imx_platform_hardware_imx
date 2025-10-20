@@ -3169,16 +3169,14 @@ int ExternalCameraDeviceSession::OutputThread::VpuDecGetBuffer(uint8_t* inData, 
 
     Size thumbSize = parent->getMaxThumbSize();
 
-    int ret = 0;
 #ifdef IMX_VPU_JPEG_DECODER
-    ret = mDecoder->queueInput(inData, inDataSize, mDecedFrames, 0, -1,
+    int ret = mDecoder->queueInput(inData, inDataSize, mDecedFrames, 0, -1,
                                 static_cast<int32_t>(mDecedFrames));
-#endif
-
     if (ret) {
         usleep(5000);
         return ret;
     }
+#endif
 
     // Increase waiting time when decoding first frame, otherwise case
     // android.hardware.camera2.cts.SurfaceViewPreviewTest#testCameraPreview[1]
@@ -3198,6 +3196,8 @@ int ExternalCameraDeviceSession::OutputThread::VpuDecGetBuffer(uint8_t* inData, 
 #ifdef IMX_VPU_JPEG_DECODER
     // mjpeg decoded to nv12/nv16/yuyv raw data
     ret = getOutputBuffer(mDecWaitTimeoutMs);
+    if (ret)
+        return ret;
 #endif
 
     if (mDebug) {
@@ -3205,9 +3205,6 @@ int ExternalCameraDeviceSession::OutputThread::VpuDecGetBuffer(uint8_t* inData, 
         ALOGI("exportDecodedBuf use %lld ns, %lld ms, decoded size %dx%d", (long long)t2 - t1,
               (long long)(t2 - t1) / 1000000, mDecodedData.width, mDecodedData.height);
     }
-
-    if (ret)
-        return ret;
 
     mDecedFrames++;
     if (mDecedFrames == 1)
