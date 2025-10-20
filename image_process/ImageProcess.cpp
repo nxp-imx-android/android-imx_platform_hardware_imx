@@ -1256,23 +1256,65 @@ static void HalPixelFormatToOclPixelFormat(uint32_t &halPixelFormat,
     return;
 }
 
-static void ImxImageBufferToOclFormat(ImxImageBuffer &imxImgBuf, OCL_FORMAT &oclFormat) {
-    OCL_PIXEL_FORMAT oclPixelFormat;
+static void ImxImageBufferToOclFormat(ImxImageBuffer &srcImgBuf, OCL_FORMAT &input_format,
+                                      ImxImageBuffer &dstImgBuf, OCL_FORMAT &output_format) {
+    OCL_PIXEL_FORMAT srcPixelFormat, dstPixelFormat;
 
-    HalPixelFormatToOclPixelFormat(imxImgBuf.mFormat, oclPixelFormat);
+    HalPixelFormatToOclPixelFormat(srcImgBuf.mFormat, srcPixelFormat);
+    HalPixelFormatToOclPixelFormat(dstImgBuf.mFormat, dstPixelFormat);
 
-    oclFormat.format = oclPixelFormat;
-    oclFormat.width = imxImgBuf.mWidth;
-    oclFormat.height = imxImgBuf.mHeightSpan;
-    oclFormat.stride = imxImgBuf.mStride;
-    oclFormat.sliceheight = imxImgBuf.mHeightSpan;
-    oclFormat.left = 0;
-    oclFormat.top = 0;
-    oclFormat.right = imxImgBuf.mWidth;
-    oclFormat.bottom = imxImgBuf.mHeightSpan;
-    oclFormat.colorspace = OCL_COLORSPACE_BT709;
+    // Calculate scale ratios for each dimension
+    int h_offset = 0;
+    int v_offset = 0;
+    int crop_width = srcImgBuf.mWidth;
+    int crop_height = srcImgBuf.mHeightSpan;
+    float h_scale_ratio = (float)srcImgBuf.mWidth / dstImgBuf.mWidth;
+    float v_scale_ratio = (float)srcImgBuf.mHeightSpan / dstImgBuf.mHeight;
 
-    return;
+    // Use the smaller scale ratio to maintain aspect ratio (crop the other dimension)
+    float scale_ratio = (h_scale_ratio < v_scale_ratio) ? h_scale_ratio : v_scale_ratio;
+
+    if (scale_ratio > 1.0f) {
+        // Calculate what the source dimensions should be to maintain aspect ratio
+        crop_width = (int)(dstImgBuf.mWidth * scale_ratio);
+        crop_height = (int)(dstImgBuf.mHeight * scale_ratio);
+
+        // Ensure crop dimensions don't exceed source dimensions
+        if (crop_width > (int)srcImgBuf.mWidth)
+            crop_width = srcImgBuf.mWidth;
+        if (crop_height > (int)srcImgBuf.mHeightSpan)
+            crop_height = srcImgBuf.mHeightSpan;
+
+        // Center the crop area
+        h_offset = (srcImgBuf.mWidth - crop_width) / 2;
+        v_offset = (srcImgBuf.mHeightSpan - crop_height) / 2;
+    } else {
+        ALOGW("%s: cropping for upscale is not considered.", __func__);
+    }
+
+    // Set source format, update input format to use the cropped area
+    input_format.format = srcPixelFormat;
+    input_format.width = srcImgBuf.mWidth;
+    input_format.height = srcImgBuf.mHeightSpan;
+    input_format.stride = srcImgBuf.mStride;
+    input_format.sliceheight = srcImgBuf.mHeightSpan;
+    input_format.left = h_offset;
+    input_format.top = v_offset;
+    input_format.right = h_offset + crop_width;
+    input_format.bottom = v_offset + crop_height;
+    input_format.colorspace = OCL_COLORSPACE_BT709;
+
+    // Set destination format
+    output_format.format = dstPixelFormat;
+    output_format.width = dstImgBuf.mWidth;
+    output_format.height = dstImgBuf.mHeightSpan;
+    output_format.stride = dstImgBuf.mStride;
+    output_format.sliceheight = dstImgBuf.mHeightSpan;
+    output_format.left = 0;
+    output_format.top = 0;
+    output_format.right = dstImgBuf.mWidth;
+    output_format.bottom = dstImgBuf.mHeightSpan;
+    output_format.colorspace = OCL_COLORSPACE_BT709;
 }
 
 int ImageProcess::ConvertImageByOclCvt(ImxImageBuffer &dstBuf, ImxImageBuffer &srcBuf) {
@@ -1302,8 +1344,7 @@ int ImageProcess::ConvertImageByOclCvt(ImxImageBuffer &dstBuf, ImxImageBuffer &s
     memset(&input_format, 0, sizeof(input_format));
     memset(&output_format, 0, sizeof(output_format));
 
-    ImxImageBufferToOclFormat(srcBuf, input_format);
-    ImxImageBufferToOclFormat(dstBuf, output_format);
+    ImxImageBufferToOclFormat(srcBuf, input_format, dstBuf, output_format);
 
     ret = m_ocl_setParam(hOcl, OCL_PARAM_INDEX_INPUT_FORMAT, &input_format);
     if (ret) {
