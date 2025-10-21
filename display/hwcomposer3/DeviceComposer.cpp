@@ -145,6 +145,8 @@ DeviceComposer::DeviceComposer() {
     mOclCvt = std::make_unique<OclConverter>();
     if (mOclCvt->isValid())
         ALOGI("%s: OpenCL lib load successfully", __FUNCTION__);
+
+    mInterCount = getMaxG2dInterCompositionResult();
 }
 
 DeviceComposer::~DeviceComposer() {
@@ -194,7 +196,7 @@ int DeviceComposer::prepareDeviceFrameBuffer(uint32_t width, uint32_t height, ui
         usage |= GRALLOC_USAGE_PROTECTED;
 
 #ifdef G2D_CACHED_COMPOSITION
-    extra = 1;
+    extra = mInterCount;
     int64_t interId = mInterId;
 #endif
     for (uint32_t i = 0; i < count + extra; i++) {
@@ -1289,6 +1291,9 @@ std::optional<std::vector<int64_t>> DeviceComposer::cacheG2dLayersStats(
     }
 
 #ifdef G2D_CACHED_COMPOSITION
+    if (mInterCount < 1)
+        return std::nullopt;
+
     std::unordered_map<int32_t, std::vector<int64_t>> cachedIds;
     int32_t cnt = 0;
     std::vector<int64_t> slices;

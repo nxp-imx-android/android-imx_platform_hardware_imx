@@ -170,6 +170,7 @@ private:
 
     std::unordered_map<int64_t, G2dInterLayer> mCachedLayers;
     int64_t mInterId = G2D_INTERLAYER_ID;
+    int32_t mInterCount = 0;
     std::unordered_map<int64_t, G2dInterComposition> mCachedComposition;
 
     hwc_func3 mGetAlignedSize;

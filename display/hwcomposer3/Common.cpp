@@ -1,6 +1,6 @@
 /*
  * Copyright 2022 The Android Open Source Project
- * Copyright 2023-2024 NXP
+ * Copyright 2023-2025 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,6 +66,13 @@ std::string getFramebufferFormat() {
     std::string format = ::android::base::GetProperty("vendor.hwc.framebuffer_format", "");
     DEBUG_LOG("%s: property vendor.hwc.framebuffer_format is %s", __FUNCTION__, format.c_str());
     return format;
+}
+
+int getMaxG2dInterCompositionResult() {
+    std::string count = ::android::base::GetProperty("vendor.hwc.max_g2d_inter_composition", "1");
+    DEBUG_LOG("%s: property vendor.hwc.max_g2d_inter_composition is %s", __FUNCTION__,
+              count.c_str());
+    return atoi(count.c_str());
 }
 
 std::string toString(HWC3::Error error) {
