@@ -313,6 +313,15 @@ int32_t ExternalISPWrapper::processAfMode(uint8_t mode, bool force) {
     ALOGV("%s, mode %d, m_lastAfMode %d", __func__, mode, m_lastAfMode);
     if (mode == m_lastAfMode && force == false)
         return 0;
+
+    v4l2_queryctrl queryctrl;
+    ret = queryV4L2Control(m_fd, V4L2_CID_FOCUS_AUTO, queryctrl);
+    if (ret != 0) {
+        ALOGE("%s, control 0x%08x not support!", __func__, V4L2_CID_FOCUS_AUTO);
+        m_lastAfMode = mode;
+        return -1;
+    }
+
     ALOGI("%s: set af mode to %d, force %d", __func__, mode, force);
 
     bool autoFocusMode = false;
