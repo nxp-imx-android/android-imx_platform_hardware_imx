@@ -33,26 +33,6 @@ using aidl::android::media::audio::common::MicrophoneInfo;
 
 namespace aidl::android::hardware::audio::core {
 
-void* StreamMmap::_threadLoop(void *arg) {
-    StreamMmap* instance = static_cast<StreamMmap*>(arg);
-    instance->threadLoop();
-    return nullptr;
-}
-
-void* StreamMmap::threadLoop() {
-    LOG(DEBUG) << __func__;
-    while (mThreadRun) {
-        if (mPcm) {
-            if (pcm_mmap_avail(mPcm) >= MMAP_PERIOD_SIZE) {
-                pcm_mmap_commit(mPcm, 0, MMAP_PERIOD_SIZE);
-            }
-        }
-        usleep(MMAP_PERIOD_MS * 1000 / 2);
-    }
-    LOG(DEBUG) << __func__ << " end";
-    return nullptr;
-}
-
 ::android::status_t StreamMmap::init(DriverCallbackInterface* callback) {
     LOG(DEBUG) << __func__;
     return ::android::OK;
@@ -86,11 +66,6 @@ void StreamMmap::stop() {
     if (!mIsStarted) {
         LOG(DEBUG) << __func__ << " already stopped.";
         return;
-    }
-
-    if (mThreadRun) {
-        mThreadRun = false;
-        pthread_join(mThreadId, nullptr);
     }
 
     if (mPcm) {
@@ -131,16 +106,6 @@ void StreamMmap::stop() {
         LOG(DEBUG) << __func__ << ": start error: " << pcm_get_error(mPcm);
         return ::android::NO_INIT;
     }
-
-    struct sched_param schParam;
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
-    schParam.sched_priority = 3;
-    pthread_attr_setschedparam(&attr, &schParam);
-    mThreadRun = true;
-    pthread_create(&mThreadId, &attr, _threadLoop, this);
-    pthread_attr_destroy(&attr);
 
     mIsStarted = true;
 
@@ -270,6 +235,7 @@ struct pcm* StreamMmap::openPcm() {
             VALUE_OR_FATAL(aidl2legacy_AudioFormatDescription_audio_format_t(mContext.getFormat())));
     config.period_size = MMAP_PERIOD_SIZE;
     config.period_count = MMAP_PERIOD_COUNT;
+    config.stop_threshold = ULONG_MAX;
     AudioCardManager::printPcmConfig(&config);
 
     if (mIsInput)

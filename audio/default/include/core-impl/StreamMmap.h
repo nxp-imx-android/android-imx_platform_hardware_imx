@@ -28,14 +28,9 @@
 namespace aidl::android::hardware::audio::core {
 
 #define MMAP_SAMPLE_RATE 48000
-
-/* period size : period ms : buffer ms
-         512   :   10.7    :   42.7
-         256   :    5.3    :   21.3
-*/
-#define MMAP_PERIOD_SIZE 512
+#define MMAP_PERIOD_SIZE 96
 #define MMAP_PERIOD_MS (MMAP_PERIOD_SIZE * 1000 / MMAP_SAMPLE_RATE)
-#define MMAP_PERIOD_COUNT 4
+#define MMAP_PERIOD_COUNT 256
 #define MMAP_BUFFER_MS (MMAP_PERIOD_MS * MMAP_PERIOD_COUNT)
 #define MMAP_BUFFER_SIZE (MMAP_PERIOD_SIZE * MMAP_PERIOD_COUNT)
 
@@ -77,10 +72,6 @@ class StreamMmap : public StreamCommonImpl {
     struct pcm *mPcm = nullptr;
     struct pcm* openPcm();
     void closePcm();
-    pthread_t mThreadId = 0;
-    bool mThreadRun = false;
-    static void* _threadLoop(void*);
-    void* threadLoop();
     StreamDescriptor::Position mPosition;
     int64_t mTotalFrames = 0;
 };
