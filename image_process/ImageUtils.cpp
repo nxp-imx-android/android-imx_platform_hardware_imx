@@ -1043,6 +1043,7 @@ int GetBufferInfoFromHandle(buffer_handle_t bufferHandle, ImxImageBuffer &outBuf
     outBufInfo.mFd = sharedFd;
     outBufInfo.buffer = bufferHandle;
     outBufInfo.mSize = allocatedSize;
+    outBufInfo.mUsage = usage;
 
     return 0;
 }
