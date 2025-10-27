@@ -582,29 +582,29 @@ static void getModule(char *path, const char *name) {
     return;
 }
 
-static void initializeModule(void **G2dHandle, void **CLHandle) {
+static void initializeModule(void **G2dModule, void **G2dHandle, void **CLModule, void **CLHandle) {
     char path[PATH_MAX] = {0};
     char g2dlibName[PATH_MAX] = {0};
 
     // open g2d module
     if (getDefaultG2DLib(g2dlibName, PATH_MAX)) {
         getModule(path, g2dlibName);
-        *G2dHandle = dlopen(path, RTLD_NOW);
+        *G2dModule = dlopen(path, RTLD_NOW);
     }
-    if ((*G2dHandle) != NULL) {
-        mOpenEngine = (hwc_func1)dlsym(*G2dHandle, "g2d_open");
-        mCloseEngine = (hwc_func1)dlsym(*G2dHandle, "g2d_close");
-        mFinishEngine = (hwc_func1)dlsym(*G2dHandle, "g2d_finish");
-        mCopyEngine = (hwc_func4)dlsym(*G2dHandle, "g2d_copy");
-        mBlitEngine = (hwc_func3)dlsym(*G2dHandle, "g2d_blit");
-        mQueryFeature = (hwc_query)dlsym(*G2dHandle, "g2d_query_feature");
-        mSetWarpCord = (hwc_func2)dlsym(*G2dHandle, "g2d_set_warp_coordinates");
-        mEnableEngine = (hwc_enable)dlsym(*G2dHandle, "g2d_enable");
-        mDisableEngine = (hwc_disable)dlsym(*G2dHandle, "g2d_disable");
-        mAlloc = (hwc_alloc)dlsym(*G2dHandle, "g2d_alloc");
-        mFree = (hwc_free)dlsym(*G2dHandle, "g2d_free");
+    if ((*G2dModule) != NULL) {
+        mOpenEngine = (hwc_func1)dlsym(*G2dModule, "g2d_open");
+        mCloseEngine = (hwc_func1)dlsym(*G2dModule, "g2d_close");
+        mFinishEngine = (hwc_func1)dlsym(*G2dModule, "g2d_finish");
+        mCopyEngine = (hwc_func4)dlsym(*G2dModule, "g2d_copy");
+        mBlitEngine = (hwc_func3)dlsym(*G2dModule, "g2d_blit");
+        mQueryFeature = (hwc_query)dlsym(*G2dModule, "g2d_query_feature");
+        mSetWarpCord = (hwc_func2)dlsym(*G2dModule, "g2d_set_warp_coordinates");
+        mEnableEngine = (hwc_enable)dlsym(*G2dModule, "g2d_enable");
+        mDisableEngine = (hwc_disable)dlsym(*G2dModule, "g2d_disable");
+        mAlloc = (hwc_alloc)dlsym(*G2dModule, "g2d_alloc");
+        mFree = (hwc_free)dlsym(*G2dModule, "g2d_free");
         mGetCoordFromDct =
-                (hwc_get_coord_from_dct)dlsym(*G2dHandle, "g2d_get_warp_coordinates_from_dct_file");
+                (hwc_get_coord_from_dct)dlsym(*G2dModule, "g2d_get_warp_coordinates_from_dct_file");
         if (mOpenEngine(G2dHandle) != 0 || (*G2dHandle) == NULL) {
             *G2dHandle = NULL;
             ALOGE("Fail to open %s device!\n", path);
@@ -614,14 +614,14 @@ static void initializeModule(void **G2dHandle, void **CLHandle) {
     // open cl module
     memset(path, 0, sizeof(path));
     getModule(path, CLENGINE);
-    *CLHandle = dlopen(path, RTLD_NOW);
-    if ((*CLHandle) != NULL) {
-        mCLOpen = (hwc_func1)dlsym(*CLHandle, "cl_g2d_open");
-        mCLClose = (hwc_func1)dlsym(*CLHandle, "cl_g2d_close");
-        mCLFlush = (hwc_func1)dlsym(*CLHandle, "cl_g2d_flush");
-        mCLFinish = (hwc_func1)dlsym(*CLHandle, "cl_g2d_finish");
-        mCLBlit = (hwc_func3)dlsym(*CLHandle, "cl_g2d_blit");
-        mCLCopy = (hwc_func4)dlsym(*CLHandle, "cl_g2d_copy");
+    *CLModule = dlopen(path, RTLD_NOW);
+    if ((*CLModule) != NULL) {
+        mCLOpen = (hwc_func1)dlsym(*CLModule, "cl_g2d_open");
+        mCLClose = (hwc_func1)dlsym(*CLModule, "cl_g2d_close");
+        mCLFlush = (hwc_func1)dlsym(*CLModule, "cl_g2d_flush");
+        mCLFinish = (hwc_func1)dlsym(*CLModule, "cl_g2d_finish");
+        mCLBlit = (hwc_func3)dlsym(*CLModule, "cl_g2d_blit");
+        mCLCopy = (hwc_func4)dlsym(*CLModule, "cl_g2d_copy");
         if (mCLOpen(CLHandle) != 0 || (*CLHandle) == NULL) {
             *CLHandle = NULL;
             ALOGE("Fail to open %s device!\n", path);
@@ -1322,10 +1322,12 @@ int main(int argc, char **argv) {
     void *output_benchmark_buf = NULL;
 
     struct cl_g2d_surface src, dst;
+    void *CLModule = NULL;
     void *CLHandle = NULL;
 
     struct g2d_buf s_buf, d_buf;
     struct g2d_surface s_surface, d_surface;
+    void *G2dModule = NULL;
     void *G2dHandle = NULL;
 
     if (argc < 3) {
@@ -1543,7 +1545,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    initializeModule(&G2dHandle, &CLHandle);
+    initializeModule(&G2dModule, &G2dHandle, &CLModule, &CLHandle);
     if (G2dHandle == NULL && CLHandle == NULL) {
         ALOGE("G2dHandle and CLHandle both NULL");
         goto clean;
@@ -1641,6 +1643,9 @@ int main(int argc, char **argv) {
     if (gDewarpTest)
         goto clean;
 
+    for (int i = 0; i < TEST_BUFFER_NUM; i++)
+      memset(OutPhyBuffer[i].mVirtAddr, 0, OutPhyBuffer[i].mSize);
+
     // cl engine
     if (CLHandle != NULL) {
         ALOGI("Start CL engine blit, in size %d, out size %d", inputlen, outputlen);
@@ -1713,6 +1718,9 @@ int main(int argc, char **argv) {
 
         write_to_file((char *)output_buf, outputlen, output_cl_file);
     }
+
+    for (int i = 0; i < TEST_BUFFER_NUM; i++)
+      memset(OutPhyBuffer[i].mVirtAddr, 0, OutPhyBuffer[i].mSize);
 
     // cpu engine
     ALOGI("Start CPU 2d blit, in size %d, out size %d", inputlen, outputlen);
@@ -1790,6 +1798,14 @@ clean:
     }
     if (CLHandle != NULL) {
         mCLClose(CLHandle);
+    }
+
+    if (G2dModule != NULL) {
+        dlclose(G2dModule);
+    }
+
+    if (CLModule != NULL) {
+        dlclose(CLModule);
     }
 
     return 0;
