@@ -353,8 +353,18 @@ int32_t CameraDeviceSessionHwlImpl::processFrameBuffer(ImxStreamBuffer *srcBuf,
     ImxStream *srcStream = srcBuf->mStream;
     ImxStream *dstStream = dstBuf->mStream;
 
-    if (srcStream->mWidth == dstStream->mWidth && srcStream->mHeight == dstStream->mHeight &&
-        srcStream->format() == dstStream->format() && srcStream->mZoomRatio <= 1.0)
+    int32_t srcFmt = srcStream->format();
+    int32_t dstFmt = dstStream->format();
+
+    bool bFormatSame = false;
+    if (srcFmt == dstFmt)
+        bFormatSame = true;
+    else if ( ((srcFmt == HAL_PIXEL_FORMAT_YCbCr_420_SP) || (srcFmt == HAL_PIXEL_FORMAT_YCbCr_420_888)) &&
+              ((dstFmt == HAL_PIXEL_FORMAT_YCbCr_420_SP) || (dstFmt == HAL_PIXEL_FORMAT_YCbCr_420_888)) )
+        bFormatSame = true;
+
+    if ((srcStream->mWidth == dstStream->mWidth) && (srcStream->mHeight == dstStream->mHeight) &&
+        bFormatSame && (srcStream->mZoomRatio <= 1.0))
         engine = mCamBlitCopyType;
     else
         engine = mCamBlitCscType;
