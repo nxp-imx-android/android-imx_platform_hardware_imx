@@ -1005,10 +1005,11 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
         if (stream.format != HAL_PIXEL_FORMAT_BLOB)
             stream.usage |= GRALLOC_USAGE_HW_CAMERA_WRITE;
 
-        if (stream.usage & GRALLOC_USAGE_HW_TEXTURE)
-            stream.usage |= GRALLOC_USAGE_SW_READ_OFTEN;
-
         hal_stream.producer_usage = stream.usage | usage;
+
+        if (hal_stream.producer_usage & GRALLOC_USAGE_HW_TEXTURE)
+            hal_stream.producer_usage |= GRALLOC_USAGE_SW_READ_OFTEN;
+
         hal_stream.consumer_usage = 0;
         hal_stream.id = stream.id;
         hal_stream.override_data_space = stream.data_space;
