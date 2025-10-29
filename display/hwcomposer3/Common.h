@@ -48,6 +48,7 @@
 
 #define DEBUG_DUMP_REFRESH_RATE
 // #define DEBUG_DUMP_G2D_CONSUMPTION
+// #define DEBUG_DUMP_VIRT_G2D_CONSUMPTION
 
 // uncomment below to enable framebuffer dump feature
 // #define DEBUG_DUMP_FRAME

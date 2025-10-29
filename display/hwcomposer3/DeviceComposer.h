@@ -63,6 +63,7 @@ public:
     ~DeviceComposer();
 
     bool isValid();
+    bool prefered() { return mG2dPrefered; }
     int alignTile(int* width, int* height, int format, int usage);
 
     bool checkMustDeviceComposition(Layer* layer);
@@ -74,6 +75,8 @@ public:
     int freeSolidColorBuffer();
     int onLayerDestroy(Layer* layer);
 
+    int convertBuffer(buffer_handle_t inBuf, HandleInfo& inInfo, buffer_handle_t outBuf,
+                      HandleInfo& outInfo, bool useOcl);
     std::tuple<bool, ::android::base::unique_fd> composeLayers(std::vector<Layer*> layers,
                                                                buffer_handle_t target);
 

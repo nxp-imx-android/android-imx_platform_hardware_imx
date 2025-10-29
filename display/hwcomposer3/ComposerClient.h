@@ -251,9 +251,10 @@ private:
 
     std::function<void()> mOnClientDestroyed;
 
-    // Underlying interface for composing layers in the guest using libyuv or in
-    // the host using opengl. Owned by Device.
+    // Underlying interface for composing layers for display device(DRM/FBDEV) or for virtual
+    // display. Owned by Device.
     FrameComposer* mComposer = nullptr;
+    FrameComposer* mVirtComposer = nullptr;
 
     // Manages importing and caching gralloc buffers for displays and layers.
     std::unique_ptr<ComposerResources> mResources;

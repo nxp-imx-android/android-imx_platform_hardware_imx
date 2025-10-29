@@ -57,6 +57,9 @@
 #include "Time.h"
 #include "VsyncThread.h"
 
+#define HWC_MAX_VIRTUAL_DISPLAY_COUNT 16U
+#define HWC_VIRTUAL_DISPLAY_BASE_ID 1000
+
 namespace aidl::android::hardware::graphics::composer3::impl {
 
 class FrameComposer;
@@ -154,7 +157,10 @@ public:
     common::ColorTransform getColorTransformHint() { return mColorTransformHint; }
     PowerMode getPowerMode() const { return mPowerMode; }
 
+    void setFormat(common::PixelFormat format) { mFbFormat = format; }
+    common::PixelFormat getFormat() { return mFbFormat; }
     FencedBuffer& getClientTarget() { return mClientTarget; }
+    FencedBuffer& getOutputBuffer() { return mOutputBuffer; }
     buffer_handle_t waitAndGetClientTargetBuffer();
     ClientTargetProperty& getClientTargetProperty();
 
@@ -204,6 +210,7 @@ private:
     VsyncThread mVsyncThread;
     HDCPThread mHdcpThread;
     FencedBuffer mClientTarget;
+    FencedBuffer mOutputBuffer;
     FencedBuffer mReadbackBuffer;
     // Will only be non-null after the Display has been validated and
     // before it has been accepted.
@@ -229,6 +236,7 @@ private:
     common::ColorTransform mColorTransformHint = common::ColorTransform::IDENTITY;
     ClientTargetProperty mClientTargetProperty{common::PixelFormat::RGBA_8888,
                                                common::Dataspace::SRGB_LINEAR};
+    common::PixelFormat mFbFormat; // used for virtual display
 };
 
 } // namespace aidl::android::hardware::graphics::composer3::impl

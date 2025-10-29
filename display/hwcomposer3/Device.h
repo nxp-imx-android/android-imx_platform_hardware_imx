@@ -25,6 +25,7 @@
 #include <thread>
 
 #include "Common.h"
+#include "DeviceComposer.h"
 
 namespace aidl::android::hardware::graphics::composer3::impl {
 
@@ -36,7 +37,7 @@ class Device : public ::android::Singleton<Device> {
 public:
     virtual ~Device() = default;
 
-    HWC3::Error getComposer(FrameComposer** outComposer);
+    HWC3::Error getComposer(FrameComposer** outComposer, FrameComposer** outVirtComposer);
     void releaseComposer();
 
     bool persistentKeyValueEnabled() const;
@@ -51,7 +52,8 @@ private:
 
     std::mutex mMutex;
     std::binary_semaphore mSemaphore{1};
-    std::unique_ptr<FrameComposer> mComposer;
+    std::unique_ptr<FrameComposer> mComposer, mVirtComposer;
+    std::shared_ptr<DeviceComposer> mG2dComposer;
 };
 
 } // namespace aidl::android::hardware::graphics::composer3::impl

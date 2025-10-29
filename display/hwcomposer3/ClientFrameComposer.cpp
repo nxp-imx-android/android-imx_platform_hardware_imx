@@ -111,7 +111,7 @@ HWC3::Error ClientFrameComposer::pollDrmThreadCallback(char* file) {
                     ALOGE("%s: connector exist, but not connect display.", __FUNCTION__);
                     continue;
                 }
-                for (const HalMultiConfigs deviceConfig : deviceConfigs) {
+                for (const HalMultiConfigs& deviceConfig : deviceConfigs) {
                     auto cfg = std::make_unique<HalMultiConfigs>(std::move(deviceConfig));
                     if (mHotplugCallback) {
                         (*mHotplugCallback)(true, std::move(cfg));
@@ -129,7 +129,7 @@ HWC3::Error ClientFrameComposer::pollDrmThreadCallback(char* file) {
     return HWC3::Error::NoResources;
 }
 
-HWC3::Error ClientFrameComposer::init() {
+HWC3::Error ClientFrameComposer::init(std::shared_ptr<DeviceComposer>& g2d) {
     DEBUG_LOG("%s", __FUNCTION__);
 
     HWC3::Error ret;
@@ -159,10 +159,9 @@ HWC3::Error ClientFrameComposer::init() {
         mDrmThread->start("/dev/dri");
     }
 
-    mG2dComposer = std::make_shared<DeviceComposer>();
-    if (mG2dComposer->isValid()) {
-    }
-
+    mG2dComposer = g2d;
+    if (!mG2dComposer->isValid())
+        ALOGW("%s: G2D composition is not valid", __FUNCTION__);
     mHdcpEnabled = IsHdcpUserEnabled();
 
     return HWC3::Error::None;
@@ -458,7 +457,7 @@ HWC3::Error ClientFrameComposer::validateDisplay(Display* display, DisplayChange
 
     if (!mG2dComposer->isValid() ||
         (!mustDeviceComposition &&
-         (!deviceComposition || fallBackToClient ||
+         (!(deviceComposition && mG2dComposer->prefered()) || fallBackToClient ||
           display->getColorTransformHint() != common::ColorTransform::IDENTITY))) {
         /* currently Device Composer(G2D/DPU) cannot process color transform */
         for (auto& layer : layersForComposition) {

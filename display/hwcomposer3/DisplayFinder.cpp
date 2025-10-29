@@ -38,7 +38,7 @@ HWC3::Error findClientDisplays(DeviceClient* device,
         return error;
     }
 
-    for (const HalMultiConfigs deviceConfig : deviceConfigs) {
+    for (const HalMultiConfigs& deviceConfig : deviceConfigs) {
         std::vector<DisplayConfig> hwcConfigs;
         for (const auto& [configId, cfg] : *(deviceConfig.configs)) {
             hwcConfigs.push_back(

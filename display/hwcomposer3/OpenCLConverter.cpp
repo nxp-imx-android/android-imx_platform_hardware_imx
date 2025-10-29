@@ -17,6 +17,7 @@
 #include "OpenCLConverter.h"
 
 #include <dlfcn.h>
+#include <drm_fourcc.h>
 #include <graphics_ext.h>
 #include <log/log.h>
 #include <vndksupport/linker.h>
@@ -45,7 +46,11 @@ OclConverter::OclConverter() {
         ALOGE("%s: dlsym failed, err: %s", __func__, dlerror());
     }
 
+#ifdef G2D_OCL_WITH_DMA_BUF
+    mOclBufferType = OCL_MEM_TYPE_DEVICE;
+#else
     mOclBufferType = OCL_MEM_TYPE_GPU;
+#endif
 }
 
 OclConverter::~OclConverter() {
@@ -81,19 +86,24 @@ bool OclConverter::isValid() {
 
 void OclConverter::G2dBufferToOclFormat(G2dBuffer &buff, OCL_FORMAT &oclFormat) {
     OCL_PIXEL_FORMAT oclPixelFormat;
-    switch (buff.info.format) {
-        case HAL_PIXEL_FORMAT_YCbCr_420_888:
-        case HAL_PIXEL_FORMAT_YCbCr_420_SP:
+    switch (buff.info.drm_format) {
+        case DRM_FORMAT_NV12:
             oclPixelFormat = OCL_FORMAT_NV12;
             break;
-        case HAL_PIXEL_FORMAT_YCbCr_422_I:
+        case DRM_FORMAT_YUYV:
             oclPixelFormat = OCL_FORMAT_YUYV;
             break;
-        case HAL_PIXEL_FORMAT_YCbCr_422_SP:
+        case DRM_FORMAT_NV16:
             oclPixelFormat = OCL_FORMAT_NV16;
             break;
-        case HAL_PIXEL_FORMAT_P010_TILED:
-            oclPixelFormat = OCL_FORMAT_NV15_TILED;
+        case DRM_FORMAT_NV15:
+            if (buff.info.modifier != DRM_FORMAT_MOD_LINEAR)
+                oclPixelFormat = OCL_FORMAT_NV15_TILED;
+            else
+                oclPixelFormat = OCL_FORMAT_NV15;
+            break;
+        case DRM_FORMAT_ABGR8888:
+            oclPixelFormat = OCL_FORMAT_RGBA8888;
             break;
         default:
             ALOGW("%s: unsupported pixel format 0x%x, use OCL_FORMAT_YUYV by default", __func__,
@@ -143,7 +153,7 @@ void OclConverter::G2dBufferToOclBuffer(G2dBuffer &buff, OCL_BUFFER &oclBuf, OCL
         for (int i = 0; i < oclBuf.plane_num; i++) {
             oclBuf.planes[i].fd = (long long)buff.info.fd;
             oclBuf.planes[i].offset = (long long)offset;
-            oclBuf.planes[i].size = plane_info.plane_size[i] + offset;
+            oclBuf.planes[i].size = plane_info.plane_size[i];
             offset += oclBuf.planes[i].size;
         }
     } else {

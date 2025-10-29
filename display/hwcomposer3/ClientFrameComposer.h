@@ -45,7 +45,7 @@ public:
     ClientFrameComposer(ClientFrameComposer&&) = delete;
     ClientFrameComposer& operator=(ClientFrameComposer&&) = delete;
 
-    HWC3::Error init() override;
+    HWC3::Error init(std::shared_ptr<DeviceComposer>& g2d) override;
 
     HWC3::Error registerOnHotplugCallback(const HotplugCallback& cb) override;
 
@@ -58,7 +58,7 @@ public:
     HWC3::Error onDisplayLayerDestroy(Display* display, Layer* layer) override;
 
     HWC3::Error onDisplayClientTargetSet(Display* display) override;
-
+    HWC3::Error onDisplayOutputBufferSet(Display* display) override { return HWC3::Error::None; }
     HWC3::Error onActiveConfigChange(Display* display, int32_t configId) override;
 
     // Determines if this composer can compose the given layers on the given

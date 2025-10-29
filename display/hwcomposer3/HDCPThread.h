@@ -91,6 +91,7 @@ private:
     std::optional<HdcpThreadCallback> mCallbacks;
     std::optional<HdcpChangedCallback> mHdcpChangedCallbacks;
 
+    bool mStarted = false;
     bool mThreadEnabled = false;
     std::string mHdcpStatusPath;
     std::string mHdcpCapPath;

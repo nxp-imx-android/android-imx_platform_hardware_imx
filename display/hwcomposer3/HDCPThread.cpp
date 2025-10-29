@@ -35,7 +35,8 @@ HDCPThread::HDCPThread(Display* display) : mHwcId(display->getHwcId()),
 }
 
 HDCPThread::~HDCPThread() {
-    stop();
+    if (mStarted)
+        stop();
 }
 
 HWC3::Error HDCPThread::start() {
@@ -58,6 +59,7 @@ HWC3::Error HDCPThread::start() {
         ALOGE("%s: failed to set HDCP thread priority: %s", __FUNCTION__, strerror(ret));
     }
 
+    mStarted = true;
     return HWC3::Error::None;
 }
 

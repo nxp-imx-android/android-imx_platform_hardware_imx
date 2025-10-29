@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 NXP
+ * Copyright 2023-2025 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -61,7 +61,9 @@ hwc_config_cc_defaults {
                         ],
             },
             DPU95: {
-                cflags: ["-DG2D_LIMITATION_DPU"],
+                cflags: ["-DG2D_LIMITATION_DPU",
+                         "-DG2D_OCL_WITH_DMA_BUF",
+                        ],
             },
             VIV: {
                 cflags: ["-DG2D_LIMITATION_VIV"],
@@ -95,7 +97,9 @@ hwc_config_soc_cc_defaults {
     soong_config_variables: {
         BOARD_SOC_TYPE: {
             IMX8Q: {
-                cflags: ["-DMAX_DRM_CONFIG_4K",],
+                cflags: ["-DMAX_DRM_CONFIG_4K",
+                         "-DRGBA_RB_SWAPPED",
+                        ],
             },
             IMX8MQ: {
                 cflags: ["-DMAX_DRM_CONFIG_4K"],
@@ -203,6 +207,7 @@ cc_binary {
         "Main.cpp",
         "OpenCLConverter.cpp",
         "PollThread.cpp",
+        "VirtualFrameComposer.cpp",
         "VsyncThread.cpp",
     ],
     cflags: [

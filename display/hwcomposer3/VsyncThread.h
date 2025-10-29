@@ -74,6 +74,7 @@ private:
 
     std::shared_ptr<IComposerCallback> mCallbacks;
 
+    bool mStarted = false;
     bool mVsyncEnabled = false;
     std::chrono::nanoseconds mVsyncPeriod{16600000};
     std::chrono::time_point<std::chrono::steady_clock> mPreviousVsync;

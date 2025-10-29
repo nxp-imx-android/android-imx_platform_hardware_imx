@@ -45,7 +45,8 @@ TimePoint GetNextVsyncInPhase(Nanoseconds vsyncPeriod, TimePoint previousVsync, 
 VsyncThread::VsyncThread(Display* display) : mHwcId(display->getHwcId()), mDisplay(display) {}
 
 VsyncThread::~VsyncThread() {
-    stop();
+    if (mStarted)
+        stop();
 }
 
 HWC3::Error VsyncThread::start(int32_t vsyncPeriodNanos) {
@@ -71,6 +72,7 @@ HWC3::Error VsyncThread::start(int32_t vsyncPeriodNanos) {
         ALOGE("%s: failed to set Vsync thread priority: %s", __FUNCTION__, strerror(ret));
     }
 
+    mStarted = true;
     return HWC3::Error::None;
 }
 

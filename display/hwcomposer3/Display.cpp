@@ -94,8 +94,16 @@ Display::Display(FrameComposer* composer, int64_t id, uint32_t displayId, uint32
         mPort(port),
         mVsyncThread(this),
         mHdcpThread(this) {
-    mVsyncStarted = false;
-    mHdcpStarted = false;
+    if (id >= HWC_VIRTUAL_DISPLAY_BASE_ID) {
+        // Don't start VSYNC/HDCP thread for virtual display
+        mVsyncStarted = true;
+        mHdcpStarted = true;
+        mName = "NXP Virtual Display";
+    } else {
+        mVsyncStarted = false;
+        mHdcpStarted = false;
+        mName = "NXP HWC Display";
+    }
     setLegacyEdid();
 }
 
@@ -815,11 +823,16 @@ HWC3::Error Display::setClientTarget(buffer_handle_t buffer, const ndk::ScopedFi
     return HWC3::Error::None;
 }
 
-HWC3::Error Display::setOutputBuffer(buffer_handle_t /*buffer*/,
-                                     const ndk::ScopedFileDescriptor& /*fence*/) {
+HWC3::Error Display::setOutputBuffer(buffer_handle_t buffer,
+                                     const ndk::ScopedFileDescriptor& fence) {
     DEBUG_LOG("%s: hwc display:%" PRId64, __FUNCTION__, mId);
 
     // TODO: for virtual display
+    std::unique_lock<std::recursive_mutex> lock(mStateMutex);
+
+    mOutputBuffer.set(buffer, fence);
+    mComposer->onDisplayOutputBufferSet(this);
+
     return HWC3::Error::None;
 }
 

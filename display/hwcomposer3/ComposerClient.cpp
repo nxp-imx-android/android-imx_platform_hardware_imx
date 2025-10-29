@@ -26,6 +26,7 @@
 namespace aidl::android::hardware::graphics::composer3::impl {
 namespace {
 std::atomic<int64_t> sPrivateLayerId{0x100000000};
+std::atomic<uint32_t> sVirtualDisplayId{HWC_VIRTUAL_DISPLAY_BASE_ID};
 
 #define GET_DISPLAY_OR_RETURN_ERROR()                                        \
     std::shared_ptr<Display> display = getDisplay(hwcId);                    \
@@ -141,9 +142,9 @@ HWC3::Error ComposerClient::init() {
         return error;
     }
 
-    error = Device::getInstance().getComposer(&mComposer);
+    error = Device::getInstance().getComposer(&mComposer, &mVirtComposer);
     if (error != HWC3::Error::None) {
-        ALOGE("%s failed to get FrameComposer", __FUNCTION__);
+        ALOGE("%s failed to get FrameComposer for display device", __FUNCTION__);
         return error;
     }
 
@@ -212,13 +213,59 @@ ndk::ScopedAStatus ComposerClient::createLayer(int64_t hwcId, int32_t bufferSlot
     return ToBinderStatus(HWC3::Error::None);
 }
 
-ndk::ScopedAStatus ComposerClient::createVirtualDisplay(int32_t /*width*/, int32_t /*height*/,
-                                                        common::PixelFormat /*formatHint*/,
-                                                        int32_t /*outputBufferSlotCount*/,
-                                                        VirtualDisplay* /*display*/) {
-    DEBUG_LOG("%s", __FUNCTION__);
+ndk::ScopedAStatus ComposerClient::createVirtualDisplay(int32_t width, int32_t height,
+                                                        common::PixelFormat formatHint,
+                                                        int32_t outputBufferSlotCount,
+                                                        VirtualDisplay* vdisplay) {
+    DEBUG_LOG("%s w=%d, h=%d, format=%s, buffer slot count=%d", __FUNCTION__, width, height,
+              toString(formatHint).c_str(), outputBufferSlotCount);
 
-    return ToBinderStatus(HWC3::Error::Unsupported);
+    uint32_t displayId = sVirtualDisplayId++;
+    int64_t hwcId = displayId;
+    uint32_t port = displayId;
+    std::shared_ptr<Display> display =
+            std::make_shared<Display>(mVirtComposer, hwcId, displayId, port);
+    if (display == nullptr) {
+        ALOGE("%s failed to allocate virtual display", __FUNCTION__);
+        return ToBinderStatus(HWC3::Error::NoResources);
+    }
+
+    std::vector<DisplayConfig> configs;
+    configs.emplace_back(DisplayConfig(0, width, height, 160, 160, HertzToPeriodNanos(60)));
+    DisplayConfig::addConfigGroups(&configs);
+
+    HWC3::Error error = display->init(configs, 0); // set active config id = 0
+    if (error != HWC3::Error::None) {
+        ALOGE("%s failed to initialize virtual display:%" PRIu64, __FUNCTION__, hwcId);
+        return ToBinderStatus(error);
+    }
+    display->setFormat(formatHint);
+
+    error = mVirtComposer->onDisplayCreate(display.get());
+    if (error != HWC3::Error::None) {
+        ALOGE("%s failed to register virtual display:%" PRIu64 " with composer", __FUNCTION__,
+              hwcId);
+        return ToBinderStatus(error);
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(mDisplaysMutex);
+        ALOGI("%s: adding virtual display:%" PRIu64 "(%d x %d, %s)", __FUNCTION__, hwcId, width,
+              height, toString(formatHint).c_str());
+        mDisplays.emplace(hwcId, std::move(display));
+    }
+
+    error = mResources->addVirtualDisplay(hwcId, outputBufferSlotCount);
+    if (error != HWC3::Error::None) {
+        ALOGE("%s failed to add virtual display:%" PRIu64 " to ComposerResources", __FUNCTION__,
+              hwcId);
+        return ToBinderStatus(error);
+    }
+
+    vdisplay->display = hwcId;
+    vdisplay->format = formatHint;
+
+    return ToBinderStatus(error);
 }
 
 ndk::ScopedAStatus ComposerClient::destroyLayer(int64_t hwcId, int64_t layerId) {
@@ -243,10 +290,28 @@ ndk::ScopedAStatus ComposerClient::destroyLayer(int64_t hwcId, int64_t layerId) 
     return ToBinderStatus(HWC3::Error::None);
 }
 
-ndk::ScopedAStatus ComposerClient::destroyVirtualDisplay(int64_t /*hwcId*/) {
-    DEBUG_LOG("%s", __FUNCTION__);
+ndk::ScopedAStatus ComposerClient::destroyVirtualDisplay(int64_t hwcId) {
+    DEBUG_LOG("%s: virtual display %" PRIu64, __FUNCTION__, hwcId);
 
-    return ToBinderStatus(HWC3::Error::Unsupported);
+    std::lock_guard<std::mutex> lock(mDisplaysMutex);
+    auto it = mDisplays.find(hwcId);
+    if (it == mDisplays.end()) {
+        ALOGE("%s: hwc display:%" PRIu64 " no such display?", __FUNCTION__, hwcId);
+        return ToBinderStatus(HWC3::Error::BadDisplay);
+    }
+
+    Display* display = it->second.get();
+    HWC3::Error error = mVirtComposer->onDisplayDestroy(display);
+    if (error == HWC3::Error::None) {
+        error = mResources->removeDisplay(hwcId);
+        mDisplays.erase(it);
+    } else {
+        ALOGE("%s: hwc display:%" PRIu64 " failed to destroy in virtual composer", __FUNCTION__,
+              hwcId);
+    }
+
+    ALOGI("%s: removed virtual display %" PRIu64, __FUNCTION__, hwcId);
+    return ToBinderStatus(error);
 }
 
 ndk::ScopedAStatus ComposerClient::executeCommands(
@@ -410,8 +475,7 @@ ndk::ScopedAStatus ComposerClient::getOverlaySupport(OverlayProperties* /*proper
 ndk::ScopedAStatus ComposerClient::getMaxVirtualDisplayCount(int32_t* outCount) {
     DEBUG_LOG("%s", __FUNCTION__);
 
-    // Not supported.
-    *outCount = 0;
+    *outCount = HWC_MAX_VIRTUAL_DISPLAY_COUNT;
 
     return ToBinderStatus(HWC3::Error::None);
 }
@@ -1542,7 +1606,12 @@ HWC3::Error ComposerClient::destroyDisplayLocked(int64_t hwcId) {
 
     display->setPowerMode(PowerMode::OFF);
 
-    HWC3::Error error = mComposer->onDisplayDestroy(it->second.get());
+    FrameComposer* composer;
+    if (hwcId >= HWC_VIRTUAL_DISPLAY_BASE_ID)
+        composer = mVirtComposer;
+    else
+        composer = mComposer;
+    HWC3::Error error = composer->onDisplayDestroy(it->second.get());
     if (error != HWC3::Error::None) {
         ALOGE("%s: hwc display:%" PRId64 " failed to destroy with frame composer", __FUNCTION__,
               hwcId);

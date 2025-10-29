@@ -26,6 +26,7 @@
 #include <ui/Rect.h>
 #include <ui/Region.h>
 #include <vndksupport/linker.h>
+#include <xf86drm.h>
 
 #include "Common.h"
 #include "Drm.h"
@@ -140,6 +141,8 @@ DeviceComposer::DeviceComposer() {
     mSolidColorBuffer.hnd = NULL;
     memset(&mSolidColorBuffer.info, 0, sizeof(mSolidColorBuffer.info));
     mOclCvt = std::make_unique<OclConverter>();
+    if (mOclCvt->isValid())
+        ALOGI("%s: OpenCL lib load successfully", __FUNCTION__);
 }
 
 DeviceComposer::~DeviceComposer() {
@@ -374,6 +377,45 @@ int DeviceComposer::onLayerDestroy(Layer* layer) {
     return 0;
 }
 
+int DeviceComposer::convertBuffer(buffer_handle_t inBuf, HandleInfo& inInfo, buffer_handle_t outBuf,
+                                  HandleInfo& outInfo, bool useOcl) {
+#ifdef DEBUG_DUMP_VIRT_G2D_CONSUMPTION
+    nsecs_t g2dStart = systemTime(CLOCK_MONOTONIC);
+#endif
+    G2dBuffer srcBuff{inBuf, inInfo};
+    G2dBuffer dstBuff{outBuf, outInfo};
+    common::Rect rect{0, 0, static_cast<int32_t>(inInfo.width),
+                      static_cast<int32_t>(inInfo.height)};
+    if (useOcl && mOclCvt->isValid()) {
+        auto ret = mOclCvt->openclConvert(srcBuff, dstBuff);
+        if (ret) {
+            ALOGE("%s: OpenCL CSC convert fail", __FUNCTION__);
+            return ret;
+        }
+    } else {
+        struct g2d_surfaceEx sSurfaceX, dSurfaceX;
+        memset(&sSurfaceX, 0, sizeof(sSurfaceX));
+        memset(&dSurfaceX, 0, sizeof(dSurfaceX));
+        setG2dSurface(sSurfaceX, srcBuff, rect);
+        setG2dSurface(dSurfaceX, dstBuff, rect);
+        blitSurface(&sSurfaceX, &dSurfaceX);
+    }
+
+#ifdef DEBUG_DUMP_VIRT_G2D_CONSUMPTION
+    nsecs_t g2dEnd = systemTime(CLOCK_MONOTONIC);
+    char fmt1[6], fmt2[6];
+    char* fmt_name1 = drmGetFormatName(inInfo.drm_format, fmt1);
+    char* fmt_name2 = drmGetFormatName(outInfo.drm_format, fmt2);
+    char* modifier_name1 = drmGetFormatModifierName(inInfo.modifier);
+    char* modifier_name2 = drmGetFormatModifierName(outInfo.modifier);
+    ALOGI("%s: covert buffer(%s:%s -> %s:%s) cost %3.3fms", __func__, fmt_name1, modifier_name1,
+          fmt_name2, modifier_name2, (g2dEnd - g2dStart) / 1000000.0);
+    free(modifier_name1);
+    free(modifier_name2);
+#endif
+    return 0;
+}
+
 G2dInterBuffer* DeviceComposer::preComposition(Layer* layer, buffer_handle_t handle) {
 #if !defined(PXP_LIMITATION_DOWN_SCALE) && !defined(G2D_FORMAT_CONVERSION)
     return nullptr;
@@ -390,6 +432,7 @@ G2dInterBuffer* DeviceComposer::preComposition(Layer* layer, buffer_handle_t han
 
     uint32_t dstW = 0, dstH = 0, dstFormat = 0, dstUsage = 0;
     int cachedBufferType = G2D_CACHE_TYPE_NONE;
+    bool opencl_prefered = false;
     common::Rect drect = layer->getDisplayFrame();
     uint32_t dispW = (drect.right - drect.left);
     uint32_t dispH = (drect.bottom - drect.top);
@@ -418,6 +461,7 @@ G2dInterBuffer* DeviceComposer::preComposition(Layer* layer, buffer_handle_t han
         dstFormat = HAL_PIXEL_FORMAT_YCbCr_420_SP;
         dstUsage = inBufInfo.usage;
         cachedBufferType = G2D_CACHE_TYPE_CSC;
+        opencl_prefered = true;
     } else
 #endif
     {
@@ -505,20 +549,7 @@ G2dInterBuffer* DeviceComposer::preComposition(Layer* layer, buffer_handle_t han
                       cropH, dstW, dstH);
         }
     } else if (cachedBufferType == G2D_CACHE_TYPE_CSC) {
-        G2dBuffer srcBuff{handle, inBufInfo};
-        G2dBuffer dstBuff{outHandle, outBufInfo};
-        if (mOclCvt->isValid()) {
-            auto ret = mOclCvt->openclConvert(srcBuff, dstBuff);
-            if (ret)
-                ALOGE("%s: OpenCL CSC convert fail", __FUNCTION__);
-        } else {
-            struct g2d_surfaceEx sSurfaceX, dSurfaceX;
-            memset(&sSurfaceX, 0, sizeof(sSurfaceX));
-            memset(&dSurfaceX, 0, sizeof(dSurfaceX));
-            setG2dSurface(sSurfaceX, srcBuff, srect);
-            setG2dSurface(dSurfaceX, dstBuff, srect);
-            blitSurface(&sSurfaceX, &dSurfaceX);
-        }
+        convertBuffer(handle, inBufInfo, outHandle, outBufInfo, opencl_prefered);
     }
 
     G2dInterBuffer newBuff{id, cachedBufferType, outHandle, outBufInfo};
@@ -1111,11 +1142,6 @@ bool DeviceComposer::checkMustDeviceComposition(Layer* layer) {
 
 bool DeviceComposer::checkDeviceComposition(Layer* layer) {
     DEBUG_LOG("%s: check layer %ld", __FUNCTION__, layer->getId());
-
-    if (!mG2dPrefered) {
-        DEBUG_LOG("%s: 2d composition is not prefered", __FUNCTION__);
-        return false;
-    }
 
     auto layerBuffer = layer->getBuffer().getBuffer();
     HandleInfo info;

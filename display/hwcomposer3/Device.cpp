@@ -23,6 +23,7 @@
 
 #include "ClientFrameComposer.h"
 #include "FrameComposer.h"
+#include "VirtualFrameComposer.h"
 
 ANDROID_SINGLETON_STATIC_INSTANCE(aidl::android::hardware::graphics::composer3::impl::Device);
 
@@ -81,26 +82,35 @@ HWC3::Error savePersistentKeyValues(const Json::Value& dictionary) {
 
 } // namespace
 
-HWC3::Error Device::getComposer(FrameComposer** outComposer) {
+HWC3::Error Device::getComposer(FrameComposer** outComposer, FrameComposer** outVirtComposer) {
     std::unique_lock<std::mutex> lock(mMutex);
+    static std::once_flag flag;
 
-    if (mComposer == nullptr) {
+    std::call_once(flag, [&]() {
+        mG2dComposer = std::make_shared<DeviceComposer>();
         mComposer = std::make_unique<ClientFrameComposer>();
-
-        if (!mComposer) {
+        mVirtComposer = std::make_unique<VirtualFrameComposer>();
+        if (!mG2dComposer || !mComposer || !mVirtComposer) {
             ALOGE("%s failed to allocate FrameComposer", __FUNCTION__);
-            return HWC3::Error::NoResources;
+            return;
         }
 
-        HWC3::Error error = mComposer->init();
+        HWC3::Error error = mComposer->init(mG2dComposer);
         if (error != HWC3::Error::None) {
-            ALOGE("%s failed to init FrameComposer", __FUNCTION__);
-            return error;
+            ALOGE("%s failed to init FrameComposer for display device", __FUNCTION__);
+            return;
         }
-    }
+        error = mVirtComposer->init(mG2dComposer);
+        if (error != HWC3::Error::None) {
+            ALOGE("%s failed to init FrameComposer for virtual display", __FUNCTION__);
+            return;
+        }
+    });
 
     mSemaphore.acquire();
     *outComposer = mComposer.get();
+    *outVirtComposer = mVirtComposer.get();
+
     return HWC3::Error::None;
 }
 
