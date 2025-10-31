@@ -704,8 +704,22 @@ status_t CameraDeviceSessionHwlImpl::ConfigLibcameraLocked(uint32_t bufferNum, u
     ALOGI("%s: libCameraStreamSet size %lu, libcameraBuffers %u, previewBuffers %u", __func__,
           libCameraStreamSet.size(), bufferNum, mSensorData.mPreviewBuffers);
 
-    mLibCameraStream = *(libCameraStreamSet.begin());
-    ALOGI("%s: mLibCameraStream %p", __func__, mLibCameraStream);
+    for (auto libcameraStream : libCameraStreamSet) {
+        const libcamera::StreamConfiguration &config = libcameraStream->configuration();
+        ALOGI("%s: check libcamera stream %p, config, format 0x%x, res %dx%d", __func__,
+              libcameraStream, (uint32_t)config.pixelFormat, config.size.width, config.size.height);
+        if ((config.pixelFormat == HalFromat2PixelFormat(format)) &&
+            (config.size.width == configWidth) && (config.size.height == configHeight)) {
+            ALOGI("%s: find the stream", __func__);
+            mLibCameraStream = libcameraStream;
+            break;
+        }
+    }
+
+    if (mLibCameraStream == NULL) {
+        ALOGE("%s: no libcamera stream found", __func__);
+        return -EINVAL;
+    }
 
     // allocate libcamera frame buffers
     uint32_t allocedNum = 0;
