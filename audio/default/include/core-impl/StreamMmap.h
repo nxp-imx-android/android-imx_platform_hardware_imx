@@ -28,7 +28,7 @@
 namespace aidl::android::hardware::audio::core {
 
 #define MMAP_SAMPLE_RATE 48000
-#define MMAP_PERIOD_SIZE 96
+#define MMAP_PERIOD_SIZE 128
 #define MMAP_PERIOD_MS (MMAP_PERIOD_SIZE * 1000 / MMAP_SAMPLE_RATE)
 #define MMAP_PERIOD_COUNT 256
 #define MMAP_BUFFER_MS (MMAP_PERIOD_MS * MMAP_PERIOD_COUNT)
