@@ -1287,8 +1287,10 @@ static void ImxImageBufferToOclFormat(ImxImageBuffer &srcImgBuf, OCL_FORMAT &inp
         // Center the crop area
         h_offset = (srcImgBuf.mWidth - crop_width) / 2;
         v_offset = (srcImgBuf.mHeightSpan - crop_height) / 2;
-    } else {
-        ALOGW("%s: cropping for upscale is not considered.", __func__);
+    } else if (scale_ratio < 1.0f) {
+        ALOGW("%s: cropping for upscale is not considered. srcWidth %u, dstWidth %u, srcHeightSpan %u, dstHeight %u",
+              __func__, srcImgBuf.mWidth, dstImgBuf.mWidth, srcImgBuf.mHeightSpan,
+              dstImgBuf.mHeight);
     }
 
     // Set source format, update input format to use the cropped area
