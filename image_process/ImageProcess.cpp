@@ -267,12 +267,11 @@ ImageProcess::ImageProcess()
     memset(&m_warp_param, 0, sizeof(m_warp_param));
 
     if (mImxOclCvtModule) {
-        ret = read_warp_coordinates_file(DEWARP_COORD_FILE, &m_warp_param);
+        ret = parse_warp_file(DEWARP_COORD_FILE, &m_warp_param);
         if (ret) {
-            ALOGW("%s: read_warp_coordinates_file failed, ret %d", __func__, ret);
+            ALOGW("%s: parse_warp_file failed, ret %d", __func__, ret);
         } else {
-            ALOGI("%s: read_warp_coordinates_file ok", __func__);
-            m_warp_param.enable = 1;
+            ALOGI("%s: parse_warp_file ok", __func__);
         }
     }
 }
@@ -1500,205 +1499,159 @@ cpu_resize:
     return ret;
 }
 
-int ImageProcess::probe_warp_header(FILE *fp, uint32_t file_size, OCL_WARP_PARAM *warp_param) {
-    uint8_t *pbuf = NULL;
-    uint32_t header_size = 0;
-    uint8_t file_version = 0;
-    uint32_t width, height;
-    uint32_t data_size = 0;
-    int ret = -1;
+// ref https://jira.sw.nxp.com/browse/ATT-1051
+#pragma pack(push, 1)
+typedef struct tag_warp_file_head {
+    uint32_t head_size;
+    uint8_t format_version;
+    uint8_t algorithm;
+    uint8_t reserved1;
+    uint8_t reserved2;
+    uint32_t width;
+    uint32_t height;
+    uint32_t arb_start_x;
+    uint32_t arb_start_y;
+    uint32_t arb_start_xx;
+    uint32_t arb_start_xy;
+    uint32_t arb_start_yx;
+    uint32_t arb_start_yy;
+} TWarpFileHead;
+#pragma pack(pop)
 
-#define WARP_HEADER_WIDTH 4
-#define WARP_FILE_VERSION_WIDTH 1
-#define WARP_ALOGITHMS_OFFSET 5
-#define WARP_WIDTH_OFFSET 8
-#define WARP_HEIGHT_OFFSET 12
-#define WARP_ARB_START_X_OFFSET 16
-#define WARP_ARB_START_Y_OFFSET 20
-#define WARP_ARB_DELTA_XX_OFFSET 24
-#define WARP_ARB_DELTA_XY_OFFSET 28
-#define WARP_ARB_DELTA_YX_OFFSET 32
-#define WARP_ARB_DELTA_YY_OFFSET 36
-#define WARP_VERSION_1_HEADER_SZIE 40
-
-    if (!fp || !file_size || !warp_param || file_size < WARP_HEADER_WIDTH) {
-        goto exit;
-    }
-
-    /* Check header size */
-    if (fread(&header_size, 1, WARP_HEADER_WIDTH, fp) != WARP_HEADER_WIDTH) {
-        ALOGE("%s: Can't read header size", __func__);
-        goto exit;
-    }
-
-    if (!header_size || file_size < header_size) {
-        goto exit;
-    }
-
-    if (fread(&file_version, 1, WARP_FILE_VERSION_WIDTH, fp) != WARP_FILE_VERSION_WIDTH) {
-        ALOGE("%s: Can't read file format version", __func__);
-        goto exit;
-    }
-
-    if (file_version == 1) {
-        /* The header size is fixed for file version 1 */
-        if (header_size != WARP_VERSION_1_HEADER_SZIE) {
-            goto exit;
-        }
-    } else {
-        if (header_size < WARP_VERSION_1_HEADER_SZIE) {
-            goto exit;
-        }
-    }
-
-    pbuf = (uint8_t *)malloc(header_size);
-    if (fread(pbuf + WARP_ALOGITHMS_OFFSET, 1, header_size - WARP_ALOGITHMS_OFFSET, fp) !=
-        header_size - WARP_ALOGITHMS_OFFSET) {
-        ALOGE("%s: Can't read header data", __func__);
-        goto exit;
-    }
-
+#define WARP_FILE_HEAD_SIZE (uint32_t)sizeof(TWarpFileHead)
 #define WARP_PNT_32BPP 1
-    if (pbuf[WARP_ALOGITHMS_OFFSET] == WARP_PNT_32BPP) {
-        /* Check file integrity */
-        width = *((uint32_t *)(pbuf + WARP_WIDTH_OFFSET));
-        height = *((uint32_t *)(pbuf + WARP_HEIGHT_OFFSET));
-        data_size = width * height * 32 / 8;
-        if ((data_size + header_size) != file_size) {
-            ALOGE("%s: Invalid header data", __func__);
-            goto exit;
-        }
-        warp_param->enable = 1;
-        warp_param->map = OCL_WARP_MAP_PNT;
-        warp_param->width = width;
-        warp_param->height = height;
-        warp_param->buf.mem_type = mOclBufferType;
-        warp_param->buf.plane_num = 1;
-        warp_param->buf.planes[0].size = file_size - header_size;
-        warp_param->buf.planes[0].paddr = 0;
-        warp_param->buf.planes[0].vaddr = 0;
-        warp_param->buf.planes[0].fd = -1;
-        warp_param->buf.planes[0].offset = 0;
-        ret = 0;
-    } else {
-        ALOGE("%s: Invalid algorithms type", __func__);
-        goto exit;
-    }
 
-exit:
-    if (pbuf)
-        free(pbuf);
-
-    if (ret == 0) {
-        ALOGI("%s: Get header data", __func__);
-    } else {
-        ALOGE("%s: No header size info", __func__);
-        if (warp_param)
-            warp_param->buf.planes[0].size = file_size;
-    }
-
-    return ret;
-}
-
-int ImageProcess::read_warp_coordinates_file(const char *file_name, OCL_WARP_PARAM *warp_param) {
-    FILE *fp;
+// warp_param is already zeroed before call.
+int ImageProcess::parse_warp_file(const char *file_name, OCL_WARP_PARAM *warp_param) {
+    int fd = -1;
     int ret = 0;
-    uint32_t size = 0;
+    struct stat statbuf;
+    uint32_t file_size = 0;
+    TWarpFileHead warpFileHead;
+    uint32_t data_size = 0;
     uint32_t aligned_size = 0;
-    bool use_dma = false;
 
-    if (!file_name || !warp_param)
+    if ((file_name == NULL) || (warp_param == NULL)) {
+        ALOGE("%s: file_name %p, warp_param %p", __func__, file_name, warp_param);
         return -1;
-
-    do {
-        fp = fopen(file_name, "rb");
-        if (!fp) {
-            ret = -1;
-            ALOGE("%s: Can't open file, file name: %s", __func__, file_name);
-            break;
-        }
-
-        ret = fseek(fp, 0, SEEK_END);
-        if (ret) {
-            break;
-        }
-
-        size = ftell(fp);
-        if (size == 0) {
-            ret = -1;
-            break;
-        }
-
-        ret = fseek(fp, 0, SEEK_SET);
-        if (ret) {
-            break;
-        }
-
-        /* Probe header data*/
-        if (probe_warp_header(fp, size, warp_param)) {
-            ret = fseek(fp, 0, SEEK_SET);
-            if (ret) {
-                break;
-            }
-        }
-
-        if (warp_param->buf.mem_type == OCL_MEM_TYPE_DEVICE)
-            use_dma = true;
-
-        size = warp_param->buf.planes[0].size;
-        aligned_size = (size + 4095) & ~4095;
-
-        if (!use_dma) {
-            void *ptr = malloc(aligned_size);
-            if (!ptr) {
-                ALOGE("%s: read warp cooordinate file: aligned_alloc failed, size: %u, aligned_size %u", __func__,
-                      size, aligned_size);
-                ret = -1;
-                break;
-            }
-
-            warp_param->buf.planes[0].size = aligned_size;
-            warp_param->buf.planes[0].vaddr = (long long)ptr;
-        } else {
-            ret = AllocPhyBuffer(aligned_size, 1, HAL_PIXEL_FORMAT_BLOB, mWarpBuffer, false);
-            if (ret) {
-                ALOGE("%s: AllocPhyBuffer for mWarpBuffer failed, size %u, aligned_size %u", __func__,
-                      size, aligned_size);
-                ret = -1;
-                break;
-            }
-
-            ALOGI("%s: fd %d, size %u, aligned_size %u, vaddr %p", __func__, mWarpBuffer.mFd, size, aligned_size,
-                  mWarpBuffer.mVirtAddr);
-
-            warp_param->buf.planes[0].fd = mWarpBuffer.mFd;
-            warp_param->buf.planes[0].size = aligned_size;
-            warp_param->buf.planes[0].vaddr = (long long)mWarpBuffer.mVirtAddr;
-        }
-
-        if (fread((void *)warp_param->buf.planes[0].vaddr, 1, size, fp) != size) {
-            ret = -1;
-            break;
-        } else {
-            ret = 0;
-        }
-    } while (0);
-
-    if (fp)
-        fclose(fp);
-
-    if (ret) {
-        if (warp_param->buf.planes[0].vaddr) {
-            if (use_dma)
-                FreePhyBuffer(mWarpBuffer.buffer);
-            else
-                free((void *)warp_param->buf.planes[0].vaddr);
-        }
-
-        ALOGE("%s: read file failed: %s", file_name, __func__);
-        warp_param->buf.planes[0].size = 0;
-        return ret;
     }
+
+    // open, read head
+    ALOGI("%s: parse %s, WARP_FILE_HEAD_SIZE %u", __func__, file_name, WARP_FILE_HEAD_SIZE);
+    fd = open(file_name, O_RDONLY);
+    if (fd < 0) {
+        ALOGW("%s: open %s failed, %s", __func__, file_name, strerror(errno));
+        return -1;
+    }
+
+    ret = fstat(fd, &statbuf);
+    if (ret) {
+        ALOGE("%s: stat %s failed", __func__, file_name);
+        ret = -1;
+        goto fail;
+    }
+
+    file_size = statbuf.st_size;
+    ALOGI("%s: %s size %u bytes", __func__, file_name, file_size);
+
+    if (file_size < WARP_FILE_HEAD_SIZE) {
+        ALOGE("%s: %s size %u is less than WARP_FILE_HEAD_SIZE %u", __func__, file_name, file_size,
+              WARP_FILE_HEAD_SIZE);
+        ret = -1;
+        goto fail;
+    }
+
+    ret = read(fd, &warpFileHead, WARP_FILE_HEAD_SIZE);
+    if ((uint32_t)ret != WARP_FILE_HEAD_SIZE) {
+        ALOGE("%s: %s read, expected %u, actually %u", __func__, file_name, WARP_FILE_HEAD_SIZE,
+              (uint32_t)ret);
+        ret = -1;
+        goto fail;
+    }
+
+    ALOGI("%s: head_size %u, format_version %u, algorithm %u, width %u, height %u", __func__,
+          warpFileHead.head_size, (uint32_t)warpFileHead.format_version, (uint32_t)warpFileHead.algorithm,
+          warpFileHead.width, warpFileHead.height);
+
+    // some verify
+    if ((warpFileHead.format_version == 1) && (warpFileHead.head_size != WARP_FILE_HEAD_SIZE)) {
+        ALOGI("%s: format_version 1 but head size(%u) != WARP_FILE_HEAD_SIZE(%u)", __func__,
+              warpFileHead.head_size, WARP_FILE_HEAD_SIZE);
+        ret = -1;
+        goto fail;
+    }
+
+    if (warpFileHead.algorithm != WARP_PNT_32BPP) {
+        ALOGI("%s: unsupported algorithm %u, expected %u", __func__, (uint32_t)warpFileHead.algorithm,
+              WARP_PNT_32BPP);
+        ret = -1;
+        goto fail;
+    }
+
+    data_size = warpFileHead.width * warpFileHead.height * 4; // 32bpp
+    if (data_size + warpFileHead.head_size != file_size) {
+        ALOGI("%s: data_size(%u) + warpFileHead.head_size(%u) != file_size(%u)", __func__,
+              data_size, warpFileHead.head_size, file_size);
+        ret = -1;
+        goto fail;
+    }
+
+    // alloc data buffer
+    aligned_size = (data_size + 4095) & ~4095;
+    if (mOclBufferType == OCL_MEM_TYPE_DEVICE) {
+        ret = AllocPhyBuffer(aligned_size, 1, HAL_PIXEL_FORMAT_BLOB, mWarpBuffer, false);
+        if (ret) {
+            ALOGE("%s: AllocPhyBuffer for mWarpBuffer failed, size %u, aligned_size %u", __func__,
+                  data_size, aligned_size);
+            ret = -1;
+            goto fail;
+        }
+
+        warp_param->buf.planes[0].fd = mWarpBuffer.mFd;
+        warp_param->buf.planes[0].size = aligned_size;
+        warp_param->buf.planes[0].vaddr = (long long)mWarpBuffer.mVirtAddr;
+    } else {
+        void *ptr = malloc(aligned_size);
+        if (!ptr) {
+            ALOGE("%s: read warp cooordinate file: aligned_alloc failed, size: %u, aligned_size %u",
+                  __func__, data_size, aligned_size);
+            ret = -1;
+            goto fail;
+        }
+
+        warp_param->buf.planes[0].fd = -1;
+        warp_param->buf.planes[0].size = aligned_size;
+        warp_param->buf.planes[0].vaddr = (long long)ptr;
+    }
+
+    ALOGI("%s: fd %d, size %u, aligned_size %u, vaddr %p", __func__, warp_param->buf.planes[0].fd,
+          data_size, aligned_size, (void *)warp_param->buf.planes[0].vaddr);
+
+    // read data from file
+    ret = read(fd, (void *)warp_param->buf.planes[0].vaddr, data_size);
+    if ((uint32_t)ret != data_size) {
+        ALOGE("%s: read warp data, expected %u, acutally %u", __func__, data_size, (uint32_t)ret);
+        ret = -1;
+        goto fail;
+    }
+
+    warp_param->enable = 1;
+    warp_param->map = OCL_WARP_MAP_PNT;
+    warp_param->width = warpFileHead.width;
+    warp_param->height = warpFileHead.height;
+    warp_param->buf.mem_type = mOclBufferType;
+    warp_param->buf.plane_num = 1;
+
+    close(fd);
+    return 0;
+
+fail:
+    if (warp_param->buf.planes[0].fd > 0)
+        FreePhyBuffer(mWarpBuffer.buffer);
+    else if (warp_param->buf.planes[0].vaddr != 0)
+        free((void *)warp_param->buf.planes[0].vaddr);
+
+    close(fd);
 
     return ret;
 }

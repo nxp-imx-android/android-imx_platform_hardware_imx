@@ -103,8 +103,7 @@ private:
     static void FreeOclHandle(void* handle);
 
     // g3d dewarp
-    int probe_warp_header(FILE* fp, uint32_t file_size, OCL_WARP_PARAM* warp_param);
-    int read_warp_coordinates_file(const char* file_name, OCL_WARP_PARAM* warp_param);
+    int parse_warp_file(const char* file_name, OCL_WARP_PARAM* warp_param);
 
     // g2d/dpu dewarp
     int PrepareDewarpBinary();
