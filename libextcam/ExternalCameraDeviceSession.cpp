@@ -3648,14 +3648,15 @@ bool ExternalCameraDeviceSession::OutputThread::threadLoop() {
     if (res != 0) {
         // For some webcam, the first few V4L2 frames might be malformed...
         ALOGE("%s: Convert V4L2 frame to YU12 failed! res %d", __FUNCTION__, res);
-        res = waitForBufferRequestDone(&req->buffers);
-        if (res != 0) {
-            ALOGE("%s: wait for BufferRequest done failed! res %d, line %d", __FUNCTION__, res,
-                  __LINE__);
-            lk.unlock();
-            return onDeviceError("%s: failed to process buffer request error! line %d",
-                                 __FUNCTION__, __LINE__);
+
+        if (mUseHalBufManager) {
+            ATRACE_BEGIN("Wait for BufferRequest done");
+            res = waitForBufferRequestDone(&req->buffers);
+            ATRACE_END();
         }
+
+        if (mUseHardwareDecoder)
+            VpuDecReturnBuffer();
 
         lk.unlock();
         Status st = parent->processCaptureRequestError(req);
@@ -3670,15 +3671,20 @@ bool ExternalCameraDeviceSession::OutputThread::threadLoop() {
         ATRACE_BEGIN("Wait for BufferRequest done");
         res = waitForBufferRequestDone(&req->buffers);
         ATRACE_END();
-    }
 
-    if (res != 0) {
-        if (mUseHardwareDecoder)
-            VpuDecReturnBuffer();
+        if (res != 0) {
+            if (mUseHardwareDecoder)
+                VpuDecReturnBuffer();
 
-        ALOGE("%s: wait for BufferRequest done failed! res %d", __FUNCTION__, res);
-        lk.unlock();
-        return onDeviceError("%s: failed to process buffer request error!", __FUNCTION__);
+            ALOGE("%s: wait for BufferRequest done failed! res %d", __FUNCTION__, res);
+            lk.unlock();
+            Status st = parent->processCaptureRequestError(req);
+            if (st != Status::OK) {
+                return onDeviceError("%s: failed to process capture request error!", __FUNCTION__);
+            }
+            signalRequestDone();
+            return true;
+        }
     }
 
     if (mDebug)
