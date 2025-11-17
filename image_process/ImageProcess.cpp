@@ -1629,6 +1629,13 @@ int ImageProcess::parse_warp_file(const char *file_name, OCL_WARP_PARAM *warp_pa
     ALOGI("%s: fd %d, size %u, aligned_size %u, vaddr %p", __func__, warp_param->buf.planes[0].fd,
           data_size, aligned_size, (void *)warp_param->buf.planes[0].vaddr);
 
+    if (data_size > (uint32_t)(warp_param->buf.planes[0].size)) {
+        ALOGE("%s: data_size %u exceeds allocated buffer size %u", __func__,
+              data_size, warp_param->buf.planes[0].size);
+        ret = -1;
+        goto fail;
+    }
+
     // read data from file
     ret = read(fd, (void *)warp_param->buf.planes[0].vaddr, data_size);
     if ((uint32_t)ret != data_size) {
