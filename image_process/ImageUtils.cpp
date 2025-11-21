@@ -28,6 +28,12 @@
 #include <ui/GraphicBufferMapper.h>
 #include <ui/Rect.h>
 
+#ifdef USE_MALI
+#include "buffer.h"
+#else
+#include "gralloc_handle.h"
+#endif
+
 #define ALIGN_PIXEL_4(x) ((x + 3) & ~3)
 #define ALIGN_PIXEL_16(x) ((x + 15) & ~15)
 #define ALIGN_PIXEL_32(x) ((x + 31) & ~31)
@@ -871,45 +877,11 @@ int AllocPhyBuffer(uint32_t width, uint32_t height, uint32_t format, ImxImageBuf
         return BAD_VALUE;
     }
 
-    void *vaddr = NULL;
-    const ::android::Rect rect{0, 0, static_cast<int32_t>(width), static_cast<int32_t>(height)};
-    auto err = GraphicBufferMapper::get().lock(const_cast<native_handle_t *>(bufferHandle), usage,
-                                               rect, &vaddr);
-    if (err) {
-        ALOGE("%s: GraphicBufferMapper lock failed!", __FUNCTION__);
-        ::android::GraphicBufferMapper::get().unlock(bufferHandle);
-        GraphicBufferAllocator::get().free(bufferHandle);
+    int ret = GetBufferInfoFromHandle(bufferHandle, outBufInfo);
+    if (ret) {
+        ALOGE("%s, GetBufferInfoFromHandle failed, ret %d", __func__, ret);
         return BAD_VALUE;
     }
-
-    uint64_t allocatedSize;
-    err = GraphicBufferMapper::get().getAllocationSize(const_cast<native_handle_t *>(bufferHandle),
-                                                       &allocatedSize);
-    if (err) {
-        ALOGE("%s: GraphicBufferMapper getAllocationSize failed!", __FUNCTION__);
-        GraphicBufferAllocator::get().free(bufferHandle);
-        return BAD_VALUE;
-    }
-
-    int sharedFd = bufferHandle->data[0];
-    uint64_t phyAddr = GetPhyAddrFromBuffer(sharedFd);
-    ALOGV("%s, vaddr:%p,  phy:%p, size:%lu\n", __func__, vaddr, (void *)phyAddr, allocatedSize);
-    uint64_t formatSize = (uint64_t)getSizeByForamtRes(format, width, height, false);
-    if (formatSize == 0)
-        formatSize = allocatedSize;
-
-    outBufInfo.mFormat = format;
-    outBufInfo.mWidth = width;
-    outBufInfo.mHeight = height;
-    outBufInfo.mHeightSpan  = height;
-    outBufInfo.mVirtAddr = vaddr;
-    outBufInfo.mPhyAddr = phyAddr;
-    outBufInfo.mFd = sharedFd;
-    outBufInfo.buffer = bufferHandle;
-    outBufInfo.mSize = allocatedSize;
-    outBufInfo.mFormatSize = formatSize;
-    outBufInfo.mStride = bufferStride;
-    outBufInfo.mUsage = usage;
 
     return 0;
 }
@@ -919,13 +891,6 @@ int FreePhyBuffer(buffer_handle_t buffer) {
         ALOGE("%s: buffer NULL", __FUNCTION__);
         return BAD_VALUE;
     }
-
-    auto err = ::android::GraphicBufferMapper::get().unlock(buffer);
-    if (err) {
-        ALOGE("%s: GraphicBufferMapper unlock failed!", __FUNCTION__);
-        return BAD_VALUE;
-    }
-
     GraphicBufferAllocator::get().free(buffer);
 
     return 0;
@@ -986,64 +951,69 @@ int UnlockPhyBuffer(buffer_handle_t buffer) {
 }
 
 int GetBufferInfoFromHandle(buffer_handle_t bufferHandle, ImxImageBuffer &outBufInfo) {
-    GraphicBufferMapper &mapper = GraphicBufferMapper::getInstance();
+#ifdef USE_MALI
+    const struct imported_handle *nativeHandle = (const struct imported_handle *)bufferHandle;
+    if (nativeHandle == NULL)
+        return BAD_VALUE;
 
-    uint64_t width, height, usage;
-    auto err = mapper.getWidth(const_cast<native_handle_t *>(bufferHandle), &width);
-    if (err) {
-        ALOGE("%s: GraphicBufferMapper getWidth failed!", __FUNCTION__);
+    uint32_t format = (uint32_t)(nativeHandle->req_format);
+    uint64_t usage = (uint64_t)(nativeHandle->consumer_usage);
+    uint32_t stride = (uint32_t)(nativeHandle->stride);
+    uint64_t allocatedSize = (uint64_t)(nativeHandle->size);
+#else
+    const struct gralloc_handle *nativeHandle = (const struct gralloc_handle *)bufferHandle;
+    if (nativeHandle == NULL)
         return BAD_VALUE;
-    }
-    err = mapper.getHeight(const_cast<native_handle_t *>(bufferHandle), &height);
-    if (err) {
-        ALOGE("%s: GraphicBufferMapper getHeight failed!", __FUNCTION__);
-        return BAD_VALUE;
-    }
-    err = mapper.getUsage(const_cast<native_handle_t *>(bufferHandle), &usage);
-    if (err) {
-        ALOGE("%s: GraphicBufferMapper getUsage failed!", __FUNCTION__);
-        return BAD_VALUE;
-    }
 
-    uint32_t format;
-    err = mapper.getPixelFormatRequested(const_cast<native_handle_t *>(bufferHandle),
-                                         reinterpret_cast<ui::PixelFormat *>(&format));
-    if (err) {
-        ALOGE("%s: GraphicBufferMapper getPixelFormatRequested failed!", __FUNCTION__);
-        return BAD_VALUE;
-    }
+    uint32_t format = (uint32_t)(nativeHandle->format);
+    uint64_t usage = (uint64_t)(nativeHandle->usage);
+    uint32_t stride = (uint32_t)(nativeHandle->pixel_stride);
+    uint64_t allocatedSize = (uint64_t)(nativeHandle->total_size);
+#endif
 
-    void *vaddr = NULL;
-    const ::android::Rect rect{0, 0, static_cast<int32_t>(width), static_cast<int32_t>(height)};
-    err = mapper.lock(const_cast<native_handle_t *>(bufferHandle), usage, rect, &vaddr);
-    if (err) {
-        ALOGE("%s: GraphicBufferMapper lock failed!", __FUNCTION__);
-        return BAD_VALUE;
+    uint32_t width = (uint32_t)(nativeHandle->width);
+    uint32_t height = (uint32_t)(nativeHandle->height);
+    int32_t sharedFd = bufferHandle->data[0];
+
+    uint64_t phyAddr = (uint64_t)(nativeHandle->phys);
+    if (phyAddr == 0) {
+        ALOGW("%s: phyAddr got from handle is NULL, use GetPhyAddrFromBuffer to get!", __FUNCTION__);
+        phyAddr = GetPhyAddrFromBuffer(sharedFd);
     }
 
-    uint64_t allocatedSize;
-    err = mapper.getAllocationSize(const_cast<native_handle_t *>(bufferHandle), &allocatedSize);
-    if (err) {
-        ALOGE("%s: GraphicBufferMapper getAllocationSize failed!", __FUNCTION__);
-        return BAD_VALUE;
+    void *vaddr = (void *)nativeHandle->base;
+    if (vaddr == NULL) {
+        ALOGW("%s: vaddr got from handle is NULL, use GraphicBufferMapper to get!", __FUNCTION__);
+        GraphicBufferMapper &mapper = GraphicBufferMapper::getInstance();
+        const ::android::Rect rect{0, 0, static_cast<int32_t>(width), static_cast<int32_t>(height)};
+        auto err = mapper.lock(const_cast<native_handle_t *>(bufferHandle), usage, rect, &vaddr);
+        if (err) {
+            ALOGE("%s: GraphicBufferMapper lock failed!", __FUNCTION__);
+            return BAD_VALUE;
+        }
     }
 
-    int sharedFd = bufferHandle->data[0];
-    uint64_t phyAddr = GetPhyAddrFromBuffer(sharedFd);
-    ALOGV("%s: vaddr:%p,  phy:%p, size:%lu\n", __func__, vaddr, (void *)phyAddr, allocatedSize);
+    uint64_t formatSize = (uint64_t)getSizeByForamtRes(format, width, height, false);
+    if (formatSize == 0)
+        formatSize = allocatedSize;
 
     outBufInfo.mFormat = format;
-    outBufInfo.mWidth = (uint32_t)width;
-    outBufInfo.mHeight = (uint32_t)height;
-    // No mapper.getStride(), so just assign width.
-    // Some csc/scale functions need stride as para.
-    outBufInfo.mStride = (uint32_t)width;
+    outBufInfo.mWidth = width;
+    outBufInfo.mHeight = height;
+    outBufInfo.mHeightSpan = height;
     outBufInfo.mVirtAddr = vaddr;
     outBufInfo.mPhyAddr = phyAddr;
     outBufInfo.mFd = sharedFd;
     outBufInfo.buffer = bufferHandle;
     outBufInfo.mSize = allocatedSize;
+    outBufInfo.mFormatSize = formatSize;
+    outBufInfo.mStride = stride;
     outBufInfo.mUsage = usage;
+
+    ALOGV("%s: nativeHandle %p, sharedFd %d, res %ux%u, stride %u, format 0x%x, usage 0x%lx, vaddr %p, "
+          "phyAddr 0x%lx, formatSize %lu, allocatedSize %lu",
+          __func__, nativeHandle, sharedFd, width, height, stride, format, usage, vaddr, phyAddr,
+          formatSize, allocatedSize);
 
     return 0;
 }

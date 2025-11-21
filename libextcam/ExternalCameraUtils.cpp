@@ -657,9 +657,7 @@ void AllocatedFramePhyMem::getUsage(uint64_t& usage) {
 }
 
 void AllocatedFramePhyMem::flush() {
-    if (dstBuffer) {
-        UnlockPhyBuffer(dstBuffer);
-    }
+
 }
 
 int AllocatedFramePhyMem::getData(uint8_t** outData, size_t* dataSize) {

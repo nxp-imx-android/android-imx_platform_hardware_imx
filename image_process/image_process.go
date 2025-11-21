@@ -37,6 +37,7 @@ func imageProcessDefaults(ctx android.LoadHookContext) {
 			Android struct {
 				Enabled  *bool
 				Cppflags []string
+				Include_dirs []string
 			}
 		}
 	}
@@ -50,6 +51,13 @@ func imageProcessDefaults(ctx android.LoadHookContext) {
 
 	if ctx.Config().VendorConfig("IMXPLUGIN").String("TARGET_GRALLOC_VERSION") == "v4" {
 		p.Target.Android.Cppflags = append(p.Target.Android.Cppflags, "-DGRALLOC_VERSION=4")
+	}
+
+	if ctx.Config().VendorConfig("IMXPLUGIN").String("BOARD_GPU_DRIVERS") == "mali" {
+		p.Target.Android.Cppflags = append(p.Target.Android.Cppflags, "-DUSE_MALI=1")
+		p.Target.Android.Include_dirs = append(p.Target.Android.Include_dirs, "vendor/nxp/wsialloc/android/src/")
+		p.Target.Android.Include_dirs = append(p.Target.Android.Include_dirs, "vendor/nxp/wsialloc/android/src/core/")
+		p.Target.Android.Include_dirs = append(p.Target.Android.Include_dirs, "vendor/nxp/wsialloc/android/src/include/")
 	}
 
 	ctx.AppendProperties(p)

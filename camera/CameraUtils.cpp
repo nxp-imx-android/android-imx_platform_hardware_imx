@@ -205,8 +205,6 @@ ImxStreamBuffer *CreateImxStreamBufferFromBufferHandle(buffer_handle_t buffer, S
     goto finish;
 
 error:
-    if (imxBuf && imxBuf->mVirtAddr)
-        UnlockPhyBuffer(buffer);
     if (imxBuf)
         delete (imxBuf);
 
@@ -224,8 +222,6 @@ void ReleaseImxStreamBuffer(ImxStreamBuffer *imxBuf) {
         delete (imxBuf->mStream);
 
     buffer_handle_t handle = imxBuf->buffer;
-    if (handle)
-        UnlockPhyBuffer(handle);
 
     delete imxBuf;
 }
