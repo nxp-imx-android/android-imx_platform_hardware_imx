@@ -59,6 +59,20 @@ if [ -z ${boot_device} ]; then
 	done
 fi
 
+# ro.boot.boot_devices_* may also not exist
+if [ -z ${boot_device} ]; then
+	boot_device_uevent_sub_path=`getprop ro.boot.boot_devices`
+	# search the symlinks under /sys/block, find the one match with boot device info
+	boot_device=`ls -l /sys/block/* | grep ${boot_device_uevent_sub_path} | awk '{print length, $0}' | \
+			sort -n | head -1 | awk '{print $NF}' | xargs basename`
+
+	if [ -z ${boot_device} ]; then
+		log -p e -t imx_ota_postinstall "fail to find the boot device name"
+		exit 1
+	fi
+	log -p i -t imx_ota_postinstall "found the boot device: ${boot_device}"
+fi
+
 # check whether the boot device is eMMC based on whether the device file named
 # "/dev/block/$(device_root}boot0" can be accessed or not.
 ls /dev/block/${boot_device}boot0 1>/dev/null 2>/dev/null
