@@ -113,6 +113,7 @@ private:
     static Mutex sLock;
     static ImageProcess* sInstance;
     bool mDebug = false;
+    char mSocType[128] = {0};
 
     typedef int (ImageProcess::*ConvertByEngine)(ImxImageBuffer&, ImxImageBuffer&);
     ConvertByEngine g_EngFuncList[ENG_NUM] = {&ImageProcess::ConvertImageByGPU_2D,

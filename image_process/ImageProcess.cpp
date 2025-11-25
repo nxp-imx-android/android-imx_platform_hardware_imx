@@ -237,6 +237,10 @@ ImageProcess::ImageProcess()
     if (mCLHandle != NULL) {
         ALOGW("opencl g2d device is used!\n");
     }
+
+    property_get("ro.boot.soc_type", mSocType, "");
+    ALOGI("%s: mSocType :%s \n", __FUNCTION__, mSocType);
+
     mOclBufferType = OCL_MEM_TYPE_GPU;
     memset(path, 0, sizeof(path));
     getModule(path, IMX_OCL_CONVERTER);
@@ -255,9 +259,7 @@ ImageProcess::ImageProcess()
         m_ocl_convert = (ocl_convert)dlsym(mImxOclCvtModule, "OCL_Convert");
         m_ocl_close = (ocl_close)dlsym(mImxOclCvtModule, "OCL_Close");
 
-        char socType[128] = {0};
-        property_get("ro.boot.soc_type", socType, "");
-        if (!strncmp(socType, "imx9", 4))
+        if (!strncmp(mSocType, "imx9", 4))
             mOclBufferType = OCL_MEM_TYPE_DEVICE;
 
         pthread_key_create(&m_ocl_key, FreeOclHandle);
@@ -385,9 +387,7 @@ int ImageProcess::ConvertImage(ImxImageBuffer &dstBuf, ImxImageBuffer &srcBuf, I
     if (srcBuf.mFormat == dstBuf.mFormat && dstBuf.mFormat == HAL_PIXEL_FORMAT_YCBCR_420_888) {
         if ((srcBuf.mZoomRatio <= 1.0 && (srcBuf.mWidth != dstBuf.mWidth || srcBuf.mHeight != dstBuf.mHeight)) ||
             (srcBuf.mZoomRatio > 1.0 && srcBuf.mWidth == dstBuf.mWidth && srcBuf.mHeight == dstBuf.mHeight)) {
-            char socType[128] = {0};
-            property_get("ro.boot.soc_type", socType, "");
-            if (strstr(socType, "imx8mp")) {
+            if (strstr(mSocType, "imx8mp")) {
                 engine = ENG_OCLCVT;
             }
         }
@@ -976,10 +976,9 @@ int ImageProcess::ConvertImageByGPU_3D(ImxImageBuffer &dstBuf, ImxImageBuffer &s
     if ((srcBuf.mWidth != dstBuf.mWidth) || (srcBuf.mHeight != dstBuf.mHeight)) {
         // for android.hardware.camera2.cts.ImageReaderTest#testAllOutputYUVResolutions[1] on 8mq,
         // need uncached buffer for resize->csc, Otherwise the image will have green lines.
-        char socType[128] = {0};
         bool bCached = true;
-        property_get("ro.boot.soc_type", socType, "");
-        if (strstr(socType, "imx8mq")) {
+
+        if (strstr(mSocType, "imx8mq")) {
             bCached = false;
         }
 
