@@ -133,6 +133,9 @@ public:
             int64_t hwcId, const aidl::android::hardware::drm::HdcpLevels& levels) override;
     ndk::ScopedAStatus getLuts(int64_t displayId, const std::vector<Buffer>&,
                                std::vector<Luts>*) override;
+    ndk::ScopedAStatus getDisplayKnownVsyncSample(
+            int64_t in_display,
+            ::aidl::android::hardware::graphics::composer3::VsyncSample* _aidl_return) override;
 
 protected:
     ndk::SpAIBinder createBinder() override;

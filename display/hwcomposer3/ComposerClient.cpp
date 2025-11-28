@@ -745,6 +745,10 @@ ndk::ScopedAStatus ComposerClient::getLuts(int64_t hwcId, const std::vector<Buff
     return ToBinderStatus(HWC3::Error::Unsupported);
 }
 
+ndk::ScopedAStatus ComposerClient::getDisplayKnownVsyncSample(int64_t displayId, ::aidl::android::hardware::graphics::composer3::VsyncSample* _aidl_return) {
+	return ToBinderStatus(HWC3::Error::Unsupported);
+}
+
 ndk::SpAIBinder ComposerClient::createBinder() {
     auto binder = BnComposerClient::createBinder();
     AIBinder_setInheritRt(binder.get(), true);
