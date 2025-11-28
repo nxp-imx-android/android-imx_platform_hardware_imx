@@ -555,6 +555,9 @@ bool CameraDeviceHwlImpl::IsStreamCombinationSupported(const StreamConfiguration
                            (int *)mPictureResolutions, mPictureResolutionCount);
 }
 
+void CameraDeviceHwlImpl::WarmUp() {
+}
+
 bool CameraDeviceHwlImpl::StreamCombJudge(const StreamConfiguration &stream_config,
                                           int *pPreviewResolutions, int nPreviewResolutionCount,
                                           int *pPictureResolutions, int nPictureResolutionCount) {
