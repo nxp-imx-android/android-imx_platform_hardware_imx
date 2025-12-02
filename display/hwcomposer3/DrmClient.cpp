@@ -1008,4 +1008,12 @@ HWC3::Error DrmClient::waitVBlank(uint32_t displayId, int64_t* timestamp) {
 
     return HWC3::Error::None;
 }
+
+bool DrmClient::isSecureDisplay(int64_t displayId) {
+    if (mDisplays[displayId]->isSecureDisplay()) {
+        return true;
+    } else {
+        return false;
+    }
+}
 } // namespace aidl::android::hardware::graphics::composer3::impl

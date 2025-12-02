@@ -74,6 +74,7 @@ public:
     HWC3::Error setSecureMode(uint32_t displayId, bool secure) override;
     HWC3::Error getDisplayClientTargetProperty(uint32_t displayId,
                                                ClientTargetProperty* outProperty) override;
+    bool isSecureDisplay(int64_t displayId) override { return false; }
 
 private:
     bool loadFbdevDisplays(uint32_t displayBaseId, FbdevType type);

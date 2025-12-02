@@ -25,9 +25,7 @@ using android::base::WriteStringToFd;
 
 namespace aidl::android::hardware::graphics::composer3::impl {
 
-HDCPThread::HDCPThread(Display* display) : mHwcId(display->getHwcId()),
-                                           mDisplay(display),
-                                           mPattern("(\\d+)\\s*:") {
+HDCPThread::HDCPThread(uint32_t displayId) : mDisplayId(displayId), mPattern("(\\d+)\\s*:") {
     const std::string hdcpInfoPath = getHdcpInfoPath();
     mHdcpStatusPath = hdcpInfoPath + "/HDCPTX_Status";
     mHdcpCapPath = hdcpInfoPath + "/HDCPTX_Version";
@@ -40,11 +38,11 @@ HDCPThread::~HDCPThread() {
 }
 
 HWC3::Error HDCPThread::start() {
-    DEBUG_LOG("%s HDCP Thread for hwc display:%" PRIu64, __FUNCTION__, mHwcId);
+    DEBUG_LOG("%s HDCP Thread for display:%" PRIu64, __FUNCTION__, mDisplayId);
 
     mThread = std::thread([this]() { threadLoop(); });
 
-    const std::string name = "display_" + std::to_string(mHwcId) + "_hdcp";
+    const std::string name = "display_" + std::to_string(mDisplayId) + "_hdcp";
 
     int ret = pthread_setname_np(mThread.native_handle(), name.c_str());
     if (ret != 0) {
@@ -72,8 +70,8 @@ HWC3::Error HDCPThread::stop() {
     return HWC3::Error::None;
 }
 
-HWC3::Error HDCPThread::setCallbacks(const HdcpThreadCallback& callback) {
-    DEBUG_LOG("%s HDCP Thread for hwc display:%" PRIu64, __FUNCTION__, mHwcId);
+HWC3::Error HDCPThread::setCallbacks(const std::function<void()>& callback) {
+    DEBUG_LOG("%s HDCP Thread for display:%" PRIu64, __FUNCTION__, mDisplayId);
 
     std::unique_lock<std::mutex> lock(mStateMutex);
     if (!mCallbacks.has_value()) {
@@ -84,7 +82,8 @@ HWC3::Error HDCPThread::setCallbacks(const HdcpThreadCallback& callback) {
 }
 
 HWC3::Error HDCPThread::setHdcpThreadEnabled(bool enabled) {
-    DEBUG_LOG("%s HDCP Thread for hwc display:%" PRIu64 " enabled:%d", __FUNCTION__, mHwcId, enabled);
+    DEBUG_LOG("%s HDCP Thread for display:%" PRIu64 " enabled:%d", __FUNCTION__, mDisplayId,
+              enabled);
 
     std::lock_guard<std::mutex> lock(mStateMutex);
     mThreadEnabled = enabled;
@@ -93,20 +92,9 @@ HWC3::Error HDCPThread::setHdcpThreadEnabled(bool enabled) {
     return HWC3::Error::None;
 }
 
-HWC3::Error HDCPThread::setHdcpChangedCallback(const HdcpChangedCallback& callback) {
-    DEBUG_LOG("%s HDCP Thread for hwc display:%" PRIu64, __FUNCTION__, mHwcId);
-
-    std::unique_lock<std::mutex> lock(mStateMutex);
-    if (!mHdcpChangedCallbacks.has_value()) {
-        mHdcpChangedCallbacks = callback;
-    }
-
-    return HWC3::Error::None;
-}
-
 void HDCPThread::updateHdcpLevels(std::string hdcpCap,
                                   std::string hdcpVer) {
-    DEBUG_LOG("%s HDCP Thread for hwc display:%" PRIu64, __FUNCTION__, mHwcId);
+    DEBUG_LOG("%s HDCP Thread for display:%" PRIu64, __FUNCTION__, mDisplayId);
 
     std::unique_lock<std::mutex> lock(mStateMutex);
     int8_t hdcp_cap = static_cast<int8_t>(HdcpLevel::HDCP_UNKNOWN);
@@ -145,22 +133,6 @@ void HDCPThread::updateHdcpLevels(std::string hdcpCap,
     }
 }
 
-void HDCPThread::setHdcpState(bool state, bool isPrimary) {
-    DEBUG_LOG("%s HDCP Thread for hwc display:%" PRIu64, __FUNCTION__, mHwcId);
-
-    std::unique_lock<std::mutex> lock(mStateMutex);
-    if (!isPrimary) {
-        // for external display, hdcp state will be changed according to secure layer.
-        if (mHdcpState != state) {
-            mHdcpState = state;
-            (*mHdcpChangedCallbacks)(mDisplay->getHwcId(), mHdcpState, mLevels);
-        }
-    } else {
-        // for primary display, hdcp will be always on.
-        (*mHdcpChangedCallbacks)(mDisplay->getHwcId(), /* hdcp_state */true, mLevels);
-    }
-}
-
 HWC3::Error HDCPThread::getHdcpLevels(HdcpLevels& levels) {
     levels.connectedLevel = mLevels.connectedLevel;
     levels.maxLevel = mLevels.maxLevel;
@@ -183,8 +155,9 @@ void HDCPThread::threadLoop() {
                             ReadFileToString(mHdcpVersionPath, &mVersionResult);
                             updateHdcpLevels(mHdcpCapResult, mVersionResult);
                             if (mCallbacks) {
-                                DEBUG_LOG("%s: for hwc display:%" PRIu64 " calling hdcp", __FUNCTION__, mHwcId);
-                                (*mCallbacks)(mDisplay);
+                                DEBUG_LOG("%s: for display:%" PRIu64 " calling hdcp", __FUNCTION__,
+                                          mDisplayId);
+                                (*mCallbacks)();
                             }
                         } else {
                             std::chrono::time_point<std::chrono::system_clock> end_time = std::chrono::system_clock::now();
@@ -192,8 +165,10 @@ void HDCPThread::threadLoop() {
                             // hdcp auth timeout set to 30
                             if (elapsed_seconds >= 30) {
                                 mThreadEnabled = false;
+                                ALOGW("%s: wait for HDCP authentication timeout for display:%" PRIu64,
+                                      __FUNCTION__, mDisplayId);
                             }
-			}
+                        }
                     }
                 }
             }

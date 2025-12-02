@@ -121,6 +121,8 @@ public:
 
     virtual void partialCleanCacheBuffer(uint32_t overlayNum) { return; }
 
+    virtual bool isSecureDisplay(int64_t displayId) = 0;
+
 protected:
     uint32_t mMaxComposerTargetsPerDisplay = 3;
     void getTargetsNumFromProp() {

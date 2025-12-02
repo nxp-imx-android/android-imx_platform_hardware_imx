@@ -117,6 +117,8 @@ public:
 
     void partialCleanCacheBuffer(uint32_t overlayNum) override;
 
+    bool isSecureDisplay(int64_t displayId) override;
+
 private:
     using DrmPrimeBufferHandle = uint32_t;
     using DrmBufferCache = LruCache<DrmPrimeBufferHandle, std::shared_ptr<DrmBuffer>>;

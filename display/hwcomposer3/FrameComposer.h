@@ -74,12 +74,13 @@ public:
 
     virtual HWC3::Error getAllDeviceClients(std::map<uint32_t, DeviceClient*>& clients) = 0;
 
-    virtual HWC3::Error startHdcp(Display* display) = 0;
-
     using HdcpChangedCallback = std::function<void(long /* displayId */,
                                                    bool state,
                                                    aidl::android::hardware::drm::HdcpLevels /* levels */)>;
     virtual HWC3::Error registerOnHdcpChangedCallback(const HdcpChangedCallback& cb) = 0;
+
+    virtual HWC3::Error startHdcpNegotiation(
+            Display* display, const aidl::android::hardware::drm::HdcpLevels& levels) = 0;
 };
 
 } // namespace aidl::android::hardware::graphics::composer3::impl

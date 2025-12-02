@@ -174,15 +174,6 @@ public:
     std::optional<TimePoint>& getExpectedPresentTime() { return mExpectedPresentTime; }
     HWC3::Error checkAndWaitNextVsync(int64_t* timestamp);
 
-    using HDCPThreadCallback = std::function<void (Display*)>;
-    void setHdcpCallback(const HDCPThreadCallback& callback);
-    void setHdcpThreadEnable(bool enable);
-
-    using HdcpChangedCallback = std::function<void(long /* displayId */,
-                                                   bool state,
-                                                   aidl::android::hardware::drm::HdcpLevels /* levels */)>;
-    void setHdcpState(bool state, bool isPrimary);
-    void setHdcpChangedCallback(const HdcpChangedCallback& callback);
 private:
     bool hasConfig(int32_t configId) const;
     DisplayConfig* getConfig(int32_t configId);
@@ -206,9 +197,7 @@ private:
     std::string mName;
     PowerMode mPowerMode = PowerMode::OFF;
     bool mVsyncStarted = false;
-    bool mHdcpStarted = false;
     VsyncThread mVsyncThread;
-    HDCPThread mHdcpThread;
     FencedBuffer mClientTarget;
     FencedBuffer mOutputBuffer;
     FencedBuffer mReadbackBuffer;

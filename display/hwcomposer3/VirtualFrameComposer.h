@@ -83,8 +83,12 @@ public:
         return HWC3::Error::None;
     }
 
-    HWC3::Error startHdcp(Display* display) override { return HWC3::Error::None; }
     HWC3::Error registerOnHdcpChangedCallback(const HdcpChangedCallback& cb) override {
+        return HWC3::Error::None;
+    }
+
+    HWC3::Error startHdcpNegotiation(
+            Display* display, const aidl::android::hardware::drm::HdcpLevels& levels) override {
         return HWC3::Error::None;
     }
 

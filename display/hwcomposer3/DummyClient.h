@@ -76,6 +76,8 @@ public:
     HWC3::Error getDisplayClientTargetProperty(uint32_t displayId,
                                                ClientTargetProperty* outProperty) override;
 
+    bool isSecureDisplay(int64_t displayId) override { return false; }
+
 private:
     uint32_t mDisplayId = 0;
     uint32_t mHwcId = 0;
