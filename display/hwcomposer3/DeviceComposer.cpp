@@ -1186,6 +1186,12 @@ bool DeviceComposer::checkDeviceComposition(Layer* layer) {
     }
 #endif
 
+#ifdef G2D_LIMITATION_DPU
+    if ((info.drm_format == DRM_FORMAT_P010) || (info.drm_format == DRM_FORMAT_P210)) {
+        DEBUG_LOG("%s: g2d can't support 0x%x format", __FUNCTION__, info.drm_format);
+        return false;
+    }
+#endif
     if (!(info.usage &
           (GRALLOC_USAGE_PROTECTED | GRALLOC_USAGE_PRIVATE_3 | GRALLOC_USAGE_HW_COMPOSER |
            GRALLOC_USAGE_HW_FB))) {
