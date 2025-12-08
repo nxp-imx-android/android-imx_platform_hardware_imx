@@ -85,6 +85,8 @@ HWC3::Error VirtualFrameComposer::onDisplayCreate(Display* display) {
         }
     }
 
+    mG2dComposer->onDisplayCreate(displayId);
+
     return HWC3::Error::None;
 }
 
@@ -98,14 +100,16 @@ HWC3::Error VirtualFrameComposer::onDisplayDestroy(Display* display) {
         return HWC3::Error::BadDisplay;
     }
 
+    mG2dComposer->onDisplayDestroy(displayId);
     mDisplays.erase(it);
     return HWC3::Error::None;
 }
 
 HWC3::Error VirtualFrameComposer::onDisplayLayerDestroy(Display* display, Layer* layer) {
-    DEBUG_LOG("%s display:%d", __FUNCTION__, display->getId());
+    const auto displayId = display->getId();
+    DEBUG_LOG("%s display:%d", __FUNCTION__, displayId);
 
-    mG2dComposer->onLayerDestroy(layer);
+    mG2dComposer->onDisplayLayerDestroy(displayId, layer);
 
     return HWC3::Error::None;
 }
@@ -276,7 +280,8 @@ HWC3::Error VirtualFrameComposer::presentDisplay(
 #ifdef DEBUG_DUMP_VIRT_G2D_CONSUMPTION
         nsecs_t g2dStart = systemTime(CLOCK_MONOTONIC);
 #endif
-        auto [ret, composeFence] = mG2dComposer->composeLayers(layersForComposition, composeTarget);
+        auto [ret, composeFence] =
+                mG2dComposer->composeLayers(displayId, layersForComposition, composeTarget);
         if (ret) {
             outputFence = std::move(composeFence);
         } else {

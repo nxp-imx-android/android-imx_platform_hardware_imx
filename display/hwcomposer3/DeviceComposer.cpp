@@ -185,7 +185,6 @@ bool DeviceComposer::isValid() {
 int DeviceComposer::prepareDeviceFrameBuffer(uint32_t width, uint32_t height, uint32_t format,
                                              std::vector<buffer_handle_t>& buffers, uint32_t count,
                                              bool secure) {
-    uint32_t extra = 0;
     uint64_t usage;
     uint32_t bufferStride;
     buffer_handle_t bufferHandle;
@@ -195,11 +194,7 @@ int DeviceComposer::prepareDeviceFrameBuffer(uint32_t width, uint32_t height, ui
     if (secure)
         usage |= GRALLOC_USAGE_PROTECTED;
 
-#ifdef G2D_CACHED_COMPOSITION
-    extra = mInterCount;
-    int64_t interId = mInterId;
-#endif
-    for (uint32_t i = 0; i < count + extra; i++) {
+    for (uint32_t i = 0; i < count; i++) {
         auto status = ::android::GraphicBufferAllocator::get().allocate(width, height,
                                                                         static_cast<int>(format),
                                                                         /*layerCount=*/1, usage,
@@ -211,22 +206,7 @@ int DeviceComposer::prepareDeviceFrameBuffer(uint32_t width, uint32_t height, ui
             return status;
         }
 
-        if (i < count)
-            buffers.push_back(bufferHandle);
-#ifdef G2D_CACHED_COMPOSITION
-        else {
-            mCachedComposition.emplace(interId,
-                                       G2dInterComposition{
-                                               .hnd = bufferHandle,
-                                       });
-            if (getInfoFromHandle(bufferHandle, &(mCachedComposition[interId].info)) != 0) {
-                ALOGE("%s: failed to get buffer info of cached composition buffer", __FUNCTION__);
-                return -1;
-            }
-            mCachedComposition[interId].interlayer.visible = &mCachedComposition[interId].visible;
-            interId--;
-        }
-#endif
+        buffers.push_back(bufferHandle);
     }
 
     return 0;
@@ -335,21 +315,25 @@ int DeviceComposer::clearRect(G2dBuffer& buff, common::Rect& rect, uint32_t colo
     return 0;
 }
 
-int DeviceComposer::clearWormHole(std::vector<int64_t>& layerIds, G2dBuffer& target) {
+int DeviceComposer::clearWormHole(uint32_t displayId, std::vector<int64_t>& layerIds,
+                                  G2dBuffer& target) {
     DEBUG_LOG("%s: clear worm hole", __FUNCTION__);
     if (target.hnd == nullptr || target.infoPtr == nullptr) {
         ALOGE("%s: no effective render buffer", __FUNCTION__);
         return -EINVAL;
     }
 
+    auto& cachedComposition = mCachedDisplays[displayId].cachedCompositions;
+    auto& cachedLayers = mCachedDisplays[displayId].cachedLayers;
+
     // calculate opaque region.
     ::android::Region opaque;
     for (auto id : layerIds) {
         G2dInterLayer* layer;
         if (id > 0)
-            layer = &mCachedLayers[id];
+            layer = &cachedLayers[id];
         else
-            layer = &mCachedComposition[id].interlayer;
+            layer = &cachedComposition[id].interlayer;
 
         for (auto& rect : *layer->visible) {
             opaque.orSelf(::android::Rect(rect.left, rect.top, rect.right, rect.bottom));
@@ -400,16 +384,43 @@ int DeviceComposer::clearWormHole(std::vector<int64_t>& layerIds, G2dBuffer& tar
     return 0;
 }
 
-int DeviceComposer::onLayerDestroy(Layer* layer) {
+int DeviceComposer::onDisplayCreate(uint32_t displayId) {
+    if (mCachedDisplays.find(displayId) == mCachedDisplays.end()) {
+        mCachedDisplays.emplace(displayId, G2dCachedDisplay{});
+        auto& cachedComposition = mCachedDisplays[displayId].cachedCompositions;
+        cachedComposition.emplace(mInterId,
+                                  G2dInterComposition{
+                                          .hnd = nullptr,
+                                  });
+    }
+
+    return 0;
+}
+
+int DeviceComposer::onDisplayDestroy(uint32_t displayId) {
+    auto& cachedComposition = mCachedDisplays[displayId].cachedCompositions;
+    auto& cachedLayers = mCachedDisplays[displayId].cachedLayers;
+
+    cachedLayers.clear();
+    cachedComposition.clear();
+    mCachedDisplays.erase(displayId);
+
+    return 0;
+}
+
+int DeviceComposer::onDisplayLayerDestroy(uint32_t displayId, Layer* layer) {
     auto id = layer->getId();
     if (mInterBuffers.find(id) != mInterBuffers.end()) {
         ::android::GraphicBufferAllocator::get().free(mInterBuffers[id].hnd);
         mInterBuffers.erase(id);
     }
 
-    if (mCachedLayers.find(id) != mCachedLayers.end()) {
-        mCachedLayers.erase(id);
+    auto& cachedLayers = mCachedDisplays[displayId].cachedLayers;
+
+    if (cachedLayers.find(id) != cachedLayers.end()) {
+        cachedLayers.erase(id);
     }
+
     return 0;
 }
 
@@ -1245,7 +1256,8 @@ bool DeviceComposer::checkDeviceComposition(Layer* layer) {
 }
 
 std::optional<std::vector<int64_t>> DeviceComposer::cacheG2dLayersStats(
-        std::vector<Layer*> layers) {
+        uint32_t displayId, std::vector<Layer*> layers) {
+    auto& cachedLayers = mCachedDisplays[displayId].cachedLayers;
     std::vector<int64_t> orderedIds;
     for (auto& layer : layers) {
         auto id = layer->getId();
@@ -1255,11 +1267,16 @@ std::optional<std::vector<int64_t>> DeviceComposer::cacheG2dLayersStats(
         auto srect = layer->getSourceCropInt();
         auto transform = layer->getTransform();
         auto infoPtr = layer->getBufferInfo(); // the info.buffer_id = 0 for solid color layer
-        if (mCachedLayers.find(id) != mCachedLayers.end()) {
-            auto& cache = mCachedLayers[id];
+        auto& visible = layer->getVisibleRegion();
+        common::Rect visibleRect{0, 0, 0, 0};
+        if (visible.size() > 0)
+            visibleRect = visible[0]; // TODO: only the first rect used now.
+
+        if (cachedLayers.find(id) != cachedLayers.end()) {
+            auto& cache = cachedLayers[id];
             if ((cache.buffer_id == infoPtr->buffer_id) && (cache.zorder == zorder) &&
                 (cache.alpha == alpha) && (cache.drect == drect) && (cache.srect == srect) &&
-                (cache.transform == transform)) {
+                (cache.transform == transform) && (cache.visibleRect == visibleRect)) {
                 cache.keep_count++;
             } else {
                 cache.keep_count = 0;
@@ -1269,23 +1286,25 @@ std::optional<std::vector<int64_t>> DeviceComposer::cacheG2dLayersStats(
                 cache.drect = drect;
                 cache.srect = srect;
                 cache.transform = transform;
+                cache.visibleRect = visibleRect;
             }
         } else {
-            mCachedLayers.emplace(id,
-                                  G2dInterLayer{
-                                          .id = id,
-                                          .zorder = zorder,
-                                          .alpha = alpha,
-                                          .type = layer->getCompositionType(),
-                                          .mode = layer->getBlendMode(),
-                                          .drect = drect,
-                                          .srect = srect,
-                                          .transform = transform,
-                                          .visible = layer->getVisibleRegionPtr(),
-                                          .priv = layer,
-                                          .keep_count = 0,
-                                          .buffer_id = infoPtr->buffer_id,
-                                  });
+            cachedLayers.emplace(id,
+                                 G2dInterLayer{
+                                         .id = id,
+                                         .zorder = zorder,
+                                         .alpha = alpha,
+                                         .type = layer->getCompositionType(),
+                                         .mode = layer->getBlendMode(),
+                                         .drect = drect,
+                                         .srect = srect,
+                                         .transform = transform,
+                                         .visible = layer->getVisibleRegionPtr(),
+                                         .visibleRect = visibleRect,
+                                         .priv = layer,
+                                         .keep_count = 0,
+                                         .buffer_id = infoPtr->buffer_id,
+                                 });
         }
         orderedIds.push_back(id);
     }
@@ -1298,7 +1317,7 @@ std::optional<std::vector<int64_t>> DeviceComposer::cacheG2dLayersStats(
     int32_t cnt = 0;
     std::vector<int64_t> slices;
     for (auto& id : orderedIds) {
-        auto& l = mCachedLayers[id];
+        auto& l = cachedLayers[id];
         DEBUG_LOG_G2D("%s: layer %ld, keep %d, slices size=%zu", __FUNCTION__, id, l.keep_count,
                       slices.size());
         if ((l.keep_count >= LAYER_LEAST_KEEP_CNT) && (l.alpha == 0xff)) {
@@ -1324,8 +1343,8 @@ std::optional<std::vector<int64_t>> DeviceComposer::cacheG2dLayersStats(
             common::Rect dispRect = {0, 0, 0, 0};
             uint64_t areaSum = 0;
             for (auto id : slices) {
-                areaSum += calculateRect(mCachedLayers[id].drect);
-                mergeRect(dispRect, mCachedLayers[id].drect);
+                areaSum += calculateRect(cachedLayers[id].drect);
+                mergeRect(dispRect, cachedLayers[id].drect);
             }
             uint64_t dispArea = calculateRect(dispRect);
             if (areaSum >= dispArea) {
@@ -1350,7 +1369,8 @@ std::optional<std::vector<int64_t>> DeviceComposer::cacheG2dLayersStats(
     }
 }
 
-void DeviceComposer::composeG2dLayers(std::vector<int64_t>& layerIds, G2dBuffer& targetBuffer) {
+void DeviceComposer::composeG2dLayers(uint32_t displayId, std::vector<int64_t>& layerIds,
+                                      G2dBuffer& targetBuffer) {
 #ifdef DEBUG_NXP_HWC_G2D
     char tempStr[12];
     std::string IdStr;
@@ -1366,6 +1386,9 @@ void DeviceComposer::composeG2dLayers(std::vector<int64_t>& layerIds, G2dBuffer&
         return;
     }
 
+    auto& cachedComposition = mCachedDisplays[displayId].cachedCompositions;
+    auto& cachedLayers = mCachedDisplays[displayId].cachedLayers;
+
     lockSurface(targetBuffer);
 
     // to do composite.
@@ -1373,11 +1396,11 @@ void DeviceComposer::composeG2dLayers(std::vector<int64_t>& layerIds, G2dBuffer&
     for (auto id : layerIds) {
         G2dBuffer layerBuffer;
         if (id < 0) { // only for intermediate composition result
-            layerBuffer.hnd = mCachedComposition[id].hnd;
-            layerBuffer.infoPtr = &mCachedComposition[id].info;
-            layerBuffer.layer = &mCachedComposition[id].interlayer;
+            layerBuffer.hnd = cachedComposition[id].hnd;
+            layerBuffer.infoPtr = &cachedComposition[id].info;
+            layerBuffer.layer = &cachedComposition[id].interlayer;
         } else {
-            auto& layer = mCachedLayers[id];
+            auto& layer = cachedLayers[id];
             if (layer.type == Composition::SIDEBAND)
                 // set side band parameters.
                 continue;
@@ -1415,10 +1438,14 @@ void DeviceComposer::composeG2dLayers(std::vector<int64_t>& layerIds, G2dBuffer&
 }
 
 std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
-        std::vector<Layer*> layers, buffer_handle_t target) {
+        uint32_t displayId, std::vector<Layer*> layers, buffer_handle_t target) {
     ATRACE_CALL();
 
     Mutex::Autolock _l(sLock);
+    if (mCachedDisplays.find(displayId) == mCachedDisplays.end()) {
+        ALOGE("%s: display id=%d is invalid", __FUNCTION__, displayId);
+        return std::make_tuple(false, ::android::base::unique_fd());
+    }
     if (!target || (getInfoFromHandle(target, &mTarget.info) != 0)) {
         ALOGE("%s: composer target buffer is invalid", __FUNCTION__);
         return std::make_tuple(false, ::android::base::unique_fd());
@@ -1433,12 +1460,17 @@ std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
         sprintf(tempStr, "%ld ", layer->getId());
         IdStr += tempStr;
     }
-    ALOGI("%s: ------compose %zu layers(%s) to target(fd=%d, %d x %d)-------", __FUNCTION__,
-          layers.size(), IdStr.c_str(), mTarget.info.fd, mTarget.info.width, mTarget.info.height);
+    ALOGI("%s: ------display %d compose %zu layers(%s) to target(fd=%d, %d x %d)-------",
+          __FUNCTION__, displayId, layers.size(), IdStr.c_str(), mTarget.info.fd,
+          mTarget.info.width, mTarget.info.height);
 #endif
 
+    auto& cachedComposition = mCachedDisplays[displayId].cachedCompositions;
+    auto& cachedLayers = mCachedDisplays[displayId].cachedLayers;
+
+    int64_t interId = mInterId;
     std::vector<int64_t> finalIds;
-    auto ids = cacheG2dLayersStats(layers);
+    auto ids = cacheG2dLayersStats(displayId, layers);
     if (ids) {
         std::vector<int64_t> cacheIds = *ids;
 #ifdef DEBUG_NXP_HWC_G2D
@@ -1466,15 +1498,37 @@ std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
             }
         }
 
-        if (cacheIds != mCachedComposition[mInterId].composedIds) { // need to do composition
+        if (cacheIds != cachedComposition[interId].composedIds) { // need to do composition
+            if (cachedComposition[interId].hnd == nullptr) {
+                bool isSecure = false;
+                if (mTarget.infoPtr->usage & GRALLOC_USAGE_PROTECTED)
+                    isSecure = true;
+                std::vector<buffer_handle_t> buffers;
+                auto ret =
+                        prepareDeviceFrameBuffer(mTarget.infoPtr->width, mTarget.infoPtr->height,
+                                                 /*mTarget.infoPtr->format*/
+                                                 static_cast<int>(common::PixelFormat::RGBA_8888),
+                                                 buffers, 1, isSecure);
+                if (ret)
+                    return std::make_tuple(false, ::android::base::unique_fd());
+
+                cachedComposition[interId].hnd = buffers[0];
+                if (getInfoFromHandle(buffers[0], &(cachedComposition[interId].info)) != 0) {
+                    ALOGE("%s: failed to get buffer info of cached composition buffer",
+                          __FUNCTION__);
+                    return std::make_tuple(false, ::android::base::unique_fd());
+                }
+                cachedComposition[interId].interlayer.visible = &cachedComposition[interId].visible;
+            }
+
             common::Rect dispRect{0, 0, 0, 0};
             for (auto id : cacheIds) {
-                mergeRect(dispRect, mCachedLayers[id].drect);
+                mergeRect(dispRect, cachedLayers[id].drect);
             }
             G2dBuffer dstBuffer;
             // The intermediate buffer is allocated when prepare G2D framebuffer
-            dstBuffer.hnd = mCachedComposition[mInterId].hnd;
-            dstBuffer.infoPtr = &mCachedComposition[mInterId].info;
+            dstBuffer.hnd = cachedComposition[interId].hnd;
+            dstBuffer.infoPtr = &cachedComposition[interId].info;
 
             common::Rect rect;
             rect.left = rect.top = 0;
@@ -1482,14 +1536,14 @@ std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
             rect.bottom = static_cast<int>(dstBuffer.infoPtr->height);
             clearRect(dstBuffer, rect, 0x00 << 24);
 
-            composeG2dLayers(cacheIds, dstBuffer);
+            composeG2dLayers(displayId, cacheIds, dstBuffer);
 
             common::BlendMode mode = common::BlendMode::NONE;
             if (zorder_inter > 0)
                 mode = common::BlendMode::PREMULTIPLIED;
 
-            auto& interlayer = mCachedComposition[mInterId].interlayer;
-            interlayer.id = mInterId;
+            auto& interlayer = cachedComposition[interId].interlayer;
+            interlayer.id = interId;
             interlayer.zorder = zorder_inter;
             interlayer.alpha = 0xff;
             interlayer.type = Composition::DEVICE;
@@ -1503,14 +1557,14 @@ std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
                           __FUNCTION__, dispRect.left, dispRect.top, dispRect.right,
                           dispRect.bottom);
 
-            mCachedComposition[mInterId].composedIds = cacheIds;
+            cachedComposition[interId].composedIds = cacheIds;
         }
     } else {
-        mCachedComposition[mInterId].composedIds.clear();
+        cachedComposition[interId].composedIds.clear();
         for (auto layer : layers) finalIds.push_back(layer->getId());
     }
 
-    composeG2dLayers(finalIds, mTarget);
+    composeG2dLayers(displayId, finalIds, mTarget);
 
     ::android::base::unique_fd composeFence(createFenceFd(getHandle()));
     if (!composeFence.ok())
@@ -1524,7 +1578,7 @@ std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
                   composeFence.get());
         }
     }
-    debug_dump_layerbuffer(mCachedComposition[mInterId].hnd, mInterId);
+    debug_dump_layerbuffer(mCachedComposition[interId].hnd, interId);
 #endif
     return std::make_tuple(true, std::move(composeFence));
 }

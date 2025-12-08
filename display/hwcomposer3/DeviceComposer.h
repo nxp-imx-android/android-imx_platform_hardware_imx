@@ -44,6 +44,7 @@ struct G2dInterLayer {
     common::Rect srect;
     common::Transform transform;
     std::vector<common::Rect>* visible;
+    common::Rect visibleRect;
     Layer* priv;
     uint32_t keep_count;
     uint64_t buffer_id;
@@ -104,23 +105,28 @@ public:
                                  bool secure);
     int freeDeviceFrameBuffer(std::vector<buffer_handle_t>& buffers);
     int freeSolidColorBuffer();
-    int onLayerDestroy(Layer* layer);
+    int onDisplayCreate(uint32_t displayId);
+    int onDisplayDestroy(uint32_t displayId);
+    int onDisplayLayerDestroy(uint32_t displayId, Layer* layer);
 
     int convertBuffer(buffer_handle_t inBuf, HandleInfo* inInfoPtr, buffer_handle_t outBuf,
                       HandleInfo* outInfoPtr, bool useOcl);
-    std::tuple<bool, ::android::base::unique_fd> composeLayers(std::vector<Layer*> layers,
+    std::tuple<bool, ::android::base::unique_fd> composeLayers(uint32_t displayId,
+                                                               std::vector<Layer*> layers,
                                                                buffer_handle_t target);
 
 private:
     void* getHandle();
 
     // clear worm hole introduced by layers not cover whole screen.
-    int clearWormHole(std::vector<int64_t>& layerIds, G2dBuffer& target);
+    int clearWormHole(uint32_t displayId, std::vector<int64_t>& layerIds, G2dBuffer& target);
     G2dInterBuffer* preComposition(Layer* layer, buffer_handle_t handle);
     // compose display layer.
     int composeLayerLocked(G2dBuffer& layerBuffer, G2dBuffer& targetBuffer, bool bypass);
-    std::optional<std::vector<int64_t>> cacheG2dLayersStats(std::vector<Layer*> layers);
-    void composeG2dLayers(std::vector<int64_t>& layerIds, G2dBuffer& targetBuffer);
+    std::optional<std::vector<int64_t>> cacheG2dLayersStats(uint32_t displayId,
+                                                            std::vector<Layer*> layers);
+    void composeG2dLayers(uint32_t displayId, std::vector<int64_t>& layerIds,
+                          G2dBuffer& targetBuffer);
 
     // sync 2D blit engine.
     int finishComposite();
@@ -168,10 +174,14 @@ private:
     G2dCachedBuffer mSolidColorBuffer;
     std::unordered_map<uint64_t, G2dInterBuffer> mInterBuffers; // used for conversion in layer
 
-    std::unordered_map<int64_t, G2dInterLayer> mCachedLayers;
+    struct G2dCachedDisplay {
+        std::unordered_map<int64_t, G2dInterLayer> cachedLayers;
+        std::unordered_map<int64_t, G2dInterComposition> cachedCompositions;
+    };
+    std::unordered_map<uint32_t, G2dCachedDisplay> mCachedDisplays;
+
     int64_t mInterId = G2D_INTERLAYER_ID;
     int32_t mInterCount = 0;
-    std::unordered_map<int64_t, G2dInterComposition> mCachedComposition;
 
     hwc_func3 mGetAlignedSize;
     hwc_func2 mGetFlipOffset;

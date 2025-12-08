@@ -292,6 +292,8 @@ HWC3::Error ClientFrameComposer::onDisplayCreate(Display* display) {
         }
     }
 
+    mG2dComposer->onDisplayCreate(displayId);
+
     return HWC3::Error::None;
 }
 
@@ -310,6 +312,7 @@ HWC3::Error ClientFrameComposer::onDisplayDestroy(Display* display) {
         return error;
     }
 
+    mG2dComposer->onDisplayDestroy(displayId);
     client->resetDisplayConfig(displayId);
 
     mDisplayBuffers.erase(it);
@@ -334,7 +337,7 @@ HWC3::Error ClientFrameComposer::onDisplayLayerDestroy(Display* display, Layer* 
         client->setHdrMetadata(displayId, NULL); // reset the HDR metadata state
     }
 
-    mG2dComposer->onLayerDestroy(layer);
+    mG2dComposer->onDisplayLayerDestroy(displayId, layer);
 
     return HWC3::Error::None;
 }
@@ -636,7 +639,8 @@ HWC3::Error ClientFrameComposer::presentDisplay(
 #ifdef DEBUG_DUMP_G2D_CONSUMPTION
         nsecs_t composeStart = systemTime(CLOCK_MONOTONIC);
 #endif
-        auto [ret, composeFence] = mG2dComposer->composeLayers(layersForComposition, renderTarget);
+        auto [ret, composeFence] =
+                mG2dComposer->composeLayers(displayId, layersForComposition, renderTarget);
 #ifdef DEBUG_DUMP_G2D_CONSUMPTION
         nsecs_t composeEnd = systemTime(CLOCK_MONOTONIC);
         totalCostTime += composeEnd - composeStart;
