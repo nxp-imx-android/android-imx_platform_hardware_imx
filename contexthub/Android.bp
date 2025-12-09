@@ -36,6 +36,8 @@ cc_binary {
         "pw_polyfill",
         "pw_span",
         "pw_varint",
+        "pw_base64",
+        "chre_host_util",
     ],
     include_dirs: [
         "device/nxp/common/kernel-headers",
