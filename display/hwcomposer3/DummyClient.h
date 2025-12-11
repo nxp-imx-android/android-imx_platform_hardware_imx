@@ -31,8 +31,13 @@
 #include "DrmConnector.h"
 #include "DrmDisplay.h"
 
-#define DUMMY_DISPLAY_WIDTH 720
-#define DUMMY_DISPLAY_HEIGHT 480
+#ifdef MAX_DRM_CONFIG_720P
+#define DUMMY_DISPLAY_WIDTH 720 // match the resolution of mipi-panel on evk_8ulp
+#define DUMMY_DISPLAY_HEIGHT 1280
+#else
+#define DUMMY_DISPLAY_WIDTH 1920
+#define DUMMY_DISPLAY_HEIGHT 1080
+#endif
 #define DUMMY_DISPLAY_ACTIVE_CONFIG_ID 0
 
 namespace aidl::android::hardware::graphics::composer3::impl {

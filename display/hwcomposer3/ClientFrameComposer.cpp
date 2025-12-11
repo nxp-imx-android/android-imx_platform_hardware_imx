@@ -285,7 +285,7 @@ HWC3::Error ClientFrameComposer::onDisplayCreate(Display* display) {
         error = client->getDisplayConnectionType(displayId, &connectionType);
         if (error == HWC3::Error::None) {
             if (client->isSecureDisplay(displayId)) {
-                ALOGI("Display %" PRId64 " support HDCP, start hdcp", displayId);
+                ALOGI("Display %d support HDCP, start hdcp", displayId);
                 initHdcpForDisplay(displayId, hwcId, connectionType);
                 client->setSecureMode(displayId, true);
             }
@@ -922,7 +922,7 @@ HWC3::Error ClientFrameComposer::registerOnHdcpChangedCallback(const HdcpChanged
 HWC3::Error ClientFrameComposer::startHdcpNegotiation(
         Display* display, const aidl::android::hardware::drm::HdcpLevels& levels) {
     const auto displayId = display->getId();
-    DEBUG_LOG("%s: display:%" PRId64, __FUNCTION__, displayId);
+    DEBUG_LOG("%s: display:%d", __FUNCTION__, displayId);
 
     if (!mHdcpEnabled) {
         DEBUG_LOG("%s, HDCP not enabled", __FUNCTION__);
@@ -931,14 +931,14 @@ HWC3::Error ClientFrameComposer::startHdcpNegotiation(
 
     auto [error, client] = getDeviceClient(displayId);
     if (error != HWC3::Error::None) {
-        ALOGE("%s: display:%" PRId64 " cannot find Drm Client", __FUNCTION__, displayId);
+        ALOGE("%s: display:%d cannot find Drm Client", __FUNCTION__, displayId);
         return error;
     }
 
     // find the hdcp context of this display
     auto it = mDisplayHdcpContexts.find(displayId);
     if (it == mDisplayHdcpContexts.end()) {
-        ALOGE("%s: display:%" PRId64 " HDCP context not found", __FUNCTION__, displayId);
+        ALOGE("%s: display:%d HDCP context not found", __FUNCTION__, displayId);
         return HWC3::Error::NoResources;
     }
 

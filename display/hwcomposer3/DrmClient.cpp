@@ -207,7 +207,7 @@ bool DrmClient::loadDrmDisplays(uint32_t displayBaseId) {
 
     ALOGI("%s: there are %zu crtcs, %zu connectors, %zu planes in DrmClient:%d", __FUNCTION__,
           crtcs.size(), connectors.size(), planes.size(), mFd.get());
-    if (crtcs.size() < connectors.size()) {
+    if (crtcs.size() < connectors.size() || connectors.size() == 0) {
         ALOGE("%s: Failed assumption mCrtcs.size():%zu larger than or equal mConnectors.size():%zu",
               __FUNCTION__, crtcs.size(), connectors.size());
         return false;

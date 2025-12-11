@@ -38,7 +38,7 @@ HDCPThread::~HDCPThread() {
 }
 
 HWC3::Error HDCPThread::start() {
-    DEBUG_LOG("%s HDCP Thread for display:%" PRIu64, __FUNCTION__, mDisplayId);
+    DEBUG_LOG("%s HDCP Thread for display:%d", __FUNCTION__, mDisplayId);
 
     mThread = std::thread([this]() { threadLoop(); });
 
@@ -71,7 +71,7 @@ HWC3::Error HDCPThread::stop() {
 }
 
 HWC3::Error HDCPThread::setCallbacks(const std::function<void()>& callback) {
-    DEBUG_LOG("%s HDCP Thread for display:%" PRIu64, __FUNCTION__, mDisplayId);
+    DEBUG_LOG("%s HDCP Thread for display:%d", __FUNCTION__, mDisplayId);
 
     std::unique_lock<std::mutex> lock(mStateMutex);
     if (!mCallbacks.has_value()) {
@@ -82,8 +82,7 @@ HWC3::Error HDCPThread::setCallbacks(const std::function<void()>& callback) {
 }
 
 HWC3::Error HDCPThread::setHdcpThreadEnabled(bool enabled) {
-    DEBUG_LOG("%s HDCP Thread for display:%" PRIu64 " enabled:%d", __FUNCTION__, mDisplayId,
-              enabled);
+    DEBUG_LOG("%s HDCP Thread for display:%d enabled:%d", __FUNCTION__, mDisplayId, enabled);
 
     std::lock_guard<std::mutex> lock(mStateMutex);
     mThreadEnabled = enabled;
@@ -94,7 +93,7 @@ HWC3::Error HDCPThread::setHdcpThreadEnabled(bool enabled) {
 
 void HDCPThread::updateHdcpLevels(std::string hdcpCap,
                                   std::string hdcpVer) {
-    DEBUG_LOG("%s HDCP Thread for display:%" PRIu64, __FUNCTION__, mDisplayId);
+    DEBUG_LOG("%s HDCP Thread for display:%d", __FUNCTION__, mDisplayId);
 
     std::unique_lock<std::mutex> lock(mStateMutex);
     int8_t hdcp_cap = static_cast<int8_t>(HdcpLevel::HDCP_UNKNOWN);
@@ -155,7 +154,7 @@ void HDCPThread::threadLoop() {
                             ReadFileToString(mHdcpVersionPath, &mVersionResult);
                             updateHdcpLevels(mHdcpCapResult, mVersionResult);
                             if (mCallbacks) {
-                                DEBUG_LOG("%s: for display:%" PRIu64 " calling hdcp", __FUNCTION__,
+                                DEBUG_LOG("%s: for display:%d calling hdcp", __FUNCTION__,
                                           mDisplayId);
                                 (*mCallbacks)();
                             }
@@ -165,7 +164,7 @@ void HDCPThread::threadLoop() {
                             // hdcp auth timeout set to 30
                             if (elapsed_seconds >= 30) {
                                 mThreadEnabled = false;
-                                ALOGW("%s: wait for HDCP authentication timeout for display:%" PRIu64,
+                                ALOGW("%s: wait for HDCP authentication timeout for display:%d",
                                       __FUNCTION__, mDisplayId);
                             }
                         }
