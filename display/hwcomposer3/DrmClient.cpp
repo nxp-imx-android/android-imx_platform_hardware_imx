@@ -625,6 +625,13 @@ HWC3::Error DrmClient::checkOverlayLimitation(uint32_t displayId, Layer* layer) 
                   __FUNCTION__, layer->getId(), srcW, srcH);
         return HWC3::Error::Unsupported;
     }
+
+    if (srect.left != 0 || srect.top != 0) {
+        // The overlay plane has some limitation for uv address, need to make sure crop=(0,0,x,x)
+        DEBUG_LOG("%s: layer %" PRId64 " source crop(%d, %d, %d, %d) check failed", __FUNCTION__,
+                  layer->getId(), srect.left, srect.top, srect.right, srect.bottom);
+        return HWC3::Error::Unsupported;
+    }
 #endif
     DEBUG_LOG("%s: Overlay check pass for layer=%" PRId64, __FUNCTION__, layer->getId());
 
