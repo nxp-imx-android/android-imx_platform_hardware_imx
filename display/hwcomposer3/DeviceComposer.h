@@ -53,9 +53,16 @@ struct G2dInterLayer {
 #define LAYER_LEAST_KEEP_CNT 3
 #define LAYER_LEAST_ADJACENT_CNT 2
 #define G2D_INTERLAYER_ID (-1)
+enum {
+    INTER_STATE_INVALID = 0,
+    INTER_STATE_VALIDATED,
+    INTER_STATE_COMPOSED,
+};
 struct G2dInterComposition {
     buffer_handle_t hnd; // buffer that store intermediate composition reault
     HandleInfo info;
+    uint32_t state;
+    int32_t zorder;
     std::vector<int64_t> composedIds;
     std::vector<common::Rect> visible;
     G2dInterLayer interlayer;
@@ -125,6 +132,8 @@ private:
     int composeLayerLocked(G2dBuffer& layerBuffer, G2dBuffer& targetBuffer, bool bypass);
     std::optional<std::vector<int64_t>> cacheG2dLayersStats(uint32_t displayId,
                                                             std::vector<Layer*> layers);
+    int composeInterLayer(uint32_t displayId, int64_t interId,
+                          G2dInterComposition& interComposition);
     void composeG2dLayers(uint32_t displayId, std::vector<int64_t>& layerIds,
                           G2dBuffer& targetBuffer);
 
@@ -181,7 +190,7 @@ private:
     std::unordered_map<uint32_t, G2dCachedDisplay> mCachedDisplays;
 
     int64_t mInterId = G2D_INTERLAYER_ID;
-    int32_t mInterCount = 0;
+    size_t mInterCount = 0;
 
     hwc_func3 mGetAlignedSize;
     hwc_func2 mGetFlipOffset;

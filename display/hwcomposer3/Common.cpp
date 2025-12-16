@@ -69,7 +69,7 @@ std::string getFramebufferFormat() {
 }
 
 int getMaxG2dInterCompositionResult() {
-    std::string count = ::android::base::GetProperty("vendor.hwc.max_g2d_inter_composition", "1");
+    std::string count = ::android::base::GetProperty("vendor.hwc.max_g2d_inter_composition", "2");
     DEBUG_LOG("%s: property vendor.hwc.max_g2d_inter_composition is %s", __FUNCTION__,
               count.c_str());
     return atoi(count.c_str());
