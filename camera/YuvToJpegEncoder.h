@@ -21,6 +21,8 @@
 
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <graphics_ext.h>
+#include <hardware/gralloc.h>
 #include <linux/time.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,8 +32,10 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include <utils/Log.h>
 
-#include "CameraUtils.h"
+#include "ImageUtils.h"
+#include "YuvToJpegEncoder.h"
 
 extern "C" {
 #include "jerror.h"

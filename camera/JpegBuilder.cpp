@@ -287,6 +287,37 @@ status_t JpegBuilder::encodeJpeg(JpegParams *input, char *hw_jpeg_enc, const voi
                                  size_t app1Size) {
     PixelFormat format = input->format;
 
+    int ret = 0;
+    bool bResize = false;
+    ImxStreamBuffer srcBuf;
+    memset(&srcBuf, 0, sizeof(srcBuf));
+    ImxStreamBuffer *resizeBuf = NULL;
+
+    // need resize the width&height before do jpeg encoder.
+    // the resolution for input and out need to been align when do jpeg encode.
+    if ((input->in_width != input->out_width) || (input->in_height != input->out_height)) {
+        bResize = true;
+
+        resizeBuf = new ImxStreamBuffer();
+        ret = AllocPhyBuffer(input->out_width, input->out_height, format, *resizeBuf);
+        if (ret != 0) {
+            ALOGE("%s: allocate resizeBuf failed", __func__);
+            delete (resizeBuf);
+            return BAD_VALUE;
+        }
+        resizeBuf->mStream = new ImxStream(input->out_width, input->out_height, format, 0, 0);
+
+        srcBuf.mVirtAddr = input->src;
+        srcBuf.mPhyAddr = (uint64_t)(input->srcPhy);
+        srcBuf.mSize = input->src_size;
+        srcBuf.mFd = input->src_fd;
+        srcBuf.buffer = input->src_handle;
+        srcBuf.mStream = new ImxStream(input->in_width, input->in_height, format, 0, 0);
+
+        handleFrame(*resizeBuf, srcBuf, ENG_NOTCARE, mDebug);
+        input->src = (uint8_t *)resizeBuf->mVirtAddr;
+    }
+
     YuvToJpegEncoder *encoder;
     if (strstr(hw_jpeg_enc, IMX_JPEG_ENC)) {
         encoder = new HwJpegEncoder(format);
@@ -298,19 +329,24 @@ status_t JpegBuilder::encodeJpeg(JpegParams *input, char *hw_jpeg_enc, const voi
 
     if (encoder == NULL) {
         ALOGE("%s failed to create jpeg encoder", __func__);
-        return BAD_VALUE;
+        goto failed;
     }
 
-    int res = 0;
-
-    res = encoder->encode(input->src, input->srcPhy, input->src_size, input->src_fd,
+    ret = encoder->encode(input->src, input->srcPhy, input->src_size, input->src_fd,
                           input->src_handle, input->in_width, input->in_height, input->quality,
                           input->dst, input->dst_size, input->out_width, input->out_height,
                           app1Buffer, app1Size, mDebug);
+failed:
+    if (bResize) {
+        delete (resizeBuf->mStream);
+        FreePhyBuffer(resizeBuf->buffer);
+        delete (resizeBuf);
+        delete (srcBuf.mStream);
+    }
 
     delete encoder;
-    if (res > 0) {
-        input->jpeg_size = res;
+    if (ret > 0) {
+        input->jpeg_size = ret;
         return NO_ERROR;
     } else {
         return BAD_VALUE;

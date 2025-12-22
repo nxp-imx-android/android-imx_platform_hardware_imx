@@ -26,13 +26,8 @@
 #include <linux/videodev2.h>
 #include <log/log.h>
 
-#include "CameraUtils.h"
-#include "ImageUtils.h"
-
 #define NUM_BUFS 1
 #define JPEG_ENC_NAME "mxc-jpeg-enc"
-
-using namespace cameraconfigparser;
 
 HwJpegEncoder::HwJpegEncoder(int format) : YuvToJpegEncoder(format) {
     // convert the camera hal format to v4l2 format.
@@ -49,35 +44,6 @@ int HwJpegEncoder::encode(void *inYuv, void *inYuvPhy, int inSize, int inFd,
     struct v4l2_buffer bufferout;
     int jpeg_size = 0;
     int err;
-    bool bResize = false;
-    ImxStreamBuffer srcBuf;
-    memset(&srcBuf, 0, sizeof(srcBuf));
-    ImxStreamBuffer *resizeBuf = NULL;
-
-    // need resize the width&height before do hw jpeg encoder.
-    // the resolution for input and out need to been align when do jpeg encode.
-    if ((inWidth != outWidth) || (inHeight != outHeight)) {
-        bResize = true;
-
-        resizeBuf = new ImxStreamBuffer();
-        int ret = AllocPhyBuffer(outWidth, outHeight, mPixelFormat, *resizeBuf);
-        if (ret != 0) {
-            ALOGE("%s: allocate resizeBuf failed", __func__);
-            delete (resizeBuf);
-            return BAD_VALUE;
-        }
-        resizeBuf->mStream = new ImxStream(outWidth, outHeight, mPixelFormat, 0, 0);
-
-        srcBuf.mVirtAddr = inYuv;
-        srcBuf.mPhyAddr = (uint64_t)inYuvPhy;
-        srcBuf.mSize = inSize;
-        srcBuf.mFd = inFd;
-        srcBuf.buffer = inHandle;
-        srcBuf.mStream = new ImxStream(inWidth, inHeight, mPixelFormat, 0, 0);
-
-        handleFrame(*resizeBuf, srcBuf, ENG_NOTCARE, debug);
-        inYuv = (void *)resizeBuf->mVirtAddr;
-    }
 
     encoder_parameter.width = outWidth;
     encoder_parameter.height = outHeight;
@@ -94,12 +60,6 @@ int HwJpegEncoder::encode(void *inYuv, void *inYuvPhy, int inSize, int inFd,
     onEncoderStop(&bufferin, &bufferout);
 
 failed:
-    if (bResize) {
-        delete (resizeBuf->mStream);
-        FreePhyBuffer(resizeBuf->buffer);
-        delete (resizeBuf);
-        delete (srcBuf.mStream);
-    }
 
     if (mJpegFd > 0)
         close(mJpegFd);

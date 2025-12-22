@@ -30,7 +30,6 @@
 #define Align(ptr, align) (((uintptr_t)ptr + (align)-1) / (align) * (align))
 #define VPU_ENC_MAX_NUM_MEM_REQS (6)
 #define MAX_FRAME_NUM (4)
-using namespace cameraconfigparser;
 
 #ifdef BOARD_HAVE_VPU
 typedef struct {
@@ -480,39 +479,6 @@ int YuvToJpegEncoder::encode(void *inYuv, void *inYuvPhy, int inSize, int inFd,
     jpegBuilder_destination_mgr dest_mgr((uint8_t *)outBuf, outSize);
     memset(&cinfo, 0, sizeof(cinfo));
 
-    int ret = 0;
-    bool bResize = false;
-    ImxStreamBuffer srcBuf;
-    memset(&srcBuf, 0, sizeof(srcBuf));
-    ImxStreamBuffer *resizeBuf = NULL;
-
-    if ((inWidth != outWidth) || (inHeight != outHeight)) {
-        bResize = true;
-
-        resizeBuf = new ImxStreamBuffer();
-        ret = AllocPhyBuffer(outWidth, outHeight, mPixelFormat, *resizeBuf);
-        if (ret != 0) {
-            ALOGE("%s: allocate resizeBuf failed", __func__);
-            delete (resizeBuf);
-            return BAD_VALUE;
-        }
-        resizeBuf->mStream = new ImxStream(outWidth, outHeight, mPixelFormat, 0, 0);
-
-        srcBuf.mPhyAddr = (uint64_t)inYuvPhy;
-        srcBuf.mVirtAddr = inYuv;
-        srcBuf.mSize = inSize;
-        srcBuf.mFd = inFd;
-        srcBuf.buffer = inHandle;
-        srcBuf.mStream = new ImxStream(inWidth, inHeight, mPixelFormat, 0, 0);
-
-        // The 3rd para is pass to handleFrameByG2D to judge whether need lock g2d address.
-        // Pass G2D is ok. For CPU, handleFrameByG2D will just return and use soft resize.
-        // BTW: DPU is used HwJpegEncoder for 8q.
-        handleFrame(*resizeBuf, srcBuf, ENG_NOTCARE, debug);
-
-        inYuv = (void *)resizeBuf->mVirtAddr;
-    }
-
     cinfo.err = jpeg_std_error(&sk_err);
     jpeg_create_compress(&cinfo);
 
@@ -535,13 +501,6 @@ int YuvToJpegEncoder::encode(void *inYuv, void *inYuvPhy, int inSize, int inFd,
 
     jpeg_finish_compress(&cinfo);
     jpeg_destroy_compress(&cinfo);
-
-    if (bResize) {
-        delete (resizeBuf->mStream);
-        FreePhyBuffer(resizeBuf->buffer);
-        delete (resizeBuf);
-        delete (srcBuf.mStream);
-    }
 
     return dest_mgr.jpegsize;
 }

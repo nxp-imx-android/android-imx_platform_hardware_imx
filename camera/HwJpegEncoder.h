@@ -16,6 +16,7 @@
 #ifndef HwJpegEncoder_DEFINED
 #define HwJpegEncoder_DEFINED
 
+#include "ImageUtils.h"
 #include "YuvToJpegEncoder.h"
 
 using namespace android;
