@@ -150,10 +150,12 @@ DeviceComposer::DeviceComposer() {
 }
 
 DeviceComposer::~DeviceComposer() {
-    if (mSolidColorBuffer.hnd != NULL) {
-        unlockSurface(mSolidColorBuffer);
-        ::android::GraphicBufferAllocator::get().free(mSolidColorBuffer.hnd);
-    }
+    freeSolidColorBuffer();
+    for (auto& [_, interBuf] : mInterBuffers)
+        ::android::GraphicBufferAllocator::get().free(interBuf.hnd);
+
+    for (auto& [displayId, _] : mCachedDisplays) onDisplayDestroy(displayId);
+
     if (mG2dHandle != NULL) {
         dlclose(mG2dHandle);
     }
@@ -396,6 +398,13 @@ int DeviceComposer::onDisplayDestroy(uint32_t displayId) {
     auto& cachedComposition = mCachedDisplays[displayId].cachedCompositions;
     auto& cachedLayers = mCachedDisplays[displayId].cachedLayers;
 
+    for (auto& [id, interComp] : cachedComposition) {
+        if (interComp.hnd != nullptr) {
+            ::android::GraphicBufferAllocator::get().free(interComp.hnd);
+            interComp.hnd = nullptr;
+        }
+    }
+
     cachedLayers.clear();
     cachedComposition.clear();
     mCachedDisplays.erase(displayId);
@@ -411,7 +420,6 @@ int DeviceComposer::onDisplayLayerDestroy(uint32_t displayId, Layer* layer) {
     }
 
     auto& cachedLayers = mCachedDisplays[displayId].cachedLayers;
-
     if (cachedLayers.find(id) != cachedLayers.end()) {
         cachedLayers.erase(id);
     }
@@ -1460,6 +1468,13 @@ void DeviceComposer::composeG2dLayers(uint32_t displayId, std::vector<int64_t>& 
 
     lockSurface(targetBuffer);
 
+    // clear whole target to avoid UI mess when overlay used
+    common::Rect rect;
+    rect.left = rect.top = 0;
+    rect.right = static_cast<int>(targetBuffer.infoPtr->width);
+    rect.bottom = static_cast<int>(targetBuffer.infoPtr->height);
+    clearRect(targetBuffer, rect, 0x00 << 24);
+
     // to do composite.
     int i = 0, ret = 0;
     for (auto id : layerIds) {
@@ -1540,15 +1555,9 @@ int DeviceComposer::composeInterLayer(uint32_t displayId, int64_t interId,
     }
 
     G2dBuffer dstBuffer;
-    // The intermediate buffer is allocated when prepare G2D framebuffer
+    // The intermediate buffer is allocated when compose intermediate layer first time
     dstBuffer.hnd = interComposition.hnd;
     dstBuffer.infoPtr = &interComposition.info;
-
-    common::Rect rect;
-    rect.left = rect.top = 0;
-    rect.right = static_cast<int>(dstBuffer.infoPtr->width);
-    rect.bottom = static_cast<int>(dstBuffer.infoPtr->height);
-    clearRect(dstBuffer, rect, 0x00 << 24);
 
     composeG2dLayers(displayId, interComposition.composedIds, dstBuffer);
 

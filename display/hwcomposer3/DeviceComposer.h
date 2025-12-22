@@ -50,7 +50,7 @@ struct G2dInterLayer {
     uint64_t buffer_id;
 };
 
-#define LAYER_LEAST_KEEP_CNT 3
+#define LAYER_LEAST_KEEP_CNT 10
 #define LAYER_LEAST_ADJACENT_CNT 2
 #define G2D_INTERLAYER_ID (-1)
 enum {
