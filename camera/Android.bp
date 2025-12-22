@@ -30,8 +30,6 @@ imx_camera_defaults {
         "CameraMetadata.cpp",
         "CameraUtils.cpp",
         "JpegBuilder.cpp",
-        "HwJpegEncoder.cpp",
-        "YuvToJpegEncoder.cpp",
         "ExifUtils.cpp",
         "CameraConfigurationParser.cpp",
     ],
@@ -105,52 +103,3 @@ cc_library_shared {
     defaults: ["imx_camera_default"],
 }
 
-cc_binary {
-    name: "JpegEncTest",
-    defaults: ["imx_camera_default", "imx_image_process_defaults"],
-    vendor: true,
-    srcs: [
-        "JpegEncTest.cpp",
-    ],
-
-    shared_libs: [
-        "libbase",
-        "libcamera_metadata",
-        "libcutils",
-        "libhardware",
-        "libhidlbase",
-        "libgooglecamerahalutils",
-        "libexif",
-        "libjpeg",
-        "libjsoncpp",
-        "liblog",
-        "libutils",
-        "libbinder",
-        "libui",
-        "libsync",
-        "libimageprocess",
-        "libimxcamerahwl_impl",
-    ],
-    static_libs: [
-        "android.hardware.camera.common@1.0-helper",
-    ],
-    include_dirs: [
-        "system/media/private/camera/include",
-        "frameworks/native/include",
-        "frameworks/native/libs/ui/",
-        "frameworks/native/libs/ui/include",
-        "frameworks/native/libs/arect/include",
-        "vendor/nxp-opensource/imx/include",
-        "vendor/nxp-opensource/imx/opencl-2d",
-        "vendor/nxp-opensource/imx/image_process",
-        "vendor/nxp-opensource/imx/camera",
-        "vendor/nxp/fsl-proprietary/include",
-        "device/nxp/common/kernel-headers",
-        "vendor/nxp-opensource/libdrm-imx",
-        "vendor/nxp-opensource/libdrm-imx/include/drm",
-        "vendor/nxp/imx_opencl_converter/ghdr",
-    ],
-    header_libs: [
-        "libgooglecamerahal_headers",
-    ],
-}

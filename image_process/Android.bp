@@ -1,4 +1,4 @@
-// Copyright 2023 NXP
+// Copyright 2023, 2025 NXP
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -45,7 +45,9 @@ cc_library_shared {
 
     srcs: [
         "ImageUtils.cpp",
-        "ImageProcess.cpp"
+        "ImageProcess.cpp",
+        "HwJpegEncoder.cpp",
+        "YuvToJpegEncoder.cpp"
     ],
 
     cflags: [
@@ -56,6 +58,7 @@ cc_library_shared {
     shared_libs: [
         "libbase",
         "libcutils",
+        "libjpeg",
         "liblog",
         "libutils",
         "libui",
@@ -114,5 +117,33 @@ cc_binary {
 
     local_include_dirs: [
         ".",
+    ],
+}
+
+cc_binary {
+    name: "JpegEncTest",
+    defaults: ["imx_image_process_defaults"],
+    vendor: true,
+    srcs: [
+        "JpegEncTest.cpp",
+    ],
+
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "libjpeg",
+        "liblog",
+        "libutils",
+        "libimageprocess",
+    ],
+
+    include_dirs: [
+        "hardware/libhardware/include",
+        "device/nxp/common/kernel-headers",
+        "system/core/libsystem/include/system",
+        "vendor/nxp/fsl-proprietary/include",
+        "vendor/nxp/imx_opencl_converter/ghdr",
+        "vendor/nxp-opensource/imx/include",
+        "vendor/nxp-opensource/imx/opencl-2d",
     ],
 }
