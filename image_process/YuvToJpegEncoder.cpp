@@ -27,7 +27,7 @@
 #include "vpu_wrapper.h"
 #endif
 
-#define Align(ptr, align) (((uintptr_t)ptr + (align)-1) / (align) * (align))
+#define Align(ptr, align) (((uintptr_t)ptr + (align) - 1) / (align) * (align))
 #define VPU_ENC_MAX_NUM_MEM_REQS (6)
 #define MAX_FRAME_NUM (4)
 
@@ -459,10 +459,8 @@ YuvToJpegEncoder::YuvToJpegEncoder(int format)
         supportVpu(false),
         mDebug(false) {}
 
-int YuvToJpegEncoder::encode(void *inYuv, void *inYuvPhy, int inSize, int inFd,
-                             buffer_handle_t inHandle, int inWidth, int inHeight, int quality,
-                             void *outBuf, int outSize, int outWidth, int outHeight,
-                             const void *app1Buffer, size_t app1Size, bool debug) {
+int YuvToJpegEncoder::encode(void *inYuv, int quality, void *outBuf, int outSize, int outWidth,
+                             int outHeight, const void *app1Buffer, size_t app1Size, bool debug) {
 #ifdef BOARD_HAVE_VPU
     // use vpu to encode
     if ((inWidth == outWidth) && (inHeight == outHeight) && supportVpu) {
@@ -733,6 +731,8 @@ void Yuv422SpToJpegEncoder::compress(jpeg_compress_struct *cinfo, uint8_t *yuv) 
 
     int width = cinfo->image_width;
     int height = cinfo->image_height;
+    uint8_t *yPlanar = yuv;
+    uint8_t *vuPlanar = yuv + width * height;
     uint8_t *yRows = new uint8_t[16 * width];
     uint8_t *uRows = new uint8_t[16 * (width >> 1)];
     uint8_t *vRows = new uint8_t[16 * (width >> 1)];
@@ -747,12 +747,11 @@ void Yuv422SpToJpegEncoder::compress(jpeg_compress_struct *cinfo, uint8_t *yuv) 
     while (cinfo->next_scanline < cinfo->image_height) {
         if (cinfo->next_scanline + DEINTERLEAVE_LINES_ONE_TIME > cinfo->image_height)
             processLines = cinfo->image_height - cinfo->next_scanline;
-        deinterleave(yuvOffset, yRows, uRows, vRows, cinfo->next_scanline, width, height,
-                     processLines);
+        deinterleave(vuPlanar, uRows, vRows, cinfo->next_scanline, width, height, processLines);
 
         for (int i = 0; i < processLines; i++) {
             // y row
-            y[i] = yRows + i * width;
+            y[i] = yPlanar + (cinfo->next_scanline + i) * width;
 
             // construct u row and v row
             // width is halved because of downsampling
@@ -772,19 +771,14 @@ void Yuv422SpToJpegEncoder::compress(jpeg_compress_struct *cinfo, uint8_t *yuv) 
     delete[] vRows;
 }
 
-void Yuv422SpToJpegEncoder::deinterleave(uint8_t *yuv, uint8_t *yRows, uint8_t *uRows,
-                                         uint8_t *vRows, int rowIndex, int width, int /*height*/,
-                                         int processLines) {
+void Yuv422SpToJpegEncoder::deinterleave(uint8_t *vuPlanar, uint8_t *uRows, uint8_t *vRows,
+                                         int rowIndex, int width, int height, int processLines) {
     for (int row = 0; row < processLines; ++row) {
-        uint8_t *yuvSeg = yuv + (rowIndex + row) * width * 2;
+        uint8_t *uvSrc = vuPlanar + (rowIndex + row) * width;
         for (int i = 0; i < (width >> 1); ++i) {
-            int indexY = row * width + (i << 1);
             int indexU = row * (width >> 1) + i;
-            yRows[indexY] = yuvSeg[0];
-            yRows[indexY + 1] = yuvSeg[2];
-            uRows[indexU] = yuvSeg[1];
-            vRows[indexU] = yuvSeg[3];
-            yuvSeg += 4;
+            uRows[indexU] = uvSrc[i * 2];
+            vRows[indexU] = uvSrc[i * 2 + 1];
         }
     }
 }

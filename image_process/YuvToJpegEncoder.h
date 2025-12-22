@@ -57,10 +57,8 @@ public:
 
     /** Encode YUV data to jpeg,  which is output to a stream.
      */
-    virtual int encode(void *inYuv, void *inYuvPhy, int inSize, int inFd, buffer_handle_t inHandle,
-                       int inWidth, int inHeight, int quality, void *outBuf, int outSize,
-                       int outWidth, int outHeight, const void *app1Buffer, size_t app1Size,
-                       bool debug = false);
+    virtual int encode(void *inYuv, int quality, void *outBuf, int outSize, int outWidth,
+                       int outHeight, const void *app1Buffer, size_t app1Size, bool debug = false);
 
     virtual ~YuvToJpegEncoder() {}
     int getColorFormat() { return mColorFormat; }
@@ -125,8 +123,8 @@ public:
 private:
     void configSamplingFactors(jpeg_compress_struct *cinfo);
     void compress(jpeg_compress_struct *cinfo, uint8_t *yuv);
-    void deinterleave(uint8_t *yuv, uint8_t *yRows, uint8_t *uRows, uint8_t *vRows, int rowIndex,
-                      int width, int height, int processLines);
+    void deinterleave(uint8_t *vuPlanar, uint8_t *uRows, uint8_t *vRows, int rowIndex, int width,
+                      int height, int processLines);
     int yuvResize(uint8_t *srcBuf, int srcWidth, int srcHeight, uint8_t *dstBuf, int dstWidth,
                   int dstHeight);
 };

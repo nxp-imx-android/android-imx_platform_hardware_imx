@@ -35,8 +35,11 @@
 #include <deque>
 #include <list>
 #include <queue>
+
 #include "ExternalISPWrapper.h"
 #include "ImageProcess.h"
+#include "YuvToJpegEncoder.h"
+
 #ifdef IMX_VPU_JPEG_DECODER
 #include "VideoDecoderBase.h"
 #endif

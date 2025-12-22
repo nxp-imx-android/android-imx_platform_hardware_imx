@@ -32,9 +32,8 @@ class HwJpegEncoder : public YuvToJpegEncoder {
 public:
     HwJpegEncoder(int format);
 
-    int encode(void *inYuv, void *inYuvPhy, int inSize, int inFd, buffer_handle_t inHandle,
-               int inWidth, int inHeight, int quality, void *outBuf, int outSize, int outWidth,
-               int outHeight, const void *app1Buffer, size_t app1Size, bool debug = false);
+    int encode(void *inYuv, int quality, void *outBuf, int outSize, int outWidth, int outHeight,
+               const void *app1Buffer, size_t app1Size, bool debug = false);
 
     int mFormat;
 
@@ -49,7 +48,7 @@ public:
     char mJpegDevPath[64];
     int mJpegFd = 0;
 
-    virtual ~HwJpegEncoder(){};
+    virtual ~HwJpegEncoder() {};
 
 private:
     int v4l2_mmap(int vdev_fd, struct v4l2_buffer *buf, void *buf_start[]);

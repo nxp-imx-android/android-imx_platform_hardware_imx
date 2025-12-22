@@ -332,10 +332,8 @@ status_t JpegBuilder::encodeJpeg(JpegParams *input, char *hw_jpeg_enc, const voi
         goto failed;
     }
 
-    ret = encoder->encode(input->src, input->srcPhy, input->src_size, input->src_fd,
-                          input->src_handle, input->in_width, input->in_height, input->quality,
-                          input->dst, input->dst_size, input->out_width, input->out_height,
-                          app1Buffer, app1Size, mDebug);
+    ret = encoder->encode(input->src, input->quality, input->dst, input->dst_size, input->out_width,
+                          input->out_height, app1Buffer, app1Size, mDebug);
 failed:
     if (bResize) {
         delete (resizeBuf->mStream);

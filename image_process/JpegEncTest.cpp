@@ -44,7 +44,8 @@ int main(int argc, char *argv[]) {
 
     if ((format != HAL_PIXEL_FORMAT_YCbCr_420_SP) && (format != HAL_PIXEL_FORMAT_YCbCr_422_SP) &&
         (format != HAL_PIXEL_FORMAT_YCbCr_422_I)) {
-        printf("Unsupported format %d, please run %s without arg to get supported formats\n", format, argv[0]);
+        printf("Unsupported format %d, please run %s without arg to get supported formats\n",
+               format, argv[0]);
         ret = -1;
         goto exit;
     }
@@ -95,8 +96,7 @@ int main(int argc, char *argv[]) {
     }
 
     ALOGI("before encode %d*%d YUYV\n", width, height);
-    jpegSize = encoder->encode(inBuf, NULL, inSize, -1, NULL, width, height, quality, outBuf,
-                               outSize, width, height, NULL, 0, true);
+    jpegSize = encoder->encode(inBuf, quality, outBuf, outSize, width, height, NULL, 0, true);
     ALOGI("after encode, jpeg size %d\n", jpegSize);
 
     if (argc > 5) {

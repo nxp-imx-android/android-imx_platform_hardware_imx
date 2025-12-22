@@ -3039,13 +3039,20 @@ int ExternalCameraDeviceSession::OutputThread::createJpegLocked(
         return lfail("%s: crop and scale main failed!", __FUNCTION__);
     }
 
+    int pixelFormat = convertV4L2FormatToPixelFormat(mYu12Frame->mFourcc);
+    YuvToJpegEncoder* encoder = YuvToJpegEncoder::create(pixelFormat);
+    if (encoder == NULL) {
+        return lfail("%s: failed to create jpeg encoder", __FUNCTION__);
+    }
+
     /* Encode the thumbnail image */
     if (outputThumbnail) {
-        ret = encodeJpeg(mYu12Frame->mFourcc, thumbSize, yu12Thumb, thumbQuality, 0, 0,
-                         &thumbCode[0], maxThumbCodeSize, thumbCodeSize);
-
-        if (ret != 0) {
-            return lfail("%s: thumbnail encodeJpeg failed with %d", __FUNCTION__, ret);
+        thumbCodeSize = encoder->encode(yu12Thumb.y, thumbQuality, &thumbCode[0], maxThumbCodeSize,
+                                        thumbSize.width, thumbSize.height, 0, 0, mDebug);
+        if (thumbCodeSize <= 0) {
+            delete encoder;
+            return lfail("%s: thumbnail jpeg image encoding failed with %d", __FUNCTION__,
+                         thumbCodeSize);
         }
     }
 
@@ -3066,6 +3073,7 @@ int ExternalCameraDeviceSession::OutputThread::createJpegLocked(
     ret = utils->generateApp1(outputThumbnail ? &thumbCode[0] : nullptr, thumbCodeSize);
 
     if (!ret) {
+        delete encoder;
         return lfail("%s: generating APP1 failed", __FUNCTION__);
     }
 
@@ -3078,12 +3086,18 @@ int ExternalCameraDeviceSession::OutputThread::createJpegLocked(
                                         maxJpegCodeSize);
 
     if (!bufPtr) {
+        delete encoder;
         return lfail("%s: could not lock %zu bytes", __FUNCTION__, maxJpegCodeSize);
     }
 
     /* Encode the main jpeg image */
-    ret = encodeJpeg(mYu12Frame->mFourcc, jpegSize, yu12Main, jpegQuality, exifData, exifDataSize,
-                     bufPtr, maxJpegCodeSize, jpegCodeSize);
+    jpegCodeSize = encoder->encode(yu12Main.y, jpegQuality, bufPtr, maxJpegCodeSize, jpegSize.width,
+                                   jpegSize.height, exifData, exifDataSize, mDebug);
+    if (jpegCodeSize <= 0) {
+        delete encoder;
+        return lfail("%s: main jpeg image encoding failed with %d", __FUNCTION__, jpegCodeSize);
+    }
+    delete encoder;
 
     /* TODO: Not sure this belongs here, maybe better to pass jpegCodeSize out
      * and do this when returning buffer to parent */
@@ -3096,11 +3110,6 @@ int ExternalCameraDeviceSession::OutputThread::createJpegLocked(
     int relFence = sHandleImporter.unlock(*(halBuf.bufPtr));
     if (relFence >= 0) {
         halBuf.acquireFence = relFence;
-    }
-
-    /* Check if our JPEG actually succeeded */
-    if (ret != 0) {
-        return lfail("%s: encodeJpeg failed with %d", __FUNCTION__, ret);
     }
 
     ALOGV("%s: encoded JPEG (ret:%d) with Q:%d max size: %zu", __FUNCTION__, ret, jpegQuality,

@@ -34,10 +34,9 @@ HwJpegEncoder::HwJpegEncoder(int format) : YuvToJpegEncoder(format) {
     mFormat = convertPixelFormatToV4L2Format(format);
 }
 
-int HwJpegEncoder::encode(void *inYuv, void *inYuvPhy, int inSize, int inFd,
-                          buffer_handle_t inHandle, int inWidth, int inHeight, int quality __unused,
-                          void *outBuf, int outSize __unused, int outWidth, int outHeight,
-                          const void *app1Buffer __unused, size_t app1Size __unused, bool debug) {
+int HwJpegEncoder::encode(void *inYuv, int quality __unused, void *outBuf, int outSize __unused,
+                          int outWidth, int outHeight, const void *app1Buffer __unused,
+                          size_t app1Size __unused, bool debug) {
     struct encoder_args encoder_parameter;
 
     struct v4l2_buffer bufferin;
