@@ -134,6 +134,7 @@ void StreamPrimary::stop() {
         }
         LOG(DEBUG) << __func__ << ": Release resampler.";
     }
+    mConfig = mSavedConfig;
 }
 
 ::android::status_t StreamPrimary::standby() {
