@@ -71,9 +71,9 @@ void DrmEventListener::threadLoop() {
         return;
     }
 
-    char buffer[1024];
+    char buffer[1024] = { 0 };
     while (true) {
-        auto ret = read(mEventFd.get(), &buffer, sizeof(buffer));
+        auto ret = read(mEventFd.get(), &buffer, sizeof(buffer) - 1);
         if (ret == 0) {
             return;
         } else if (ret < 0) {
