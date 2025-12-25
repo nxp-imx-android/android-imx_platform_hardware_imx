@@ -119,7 +119,7 @@ public:
     int convertBuffer(buffer_handle_t inBuf, HandleInfo* inInfoPtr, buffer_handle_t outBuf,
                       HandleInfo* outInfoPtr, bool useOcl);
     std::tuple<bool, ::android::base::unique_fd> composeLayers(uint32_t displayId,
-                                                               std::vector<Layer*> layers,
+                                                               std::vector<Layer*>& layers,
                                                                buffer_handle_t target);
 
 private:
@@ -131,7 +131,7 @@ private:
     // compose display layer.
     int composeLayerLocked(G2dBuffer& layerBuffer, G2dBuffer& targetBuffer, bool bypass);
     std::optional<std::vector<int64_t>> cacheG2dLayersStats(uint32_t displayId,
-                                                            std::vector<Layer*> layers);
+                                                            std::vector<Layer*>& layers);
     int composeInterLayer(uint32_t displayId, int64_t interId,
                           G2dInterComposition& interComposition);
     void composeG2dLayers(uint32_t displayId, std::vector<int64_t>& layerIds,

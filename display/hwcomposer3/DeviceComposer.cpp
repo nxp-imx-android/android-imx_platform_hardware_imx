@@ -342,23 +342,42 @@ int DeviceComposer::clearWormHole(uint32_t displayId, std::vector<int64_t>& laye
         }
     }
 
-    // calculate worm hole.
-    ::android::Region screen(::android::Rect(target.infoPtr->width, target.infoPtr->height));
-    screen.subtractSelf(opaque);
-    const ::android::Rect* holes = NULL;
-    size_t numRect = 0;
-    holes = screen.getArray(&numRect);
 #ifdef DEBUG_NXP_HWC_G2D
     std::string opaque_str;
     char tempStr[64];
+#endif
+    // clear some areas to avoid UI mess when overlay used
+    common::Rect targetRect(0, 0, static_cast<int>(target.infoPtr->width),
+                            static_cast<int>(target.infoPtr->height));
+    uint64_t targetArea = calculateRect(targetRect);
+
+    bool small = false;
+    ::android::Region smallOpaque;
     auto head = opaque.begin();
     auto const tail = opaque.end();
     while (head != tail) {
-        sprintf(tempStr, "[%d,%d,%d,%d]", head->left, head->top, head->right, head->bottom);
+        small = false;
+        common::Rect rect(head->left, head->top, head->right, head->bottom);
+        if (calculateRect(rect) < targetArea / 10) {
+            smallOpaque.orSelf(*head);
+            small = true;
+        }
+#ifdef DEBUG_NXP_HWC_G2D
+        sprintf(tempStr, "[%d,%d,%d,%d]%s", head->left, head->top, head->right, head->bottom,
+                small ? "(rm)" : "");
         opaque_str += tempStr;
+#endif
         head++;
     }
-    DEBUG_LOG_G2D("%s: clear %zu worm holes(opaque=%s)", __FUNCTION__, numRect, opaque_str.c_str());
+    opaque.subtractSelf(smallOpaque); // Remove small opaque region
+
+    // calculate worm hole.
+    ::android::Region screen(::android::Rect(target.infoPtr->width, target.infoPtr->height));
+    screen.subtractSelf(opaque);
+    size_t numRect = 0;
+    const ::android::Rect* holes = screen.getArray(&numRect);
+#ifdef DEBUG_NXP_HWC_G2D
+    ALOGI("%s: clear %zu worm holes(opaque=%s)", __FUNCTION__, numRect, opaque_str.c_str());
 #endif
 
     // clear worm hole.
@@ -1259,9 +1278,11 @@ bool DeviceComposer::checkDeviceComposition(Layer* layer) {
 }
 
 std::optional<std::vector<int64_t>> DeviceComposer::cacheG2dLayersStats(
-        uint32_t displayId, std::vector<Layer*> layers) {
+        uint32_t displayId, std::vector<Layer*>& layers) {
     auto& cachedLayers = mCachedDisplays[displayId].cachedLayers;
+#ifdef G2D_CACHED_COMPOSITION
     std::vector<int64_t> orderedIds;
+#endif
     for (auto& layer : layers) {
         auto id = layer->getId();
         auto zorder = layer->getZOrder();
@@ -1316,7 +1337,9 @@ std::optional<std::vector<int64_t>> DeviceComposer::cacheG2dLayersStats(
                                          .buffer_id = infoPtr->buffer_id,
                                  });
         }
+#ifdef G2D_CACHED_COMPOSITION
         orderedIds.push_back(id);
+#endif
     }
 
 #ifdef G2D_CACHED_COMPOSITION
@@ -1466,15 +1489,6 @@ void DeviceComposer::composeG2dLayers(uint32_t displayId, std::vector<int64_t>& 
     auto& cachedComposition = mCachedDisplays[displayId].cachedCompositions;
     auto& cachedLayers = mCachedDisplays[displayId].cachedLayers;
 
-    lockSurface(targetBuffer);
-
-    // clear whole target to avoid UI mess when overlay used
-    common::Rect rect;
-    rect.left = rect.top = 0;
-    rect.right = static_cast<int>(targetBuffer.infoPtr->width);
-    rect.bottom = static_cast<int>(targetBuffer.infoPtr->height);
-    clearRect(targetBuffer, rect, 0x00 << 24);
-
     // to do composite.
     int i = 0, ret = 0;
     for (auto id : layerIds) {
@@ -1517,8 +1531,6 @@ void DeviceComposer::composeG2dLayers(uint32_t displayId, std::vector<int64_t>& 
         }
         i++;
     }
-
-    unlockSurface(targetBuffer);
 }
 
 int DeviceComposer::composeInterLayer(uint32_t displayId, int64_t interId,
@@ -1559,7 +1571,12 @@ int DeviceComposer::composeInterLayer(uint32_t displayId, int64_t interId,
     dstBuffer.hnd = interComposition.hnd;
     dstBuffer.infoPtr = &interComposition.info;
 
+    lockSurface(dstBuffer);
+    common::Rect rect(0, 0, static_cast<int>(dstBuffer.infoPtr->width),
+                      static_cast<int>(dstBuffer.infoPtr->height));
+    clearRect(dstBuffer, rect, 0x00 << 24); // clear the whole target to avoid UI mess
     composeG2dLayers(displayId, interComposition.composedIds, dstBuffer);
+    unlockSurface(dstBuffer);
 
     common::BlendMode mode = common::BlendMode::NONE;
     if (interComposition.zorder > 0)
@@ -1587,7 +1604,7 @@ int DeviceComposer::composeInterLayer(uint32_t displayId, int64_t interId,
 }
 
 std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
-        uint32_t displayId, std::vector<Layer*> layers, buffer_handle_t target) {
+        uint32_t displayId, std::vector<Layer*>& layers, buffer_handle_t target) {
     ATRACE_CALL();
 
     Mutex::Autolock _l(sLock);
@@ -1656,10 +1673,14 @@ std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
             }
         }
     } else {
-        for (auto layer : layers) finalIds.push_back(layer->getId());
+        for (auto& layer : layers) finalIds.push_back(layer->getId());
     }
 
+    lockSurface(mTarget);
+    // clear blank area to avoid UI mess when overlay used
+    clearWormHole(displayId, finalIds, mTarget);
     composeG2dLayers(displayId, finalIds, mTarget);
+    unlockSurface(mTarget);
 
     ::android::base::unique_fd composeFence(createFenceFd(getHandle()));
     if (!composeFence.ok())
