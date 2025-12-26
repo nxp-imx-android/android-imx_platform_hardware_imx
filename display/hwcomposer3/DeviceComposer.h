@@ -87,6 +87,7 @@ struct G2dBuffer {
     buffer_handle_t hnd;
     HandleInfo* infoPtr;
     uint64_t originPhys; // used in lockSurface()/unlockSurface()
+    bool isInterComposition;
     G2dInterBuffer* interPtr; // convert layer buffer(format/size/...)
     G2dInterLayer* layer;     // cache composition result of some layers
 };

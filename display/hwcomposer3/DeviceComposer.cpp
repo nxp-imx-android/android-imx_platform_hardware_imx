@@ -689,7 +689,14 @@ int DeviceComposer::composeLayerLocked(G2dBuffer& layerBuffer, G2dBuffer& target
     setG2dSurface(dSurfaceX, targetBuffer, drect);
 
     bool needDither = false;
-    std::vector<common::Rect>* visible = layerBuffer.layer->visible;
+    std::vector<common::Rect>* visible;
+    std::vector<common::Rect> tempRegion;
+    if (targetBuffer.isInterComposition && (layerBuffer.hnd != nullptr)) {
+        // compose whole layer UI when target is inter composition
+        tempRegion.push_back(layerBuffer.layer->drect);
+        visible = &tempRegion;
+    } else
+        visible = layerBuffer.layer->visible;
     for (auto& clip : *visible) {
         if (isRectEmpty(clip)) {
             DEBUG_LOG_G2D("%s: invalid clip(%d, %d, %d, %d)", __FUNCTION__, clip.left, clip.top,
@@ -1570,6 +1577,7 @@ int DeviceComposer::composeInterLayer(uint32_t displayId, int64_t interId,
     // The intermediate buffer is allocated when compose intermediate layer first time
     dstBuffer.hnd = interComposition.hnd;
     dstBuffer.infoPtr = &interComposition.info;
+    dstBuffer.isInterComposition = true;
 
     lockSurface(dstBuffer);
     common::Rect rect(0, 0, static_cast<int>(dstBuffer.infoPtr->width),
@@ -1618,6 +1626,7 @@ std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
     }
     mTarget.hnd = target;
     mTarget.infoPtr = &mTarget.info;
+    mTarget.isInterComposition = false;
 
 #if defined(DEBUG_NXP_HWC_G2D) || defined(DEBUG_NXP_HWC)
     char tempStr[12];
