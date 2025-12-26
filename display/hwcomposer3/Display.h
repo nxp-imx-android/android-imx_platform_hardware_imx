@@ -225,7 +225,7 @@ private:
     common::ColorTransform mColorTransformHint = common::ColorTransform::IDENTITY;
     ClientTargetProperty mClientTargetProperty{common::PixelFormat::RGBA_8888,
                                                common::Dataspace::SRGB_LINEAR};
-    common::PixelFormat mFbFormat; // used for virtual display
+    common::PixelFormat mFbFormat = common::PixelFormat::UNSPECIFIED; // used for virtual display
 };
 
 } // namespace aidl::android::hardware::graphics::composer3::impl

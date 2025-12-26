@@ -276,7 +276,7 @@ HWC3::Error VirtualFrameComposer::presentDisplay(
         }
     }
 
-    if (layersForComposition.size() > 0) {
+    if (!displayBuffer.forceHwcCopy && layersForComposition.size() > 0) {
 #ifdef DEBUG_DUMP_VIRT_G2D_CONSUMPTION
         nsecs_t g2dStart = systemTime(CLOCK_MONOTONIC);
 #endif
