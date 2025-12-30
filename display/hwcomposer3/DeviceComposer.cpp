@@ -470,15 +470,20 @@ int DeviceComposer::convertBuffer(buffer_handle_t inBuf, HandleInfo* inInfoPtr,
         blitSurface(&sSurfaceX, &dSurfaceX);
     }
 
-#ifdef DEBUG_DUMP_VIRT_G2D_CONSUMPTION
+#if defined(DEBUG_DUMP_VIRT_G2D_CONSUMPTION) || defined(DEBUG_NXP_HWC_G2D)
     nsecs_t g2dEnd = systemTime(CLOCK_MONOTONIC);
     char fmt1[6], fmt2[6];
     char* fmt_name1 = drmGetFormatName(inInfoPtr->drm_format, fmt1);
     char* fmt_name2 = drmGetFormatName(outInfoPtr->drm_format, fmt2);
     char* modifier_name1 = drmGetFormatModifierName(inInfoPtr->modifier);
     char* modifier_name2 = drmGetFormatModifierName(outInfoPtr->modifier);
+#ifdef DEBUG_DUMP_VIRT_G2D_CONSUMPTION
     ALOGI("%s: covert buffer(%s:%s -> %s:%s) cost %3.3fms", __func__, fmt_name1, modifier_name1,
           fmt_name2, modifier_name2, (g2dEnd - g2dStart) / 1000000.0);
+#else
+    ALOGI("%s: covert buffer(%s:%s -> %s:%s)", __func__, fmt_name1, modifier_name1, fmt_name2,
+          modifier_name2);
+#endif
     free(modifier_name1);
     free(modifier_name2);
 #endif
@@ -721,16 +726,18 @@ int DeviceComposer::composeLayerLocked(G2dBuffer& layerBuffer, G2dBuffer& target
 
         if (!(type == Composition::SOLID_COLOR) && layerBuffer.hnd) {
             if ((layerBuffer.interPtr != nullptr) &&
-                (layerBuffer.interPtr->type == G2D_CONVERSION_TYPE_SCALING))
-                setG2dSurface(sSurfaceX, layerBuffer, drect);
-            else
+                (layerBuffer.interPtr->type == G2D_CONVERSION_TYPE_SCALING)) {
+                common::Rect scaledRect(0, 0, drect.right - drect.left, drect.bottom - drect.top);
+                setG2dSurface(sSurfaceX, layerBuffer, scaledRect);
+            } else
                 setG2dSurface(sSurfaceX, layerBuffer, srect);
 #ifndef G2D_LIMITATION_PXP // PXP G2D don't support DITHER
-            auto format = static_cast<common::PixelFormat>(targetBuffer.infoPtr->format);
-            if ((format == common::PixelFormat::RGB_565) &&
-                (format == common::PixelFormat::RGBA_8888 ||
-                 format == common::PixelFormat::RGBX_8888 ||
-                 format == common::PixelFormat::BGRA_8888)) {
+            auto targetFormat = static_cast<common::PixelFormat>(targetBuffer.infoPtr->format);
+            auto layerFormat = static_cast<common::PixelFormat>(layerBuffer.infoPtr->format);
+            if ((targetFormat == common::PixelFormat::RGB_565) &&
+                (layerFormat == common::PixelFormat::RGBA_8888 ||
+                 layerFormat == common::PixelFormat::RGBX_8888 ||
+                 layerFormat == common::PixelFormat::BGRA_8888)) {
                 needDither = true;
             }
 #endif

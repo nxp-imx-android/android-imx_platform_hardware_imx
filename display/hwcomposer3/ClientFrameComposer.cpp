@@ -734,9 +734,11 @@ HWC3::Error ClientFrameComposer::presentDisplay(
             std::vector<buffer_handle_t> buffers;
             uint32_t width = static_cast<uint32_t>(rectFrame.right - rectFrame.left);
             uint32_t height = static_cast<uint32_t>(rectFrame.bottom - rectFrame.top);
-            auto ret = mG2dComposer->prepareDeviceFrameBuffer(width, height,
-                                                   static_cast<int>(common::PixelFormat::RGBA_8888),
-                                                   buffers, 1, false);
+            auto ret =
+                    mG2dComposer->prepareDeviceFrameBuffer(width, height,
+                                                           static_cast<int>(
+                                                                   common::PixelFormat::RGBA_8888),
+                                                           buffers, 1, false);
             if (ret) {
                 ALOGE("%s: display:%d failed to allocate buffer", __FUNCTION__, displayId);
                 return HWC3::Error::NoResources;

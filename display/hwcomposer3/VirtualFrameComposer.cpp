@@ -101,6 +101,12 @@ HWC3::Error VirtualFrameComposer::onDisplayDestroy(Display* display) {
     }
 
     mG2dComposer->onDisplayDestroy(displayId);
+    auto hnd = mDisplays[displayId].convertBuffer;
+    if (hnd != NULL) {
+        std::vector<buffer_handle_t> buffers;
+        buffers.push_back(hnd);
+        mG2dComposer->freeDeviceFrameBuffer(buffers);
+    }
     mDisplays.erase(it);
     return HWC3::Error::None;
 }
@@ -245,7 +251,7 @@ HWC3::Error VirtualFrameComposer::presentDisplay(
     ::android::base::unique_fd outputFence;
 
     bool needConvert = false;
-    buffer_handle_t cvtSrc, cvtDst, composeTarget;
+    buffer_handle_t cvtSrc, cvtDst, composeTarget = nullptr;
     HandleInfo *cvtSrcInfo, *cvtDstInfo;
     if (displayBuffer.forceHwcCopy) {
         displayBuffer.clientBuffer = display->waitAndGetClientTargetBuffer();
@@ -263,7 +269,25 @@ HWC3::Error VirtualFrameComposer::presentDisplay(
         cvtDstInfo = &displayBuffer.outputInfo;
         needConvert = true;
     } else if (layersForComposition.size() > 0) { // need to compose layers
-        if (displayBuffer.outputInfo.format != displayBuffer.convertInfo.format) {
+        uint32_t composeFormat = static_cast<uint32_t>(common::PixelFormat::RGBA_8888);
+        if (displayBuffer.outputInfo.format != composeFormat) {
+            if (displayBuffer.convertBuffer == NULL) {
+                ALOGE("%s: composition buffer is not allocated", __FUNCTION__);
+                uint32_t width = displayBuffer.outputInfo.width;
+                uint32_t height = displayBuffer.outputInfo.height;
+                std::vector<buffer_handle_t> buffers;
+                auto ret = mG2dComposer->prepareDeviceFrameBuffer(width, height, composeFormat,
+                                                                  buffers, 1, false);
+                if (ret) {
+                    ALOGE("%s: fail to allocate composer buffer(%d x %d, %s) for composition",
+                          __FUNCTION__, width, height,
+                          toString(static_cast<common::PixelFormat>(composeFormat)).c_str());
+                } else {
+                    displayBuffer.convertBuffer = buffers[0];
+                    if (getInfoFromHandle(buffers[0], &displayBuffer.convertInfo) != 0)
+                        ALOGE("%s: fail to get buffer info of composition buffer", __FUNCTION__);
+                }
+            }
             // need to do composition, then convert RGBA -> YUV
             composeTarget = displayBuffer.convertBuffer;
             cvtSrc = composeTarget;

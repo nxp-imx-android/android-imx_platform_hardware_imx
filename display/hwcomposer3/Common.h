@@ -199,7 +199,8 @@ inline bool rectIntersect(const common::Rect& with, common::Rect& result) {
 
 inline uint64_t calculateRect(common::Rect& rect) {
     if ((rect.left < rect.right) && (rect.top < rect.bottom))
-        return (rect.right - rect.left) * (rect.bottom - rect.top);
+        return ((uint64_t)rect.right - (uint64_t)rect.left) *
+                ((uint64_t)rect.bottom - (uint64_t)rect.top);
     else
         return 0;
 }
