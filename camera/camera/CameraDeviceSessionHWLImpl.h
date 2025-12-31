@@ -341,9 +341,6 @@ private:
     std::vector<std::shared_ptr<char *>> mDevPath;
     std::vector<uint32_t> mPhysicalIds;
 
-    bool is_logical_device_ = false;
-    bool is_logical_request_ = false;
-
     // Maps particular focal length to physical device id
     std::unordered_map<float, uint32_t> physical_focal_length_map_;
     float current_focal_length_ = 0.f;

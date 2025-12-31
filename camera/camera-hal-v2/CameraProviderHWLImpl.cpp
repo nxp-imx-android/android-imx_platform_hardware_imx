@@ -266,6 +266,11 @@ status_t CameraProviderHwlImpl::CreateCameraDeviceHwl(
         physicalIds.push_back(0);
     }
 
+    if (devPaths.size() > 1) {
+        ALOGE("%s: not support logical camera", __func__);
+        return BAD_VALUE;
+    }
+
     *camera_device_hwl =
             CameraDeviceHwlImpl::Create(camera, camera_id, mCameraDef.cam_blit_copy_hw,
                                         mCameraDef.cam_blit_csc_hw, mCameraDef.jpeg_hw.c_str(),

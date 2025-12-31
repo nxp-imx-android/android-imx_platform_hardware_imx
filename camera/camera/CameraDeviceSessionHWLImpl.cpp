@@ -160,31 +160,6 @@ status_t CameraDeviceSessionHwlImpl::Initialize(uint32_t camera_id,
         pVideoStreams[i]->setPhysicalId(mPhysicalIds[i]);
     }
 
-    if ((physical_meta_map_.get() != nullptr) && (!physical_meta_map_->empty())) {
-        is_logical_device_ = true;
-        // If possible map the available focal lengths to individual physical devices
-        camera_metadata_ro_entry_t logical_entry, physical_entry;
-        ret = static_metadata_->Get(ANDROID_LENS_INFO_AVAILABLE_FOCAL_LENGTHS, &logical_entry);
-        if ((ret == OK) && (logical_entry.count > 0)) {
-            for (size_t i = 0; i < logical_entry.count; i++) {
-                for (const auto &it : *physical_meta_map_) {
-                    ret = it.second->Get(ANDROID_LENS_INFO_AVAILABLE_FOCAL_LENGTHS,
-                                         &physical_entry);
-                    if ((ret == OK) && (physical_entry.count > 0)) {
-                        if (logical_entry.data.f[i] == physical_entry.data.f[0]) {
-                            physical_focal_length_map_[physical_entry.data.f[0]] = it.first;
-                            ALOGI("%s: current_focal_length_ camera id: %d\n", __FUNCTION__,
-                                  it.first);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        current_focal_length_ = logical_entry.data.f[0];
-        ALOGI("%s: current_focal_length_ set: %5.2f\n", __FUNCTION__, logical_entry.data.f[0]);
-    }
-
     // create jpeg builder
     mJpegBuilder = new JpegBuilder();
 
@@ -341,48 +316,24 @@ int CameraDeviceSessionHwlImpl::HandleIntent(HwlPipelineRequest *hwReq) {
         return 0;
     }
 
-    // TODO need to refine for logical's configIdx ?
-    if (is_logical_request_) {
-        auto stat = hwReq->settings->Get(ANDROID_LENS_FOCAL_LENGTH, &entry);
-        if ((stat == OK) && (entry.count == 1)) {
-            current_focal_length_ = entry.data.f[0];
-            ALOGI("%s: requests' focal length set: %5.2f", __FUNCTION__, entry.data.f[0]);
-        } else {
-            ALOGW("%s: Focal length absent from request!", __FUNCTION__);
-        }
+    pVideoStreams[0]->SetBufferNumber(pipeline_info->hal_streams->at(configIdx).max_buffers +
+                                      1);
 
-        ret = 0;
-        for (size_t index = 0; index < pVideoStreams.size(); index++) {
-            pVideoStreams[index]->SetBufferNumber(pipeline_info->hal_streams->at(0).max_buffers +
-                                                  1);
-            ret = pVideoStreams[index]->ConfigAndStart(HAL_PIXEL_FORMAT_YCbCr_422_I,
-                                                        pipeline_info->streams->at(0).width,
-                                                        pipeline_info->streams->at(0).height, fps,
-                                                        captureIntent, sceneMode);
-            if (ret)
-                ALOGE("%s: pVideoStreams[%zu]->ConfigAndStart failed, ret %d", __func__, index,
-                      ret);
-        }
-    } else {
-        pVideoStreams[0]->SetBufferNumber(pipeline_info->hal_streams->at(configIdx).max_buffers +
-                                          1);
+    uint32_t format = HAL_PIXEL_FORMAT_YCbCr_422_I;
+    if (strcmp(mSensorData.v4l2_format, "nv12") == 0)
+        format = HAL_PIXEL_FORMAT_YCbCr_420_SP;
 
-        uint32_t format = HAL_PIXEL_FORMAT_YCbCr_422_I;
-        if (strcmp(mSensorData.v4l2_format, "nv12") == 0)
-            format = HAL_PIXEL_FORMAT_YCbCr_420_SP;
-
-        if (pipeline_info->hal_streams->at(configIdx).override_format == HAL_PIXEL_FORMAT_RAW16) {
-            format = HAL_PIXEL_FORMAT_RAW16;
-        }
-
-        // v4l2 hard code to use yuv422i. If in future other foramts are used, need refine code,
-        // maybe configed in json
-        ret = pVideoStreams[0]->ConfigAndStart(format, pipeline_info->streams->at(configIdx).width,
-                                               pipeline_info->streams->at(configIdx).height, fps,
-                                               captureIntent, sceneMode);
-        if (ret)
-            ALOGE("%s: pVideoStreams[0]->ConfigAndStart failed, ret %d", __func__, ret);
+    if (pipeline_info->hal_streams->at(configIdx).override_format == HAL_PIXEL_FORMAT_RAW16) {
+        format = HAL_PIXEL_FORMAT_RAW16;
     }
+
+    // v4l2 hard code to use yuv422i. If in future other foramts are used, need refine code,
+    // maybe configed in json
+    ret = pVideoStreams[0]->ConfigAndStart(format, pipeline_info->streams->at(configIdx).width,
+                                           pipeline_info->streams->at(configIdx).height, fps,
+                                           captureIntent, sceneMode);
+    if (ret)
+        ALOGE("%s: pVideoStreams[0]->ConfigAndStart failed, ret %d", __func__, ret);
 
     return ret;
 }
@@ -572,71 +523,14 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
     if (frameRequest == NULL)
         return BAD_VALUE;
 
-    if (is_logical_request_) {
-        std::vector<StreamBuffer> &output_buffers = frameRequest->hwlReq.output_buffers;
-        int outbufNum = (int)output_buffers.size();
-
-        for (int outBufIdx = 0; outBufIdx < outbufNum; outBufIdx++) {
-            Stream *pStream = GetStreamFromStreamBuffer(&output_buffers[outBufIdx]);
-            if (pStream == NULL) {
-                ALOGE("%s, dst buf belong to stream %d, but the stream is not configured", __func__,
-                      output_buffers[outBufIdx].stream_id);
-                goto fail;
-            }
-
-            uint32_t physical_id = pStream->physical_camera_id;
-            bool bCaptured = false;
-
-            ALOGV("%s: outBufIdx %d, physical_id %d", __func__, outBufIdx, physical_id);
-
-            for (auto it = v4l2BufferList.begin(); it != v4l2BufferList.end(); it++) {
-                pImxStreamBuffer = *it;
-                if (pImxStreamBuffer->mStream->mPhysicalId == physical_id) {
-                    bCaptured = true;
-                    break;
-                }
-            }
-
-            if (bCaptured) {
-                ALOGV("%s: physical_camera_id %d already captured, outBufIdx %d", __func__,
-                      physical_id, outBufIdx);
-                continue;
-            }
-
-            VideoStream *pVideoStream = GetVideoStreamByPhysicalId(physical_id);
-
-            if (pVideoStream == NULL) {
-                ALOGW("%s: pVideoStream is NULL for physical_camera_id %u, outBufIdx %d", __func__,
-                      physical_id, outBufIdx);
-                goto fail;
-            }
-
-            pImxStreamBuffer = pVideoStream->onFrameAcquire();
-            if (pImxStreamBuffer == NULL) {
-                ALOGW("%s: onFrameAcquire failed, physical_camera_id %u, outBufIdx %d", __func__,
-                      physical_id, outBufIdx);
-                goto fail;
-            }
-
-            // For logical camera, use first physical camera's timestamp.
-            if (readout_timestamp_ns == 0)
-                readout_timestamp_ns = pImxStreamBuffer->timestamp_ns;
-
-            v4l2BufferList.push_back(pImxStreamBuffer);
-        }
-
-        ALOGV("%s: v4l2BufferList.size %zu", __func__, v4l2BufferList.size());
-
+    pImxStreamBuffer = pVideoStreams[0]->onFrameAcquire();
+    // Fix me. Since onFrameAcquire will select by 3s timeout, and has recover
+    // tactic, should not return NULL. If so, need handle the request properly.
+    // Same for the logical request, may also return valid v4l2Buffer。
+    if (pImxStreamBuffer == NULL) {
+        ALOGE("%s: onFrameAcquire failed", __func__);
     } else {
-        pImxStreamBuffer = pVideoStreams[0]->onFrameAcquire();
-        // Fix me. Since onFrameAcquire will select by 3s timeout, and has recover
-        // tactic, should not return NULL. If so, need handle the request properly.
-        // Same for the logical request, may also return valid v4l2Buffer。
-        if (pImxStreamBuffer == NULL) {
-            ALOGE("%s: onFrameAcquire failed", __func__);
-        } else {
-            readout_timestamp_ns = pImxStreamBuffer->timestamp_ns;
-        }
+        readout_timestamp_ns = pImxStreamBuffer->timestamp_ns;
     }
 
     if (strstr(mSensorData.camera_name, ISP_SENSOR_NAME)) {
@@ -666,11 +560,7 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
     }
     memset(imgFeed, 0, sizeof(ImageFeed));
 
-    if (is_logical_request_)
-        imgFeed->v4l2BufferList.assign(v4l2BufferList.begin(), v4l2BufferList.end());
-    else
-        imgFeed->v4l2Buffer = pImxStreamBuffer;
-
+    imgFeed->v4l2Buffer = pImxStreamBuffer;
     imgFeed->frameRequest = frameRequest;
     imgFeed->frame = frame;
     imgFeed->timestamp_ns = timestamp_ns;
@@ -780,7 +670,7 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
     }
 
     // If capture NULL buffer, notify error and return
-    if ((imgFeed->v4l2Buffer == NULL) && (is_logical_request_ == false)) {
+    if (imgFeed->v4l2Buffer == NULL) {
         ALOGE("%s: v4l2Buffer NULL, notify error to framework", __func__);
 
         mImgProcThread->mImageListLock.lock();
@@ -839,40 +729,11 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
 
     // Image process
     int outBufNum = (int)hwReq.output_buffers.size();
-    if (is_logical_request_) {
-        for (int outBufIdx = 0; outBufIdx < outBufNum; outBufIdx++) {
-            Stream *pStream = GetStreamFromStreamBuffer(&hwReq.output_buffers[outBufIdx]);
-            if (pStream == NULL) {
-                ALOGW("%s: unexptect!!! no stream found for outBuf %d", __func__, outBufIdx);
-                continue;
-            }
-
-            uint32_t physical_id = pStream->physical_camera_id;
-
-            // Find a v4l2 buffer bind to physical_id, then process to the output buffer.
-            for (int j = 0; j < (int)imgFeed->v4l2BufferList.size(); j++) {
-                if (imgFeed->v4l2BufferList[j]->mStream->mPhysicalId == physical_id) {
-                    ProcessCapbuf2Outbuf(imgFeed->v4l2BufferList[j],
-                                         hwReq.output_buffers[outBufIdx],
-                                         frameRequest->outBufferFences[outBufIdx], requestMeta);
-                    break;
-                }
-            }
-        }
-    } else {
-        ProcessCapbuf2MultiOutbuf(imgFeed->v4l2Buffer, hwReq.output_buffers,
-                                  frameRequest->outBufferFences, requestMeta);
-    }
+    ProcessCapbuf2MultiOutbuf(imgFeed->v4l2Buffer, hwReq.output_buffers,
+                              frameRequest->outBufferFences, requestMeta);
 
     // return v4l2 buffer
-    if (is_logical_request_) {
-        for (int i = 0; i < (int)imgFeed->v4l2BufferList.size(); i++) {
-            VideoStream *pVideoStream = (VideoStream *)imgFeed->v4l2BufferList[i]->mStream;
-            pVideoStream->onFrameReturn(*(imgFeed->v4l2BufferList[i]));
-        }
-    } else {
-        pVideoStreams[0]->onFrameReturn(*(imgFeed->v4l2Buffer));
-    }
+    pVideoStreams[0]->onFrameReturn(*(imgFeed->v4l2Buffer));
 
     // construct result
     result->camera_id = camera_id_;
@@ -880,73 +741,12 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
     result->frame_number = frame;
     result->partial_result = 1;
 
-    if (is_logical_request_) {
-        std::unique_ptr<std::set<uint32_t>> physical_camera_output_ids =
-                std::make_unique<std::set<uint32_t>>();
-
-        int output_buffers_size = (int)hwReq.output_buffers.size();
-        for (int output_buf_id = 0; output_buf_id < output_buffers_size; output_buf_id++) {
-            int phyid_cam_id = frameRequest->camera_ids[output_buf_id];
-            if (phyid_cam_id != (int)camera_id_) {
-                physical_camera_output_ids->emplace(phyid_cam_id);
-            }
-        }
-
-        if ((physical_camera_output_ids.get() != nullptr) &&
-            (!physical_camera_output_ids->empty())) {
-            result->physical_camera_results.reserve(physical_camera_output_ids->size());
-
-            for (int id = 0; id < (int)hwReq.output_buffers.size(); id++) {
-                auto phy_result = std::make_unique<HwlPipelineResult>();
-                // return physical buffer
-                phy_result->camera_id = camera_ids[id];
-                phy_result->pipeline_id = pipeline_id;
-                phy_result->frame_number = frame;
-                // This value must be set to 0 when a capture result contains buffers only and no
-                // metadata.
-                phy_result->partial_result = 0;
-                phy_result->output_buffers.push_back(hwReq.output_buffers[id]);
-
-                // call back to process physical buffer
-                if (pInfo->pipeline_callback.process_pipeline_result) {
-                    pInfo->pipeline_callback.process_pipeline_result(std::move(phy_result));
-                }
-            }
-
-            for (const auto &it : *physical_camera_output_ids) {
-                std::unique_ptr<HalCameraMetadata> physical_metadata_ = nullptr;
-                if (mSettings != NULL)
-                    physical_metadata_ = HalCameraMetadata::Clone(mSettings.get());
-                else
-                    physical_metadata_ = HalCameraMetadata::Create(1, 10);
-
-                // Sensor timestamp for all physical devices must be the same.
-                HandleMetaLocked(physical_metadata_, imgFeed->timestamp_ns);
-
-                result->physical_camera_results[it] = std::move(physical_metadata_);
-            }
-        }
-    } else {
-        result->output_buffers.assign(hwReq.output_buffers.begin(), hwReq.output_buffers.end());
-        result->input_buffers.reserve(0);
-        result->physical_camera_results.reserve(0);
-    }
+    result->output_buffers.assign(hwReq.output_buffers.begin(), hwReq.output_buffers.end());
+    result->input_buffers.reserve(0);
+    result->physical_camera_results.reserve(0);
 
     ALOGV("result->regsult_metadata %p, entry count %d", result->result_metadata.get(),
           (int)result->result_metadata->GetEntryCount());
-
-    if (is_logical_device_) {
-        auto physical_device_id = std::to_string(physical_focal_length_map_[current_focal_length_]);
-        ALOGV("%s: ANDROID_LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID is %s", __func__,
-              physical_device_id.c_str());
-
-        std::vector<uint8_t> ret;
-        ret.reserve(physical_device_id.size() + 1);
-        ret.insert(ret.end(), physical_device_id.begin(), physical_device_id.end());
-        ret.push_back('\0');
-        result->result_metadata->Set(ANDROID_LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID, ret.data(),
-                                     ret.size());
-    }
 
     HandleMetaLocked(result->result_metadata, imgFeed->timestamp_ns);
 
@@ -1612,7 +1412,6 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
     callbackIdx = -1;
     cameraRWIdx = -1;
     rawIdx = -1;
-    is_logical_request_ = false;
 
     maxStreamWidth = 0;
     maxStreamHeight = 0;
@@ -1705,10 +1504,6 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
         hal_stream.physical_camera_id = stream.physical_camera_id;
 
         pipeline_info->hal_streams->push_back(std::move(hal_stream));
-
-        if (stream.is_physical_camera_stream != 0) {
-            is_logical_request_ = true;
-        }
     }
 
     map_pipeline_info[pipeline_id_] = pipeline_info;

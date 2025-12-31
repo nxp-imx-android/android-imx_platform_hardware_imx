@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2024 NXP.
+ *  Copyright 2020-2025 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -279,9 +279,6 @@ private:
     std::unique_ptr<HalCameraMetadata> static_metadata_;
 
     std::vector<std::shared_ptr<char *>> mDevPath;
-
-    bool is_logical_device_ = false;
-    bool is_logical_request_ = false;
 
     // Maps particular focal length to physical device id
     std::unordered_map<float, uint32_t> physical_focal_length_map_;

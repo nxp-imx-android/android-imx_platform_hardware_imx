@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020 NXP.
+ *  Copyright 2020, 2025 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -485,6 +485,11 @@ status_t CameraProviderHwlImpl::CreateCameraDeviceHwl(
     } else {
         devPaths.push_back(std::make_shared<char*>(mSets[camera_id].mDevPath));
         physicalIds.push_back(0);
+    }
+
+    if (devPaths.size() > 1) {
+        ALOGE("%s: not support logical camera", __func__);
+        return BAD_VALUE;
     }
 
     *camera_device_hwl =

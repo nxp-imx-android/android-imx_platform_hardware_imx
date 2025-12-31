@@ -133,31 +133,6 @@ status_t CameraDeviceSessionHwlImpl::Initialize(uint32_t camera_id,
     CameraSensorMetadata *cam_metadata = &(pDev->mSensorData);
     m_IspWrapper = std::make_unique<ISPWrapper>(cam_metadata);
 
-    if ((physical_meta_map_.get() != nullptr) && (!physical_meta_map_->empty())) {
-        is_logical_device_ = true;
-        // If possible map the available focal lengths to individual physical devices
-        camera_metadata_ro_entry_t logical_entry, physical_entry;
-        ret = static_metadata_->Get(ANDROID_LENS_INFO_AVAILABLE_FOCAL_LENGTHS, &logical_entry);
-        if ((ret == OK) && (logical_entry.count > 0)) {
-            for (size_t i = 0; i < logical_entry.count; i++) {
-                for (const auto &it : *physical_meta_map_) {
-                    ret = it.second->Get(ANDROID_LENS_INFO_AVAILABLE_FOCAL_LENGTHS,
-                                         &physical_entry);
-                    if ((ret == OK) && (physical_entry.count > 0)) {
-                        if (logical_entry.data.f[i] == physical_entry.data.f[0]) {
-                            physical_focal_length_map_[physical_entry.data.f[0]] = it.first;
-                            ALOGI("%s: current_focal_length_ camera id: %d\n", __FUNCTION__,
-                                  it.first);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        current_focal_length_ = logical_entry.data.f[0];
-        ALOGI("%s: current_focal_length_ set: %5.2f\n", __FUNCTION__, logical_entry.data.f[0]);
-    }
-
     // create jpeg builder
     mJpegBuilder = new JpegBuilder();
 
