@@ -337,16 +337,12 @@ static void dump_frame(buffer_handle_t handle, std::string prefix, uint32_t coun
 }
 
 static bool start_dump = false;
-static bool dump_frame_last = false;
 static int dumpped_count = 0;
-void debug_dump_framebuffer(buffer_handle_t handle) {
+static int request_frame_count = 0;
+void prepare_dump_buffer(void) {
     static int prev_request_frame_count = 0;
-    static int request_frame_count = 0;
 
     if (!start_dump) {
-#ifdef DEBUG_DUMP_LAYER_BUFFER
-        dump_frame_last = false;
-#endif
         char value[PROPERTY_VALUE_MAX];
         property_get("vendor.hwc.debug.dump_frame", value, "0");
         request_frame_count = atoi(value);
@@ -360,23 +356,22 @@ void debug_dump_framebuffer(buffer_handle_t handle) {
         else
             start_dump = false;
     }
-
+}
+// dump framebuffer should be later than layer
+void debug_dump_framebuffer(buffer_handle_t handle) {
     if ((start_dump) && (request_frame_count >= 1)) {
-        dump_frame(handle, "fb", ++dumpped_count, 0);
+        dump_frame(handle, "fb", dumpped_count++, 0);
 
         request_frame_count--;
         if (request_frame_count == 0) {
             start_dump = false;
-#ifdef DEBUG_DUMP_LAYER_BUFFER
-            dump_frame_last = true;
-#endif
             property_set("vendor.hwc.debug.dump_frame", "0"); // disable dump when completed
         }
     }
 }
 #if defined(DEBUG_DUMP_LAYER_BUFFER) || defined(DEBUG_DUMP_G2D_INTER_COMPOSITION)
 void debug_dump_layerbuffer(buffer_handle_t handle, int64_t index) {
-    if (start_dump || dump_frame_last) {
+    if (start_dump) {
         dump_frame(handle, "layer", dumpped_count, index);
     }
 }

@@ -141,6 +141,7 @@ void dumpRefreshRateEnd(DumpRefreshRate& dump, uint32_t vsyncPeriod, nsecs_t sta
 #endif
 
 #ifdef DEBUG_DUMP_FRAME
+void prepare_dump_buffer(void);
 void debug_dump_framebuffer(buffer_handle_t handle);
 #if defined(DEBUG_DUMP_LAYER_BUFFER) || defined(DEBUG_DUMP_G2D_INTER_COMPOSITION)
 void debug_dump_layerbuffer(buffer_handle_t handle, int64_t index);

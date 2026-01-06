@@ -571,6 +571,10 @@ HWC3::Error ClientFrameComposer::presentDisplay(
         return error;
     }
 
+#ifdef DEBUG_DUMP_FRAME
+    buffer_handle_t dumpBuffer = NULL;
+    prepare_dump_buffer(); // check property if need to dump or not
+#endif
     ::android::base::unique_fd fbInFence; // in fence of framebuffer that pass to DRM
     int32_t activeConfigId = -1;
     if (display->getActiveConfig(&activeConfigId) != HWC3::Error::None) {
@@ -676,26 +680,12 @@ HWC3::Error ClientFrameComposer::presentDisplay(
         }
         displayBuffer.clientTargetDrmBuffer = std::move(drmBuffer);
 #ifdef DEBUG_DUMP_FRAME
-        if (fbInFence.ok()) {
-            int err = sync_wait(fbInFence.get(), 3000);
-            if (err < 0 && errno == ETIME) {
-                ALOGE("%s waited on g2d fence %" PRId32 " for 3000 ms", __FUNCTION__,
-                      fbInFence.get());
-            }
-        }
-        debug_dump_framebuffer(renderTarget);
+        dumpBuffer = renderTarget;
 #endif
     } else if (displayBuffer.clientTargetDrmBuffer) {
         fbInFence = std::move(display->getClientTarget().getFence());
 #ifdef DEBUG_DUMP_FRAME
-        if (fbInFence.ok()) {
-            int err = sync_wait(fbInFence.get(), 3000);
-            if (err < 0 && errno == ETIME) {
-                ALOGE("%s waited on gpu fence %" PRId32 " for 3000 ms", __FUNCTION__,
-                      fbInFence.get());
-            }
-        }
-        debug_dump_framebuffer(display->getClientTarget().getBuffer());
+        dumpBuffer = display->getClientTarget().getBuffer();
 #endif
     } else if (luckyLayer != nullptr) {
         common::Rect rectFrame = luckyLayer->getDisplayFrame();
@@ -711,7 +701,7 @@ HWC3::Error ClientFrameComposer::presentDisplay(
         displayBuffer.clientTargetDrmBuffer = drmBuffer;
         fbInFence = ::android::base::unique_fd(); // not need in fence
 #ifdef DEBUG_DUMP_FRAME
-        debug_dump_framebuffer(buffer);
+        dumpBuffer = buffer;
 #endif
     } else {
         fbInFence = ::android::base::unique_fd(); // not need in fence
@@ -792,6 +782,7 @@ HWC3::Error ClientFrameComposer::presentDisplay(
     }
     *outDisplayFence = std::move(flushCompleteFence);
 
+#ifdef DEBUG_DUMP_FRAME
 #ifdef DEBUG_DUMP_LAYER_BUFFER
     const std::vector<Layer*>& layers = display->getOrderedLayers();
     for (Layer* layer : layers) {
@@ -800,6 +791,15 @@ HWC3::Error ClientFrameComposer::presentDisplay(
             debug_dump_layerbuffer(buff, layer->getId());
     }
 #endif
+    if (fbInFence.ok()) {
+        int err = sync_wait(fbInFence.get(), 3000);
+        if (err < 0 && errno == ETIME) {
+            ALOGE("%s waited on g2d fence %" PRId32 " for 3000 ms", __FUNCTION__, fbInFence.get());
+        }
+    }
+    debug_dump_framebuffer(dumpBuffer);
+#endif
+
     displayBuffer.clientTargetDrmBuffer = nullptr;
     displayBuffer.planeDrmBuffer.clear();
 
