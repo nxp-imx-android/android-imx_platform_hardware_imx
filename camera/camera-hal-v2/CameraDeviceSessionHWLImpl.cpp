@@ -1944,10 +1944,9 @@ void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
     uint64_t readout_timestamp_ns = GetTimestampLocked(request);
     uint64_t timestamp_ns = readout_timestamp_ns - 33333333;
     if (pInfo->pipeline_callback.notify) {
-        NotifyMessage msg{.type = MessageType::kShutter,
-                          .message.shutter = {.frame_number = frame,
-                                              .timestamp_ns = timestamp_ns,
-                                              .readout_timestamp_ns = readout_timestamp_ns}};
+        NotifyMessage msg = ShutterMessage {.frame_number = frame,
+                                            .timestamp_ns = timestamp_ns,
+                                            .readout_timestamp_ns = readout_timestamp_ns};
 
         pInfo->pipeline_callback.notify(pipeline_id, msg);
     }

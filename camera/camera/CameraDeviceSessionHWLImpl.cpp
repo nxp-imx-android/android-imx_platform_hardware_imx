@@ -679,10 +679,9 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
         mImgProcThread->mImageListLock.unlock();
 
         if (pInfo->pipeline_callback.notify) {
-            NotifyMessage msg{.type = MessageType::kError,
-                              .message.error = {.frame_number = frame,
-                                                .error_stream_id = -1,
-                                                .error_code = ErrorCode::kErrorDevice}};
+            NotifyMessage msg = ErrorMessage {.frame_number = frame,
+                                              .error_stream_id = -1,
+                                              .error_code = ErrorCode::kErrorDevice};
 
             pInfo->pipeline_callback.notify(pipeline_id, msg);
         }
@@ -693,11 +692,11 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
 
     // notify shutter
     if (pInfo->pipeline_callback.notify) {
-        NotifyMessage msg{.type = MessageType::kShutter,
-                          .message.shutter = {.frame_number = frame,
-                                              .timestamp_ns = imgFeed->timestamp_ns,
-                                              .readout_timestamp_ns =
-                                                      imgFeed->readout_timestamp_ns}};
+        NotifyMessage msg = ShutterMessage {.frame_number = frame,
+                                            .timestamp_ns = imgFeed->timestamp_ns,
+                                            .readout_timestamp_ns =
+                                                    imgFeed->readout_timestamp_ns};
+
 
         pInfo->pipeline_callback.notify(pipeline_id, msg);
     }
