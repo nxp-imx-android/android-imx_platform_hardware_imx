@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2020 The Android Open Source Project
- * Copyright 2023-2024 NXP.
+ * Copyright 2023-2026 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -196,19 +196,17 @@ status_t CameraDeviceHwlImpl::initSensorStaticData() {
         numResCandidatePreview = ARRAY_SIZE(resCandidatePreview_ap1302);
         pResCandidatePicture = resCandidatePicture_ap1302;
         numResCandidatePicture = ARRAY_SIZE(resCandidatePicture_ap1302);
-    } else if (strstr(mSensorData.camera_name, "ov5640")) {
-        pResCandidatePreview = resCandidatePreview_ov5640;
-        numResCandidatePreview = ARRAY_SIZE(resCandidatePreview_ov5640);
-        pResCandidatePicture = resCandidatePicture_ov5640;
-        numResCandidatePicture = ARRAY_SIZE(resCandidatePicture_ov5640);
     } else if (strstr(mSensorData.camera_name, "mx95mbcam")) {
         pResCandidatePreview = resCandidatePreview_mx95mbcam;
         numResCandidatePreview = ARRAY_SIZE(resCandidatePreview_mx95mbcam);
         pResCandidatePicture = resCandidatePicture_mx95mbcam;
         numResCandidatePicture = ARRAY_SIZE(resCandidatePicture_mx95mbcam);
     } else {
-        ALOGE("%s: unsupported camera %s", __func__, mSensorData.camera_name);
-        return BAD_VALUE;
+        ALOGI("%s: treat camera %s as ov5640", __func__, mSensorData.camera_name);
+        pResCandidatePreview = resCandidatePreview_ov5640;
+        numResCandidatePreview = ARRAY_SIZE(resCandidatePreview_ov5640);
+        pResCandidatePicture = resCandidatePicture_ov5640;
+        numResCandidatePicture = ARRAY_SIZE(resCandidatePicture_ov5640);
     }
 
     int i = 0;
