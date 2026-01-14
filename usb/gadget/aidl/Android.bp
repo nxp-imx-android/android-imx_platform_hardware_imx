@@ -29,7 +29,7 @@ cc_binary {
         "liblog",
         "libutils",
         "libhardware",
-        "android.hardware.usb.gadget-V1-ndk",
+        "android.hardware.usb.gadget-V2-ndk",
         "android.frameworks.stats-V1-ndk",
         "libcutils",
         "libbinder_ndk",

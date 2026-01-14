@@ -386,9 +386,9 @@ static Status setVidPid(const char *vid, const char *pid) {
 }
 
 static Status validateAndSetVidPid(int64_t functions) {
-    Status ret = Status::SUCCESS;
+    Status ret = Status::CONFIGURATION_NOT_SUPPORTED;
 
-    switch (functions) {
+    switch (functions & ~GadgetFunction::CTRL) {
         case GadgetFunction::MTP:
             WriteStringToFile("mtp", CONFIGURATION_PATH);
             ret = setVidPid("0x18d1", "0x4ee1");
@@ -450,24 +450,13 @@ static Status validateAndSetVidPid(int64_t functions) {
             ret = setVidPid("0x18d1", "0x2d01");
             break;
         case GadgetFunction::AUDIO_SOURCE:
-            WriteStringToFile("audio_source", CONFIGURATION_PATH);
-            ret = setVidPid("0x18d1", "0x2d02");
-            break;
         case GadgetFunction::ADB | GadgetFunction::AUDIO_SOURCE:
-            WriteStringToFile("adb|audio_source", CONFIGURATION_PATH);
-            ret = setVidPid("0x18d1", "0x2d03");
-            break;
         case GadgetFunction::ACCESSORY | GadgetFunction::AUDIO_SOURCE:
-            WriteStringToFile("accessory|audio_source", CONFIGURATION_PATH);
-            ret = setVidPid("0x18d1", "0x2d04");
-            break;
         case GadgetFunction::ADB | GadgetFunction::ACCESSORY | GadgetFunction::AUDIO_SOURCE:
-            WriteStringToFile("adb|accessory|audio_source", CONFIGURATION_PATH);
-            ret = setVidPid("0x18d1", "0x2d05");
+            ALOGE("Audio output deprecated in Android 8.0");
             break;
         default:
             ALOGE("Combination not supported");
-            ret = Status::CONFIGURATION_NOT_SUPPORTED;
     }
     return ret;
 }
@@ -529,16 +518,37 @@ Status UsbGadget::setupFunctions(long functions, const shared_ptr<IUsbGadgetCall
             return Status::ERROR;
     }
 
-    if ((functions & GadgetFunction::ACCESSORY) != 0) {
-        ALOGI("setCurrentUsbFunctions Accessory");
-        if (linkFunction("accessory.gs2", i++))
+    if ((functions & GadgetFunction::CTRL) != 0) {
+        ffsEnabled = true;
+        ALOGI("setCurrentUsbFunctions Accessory Ctrl");
+        if (!WriteStringToFile("1", DESC_USE_PATH))
             return Status::ERROR;
-    }
 
-    if ((functions & GadgetFunction::AUDIO_SOURCE) != 0) {
-        ALOGI("setCurrentUsbFunctions Audio Source");
-        if (linkFunction("audio_source.gs3", i++))
+        if (inotify_add_watch(inotifyFd, "/dev/usb-ffs/ctrl/", IN_ALL_EVENTS) == -1)
             return Status::ERROR;
+
+        if (linkFunction("ffs.ctrl", i++))
+            return Status::ERROR;
+
+        // Add endpoints to be monitored.
+        mEndpointList.push_back("/dev/usb-ffs/ctrl/ep1");
+        mEndpointList.push_back("/dev/usb-ffs/ctrl/ep2");
+    }
+    if ((functions & GadgetFunction::ACCESSORY) != 0) {
+        ffsEnabled = true;
+        ALOGI("setCurrentUsbFunctions Accessory");
+        if (!WriteStringToFile("1", DESC_USE_PATH))
+            return Status::ERROR;
+
+        if (inotify_add_watch(inotifyFd, "/dev/usb-ffs/aoa/", IN_ALL_EVENTS) == -1)
+            return Status::ERROR;
+
+        if (linkFunction("ffs.aoa", i++))
+            return Status::ERROR;
+
+        // Add endpoints to be monitored.
+        mEndpointList.push_back("/dev/usb-ffs/aoa/ep1");
+        mEndpointList.push_back("/dev/usb-ffs/aoa/ep2");
     }
 
     if ((functions & GadgetFunction::RNDIS) != 0) {
