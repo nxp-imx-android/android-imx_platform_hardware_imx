@@ -650,7 +650,6 @@ status_t CameraDeviceSessionHwlImpl::ConfigLibcameraLocked(uint32_t bufferNum, u
             break;
         case libcamera::CameraConfiguration::Adjusted:
             ALOGW("%s: Camera configuration adjusted", __func__);
-            ALOGW("%s: Camera configuration adjusted", __func__);
             for (const libcamera::StreamConfiguration &config : *camCfg)
                 ALOGI("%s: - %s", __func__, config.toString().c_str());
             return -EINVAL;
