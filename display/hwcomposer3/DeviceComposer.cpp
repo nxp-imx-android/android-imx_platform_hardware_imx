@@ -224,7 +224,8 @@ int DeviceComposer::freeDeviceFrameBuffer(std::vector<buffer_handle_t>& buffers)
 
 int DeviceComposer::prepareG2dTempBuffer(G2dBuffer& srcBuffer, uint32_t newFormat,
                                          G2dBuffer* tempBuffer) {
-    if ((srcBuffer.hnd == NULL) || (tempBuffer == nullptr)) {
+    if ((srcBuffer.hnd == NULL) || (srcBuffer.infoPtr == nullptr) || (tempBuffer == nullptr) ||
+        (tempBuffer->infoPtr == nullptr)) {
         return -1;
     }
     if (newFormat == static_cast<uint32_t>(common::PixelFormat::UNSPECIFIED))

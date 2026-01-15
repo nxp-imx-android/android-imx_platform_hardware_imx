@@ -822,11 +822,10 @@ HWC3::Error DrmClient::setSecureMode(uint32_t displayId, bool secure) {
 int DrmClient::loadBacklightDevices() {
     struct dirent** dirEntry = nullptr;
     std::string path("/sys/class/backlight/");
-    int count = -1;
     mBacklight.path = "";
     mBacklight.maxBrightness = -1;
 
-    count = scandir(path.c_str(), &dirEntry, 0, alphasort);
+    int count = scandir(path.c_str(), &dirEntry, 0, alphasort);
     if (count < 0) {
         ALOGE("%s: Cannot find any backlight device in '%s'", __FUNCTION__, path.c_str());
     }

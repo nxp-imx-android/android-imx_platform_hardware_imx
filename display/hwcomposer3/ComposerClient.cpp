@@ -143,7 +143,7 @@ HWC3::Error ComposerClient::init() {
     }
 
     error = Device::getInstance().getComposer(&mComposer, &mVirtComposer);
-    if (error != HWC3::Error::None) {
+    if (error != HWC3::Error::None || mComposer == nullptr || mVirtComposer == nullptr) {
         ALOGE("%s failed to get FrameComposer for display device", __FUNCTION__);
         return error;
     }

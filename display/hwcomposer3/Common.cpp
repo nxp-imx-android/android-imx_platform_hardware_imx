@@ -112,12 +112,12 @@ bool customizeGUIResolution(uint32_t &width, uint32_t &height, uint32_t *uiType)
     property_get("ro.boot.gui_resolution", value, "p");
     DEBUG_LOG("%s: sysprop ro.boot.gui_resolution is %s", __FUNCTION__, value);
 
-    if (!strncmp(value, "shw", 3) && (sscanf(value, "shw%[0-9]x%[0-9]", w_buf, h_buf) == 2)) {
+    if (!strncmp(value, "shw", 3) && (sscanf(value, "shw%9[0-9]x%9[0-9]", w_buf, h_buf) == 2)) {
         w = static_cast<uint32_t>(std::stoul(w_buf));
         h = static_cast<uint32_t>(std::stoul(h_buf));
         *uiType = UI_SCALE_HARDWARE;
     } else if (!strncmp(value, "ssw", 3) &&
-               (sscanf(value, "ssw%[0-9]x%[0-9]", w_buf, h_buf) == 2)) {
+               (sscanf(value, "ssw%9[0-9]x%9[0-9]", w_buf, h_buf) == 2)) {
         w = static_cast<uint32_t>(std::stoul(w_buf));
         h = static_cast<uint32_t>(std::stoul(h_buf));
         *uiType = UI_SCALE_SOFTWARE;

@@ -287,7 +287,7 @@ std::tuple<HWC3::Error, ::android::base::unique_fd> DrmDisplay::commit(
     int flushFenceFd = -1;
 
     if (mModeSet) {
-        uint32_t modeBlobId = INT_MAX;
+        uint32_t modeBlobId;
         if (mActiveConfigId >= 0) {
             modeBlobId = mActiveConfig.blobId;
         } else {
