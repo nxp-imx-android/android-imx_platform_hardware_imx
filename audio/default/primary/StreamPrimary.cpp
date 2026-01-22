@@ -569,8 +569,15 @@ StreamPrimary::AlsaDeviceId StreamPrimary::getCardAndDeviceId(
 // static
 bool StreamPrimary::useStubStream(
         bool isInput, const ::aidl::android::media::audio::common::AudioDevice& device) {
-    static const bool kSimulateInput =
-            GetBoolProperty("ro.boot.audio.tinyalsa.simulate_input", false);
+    static bool kSimulateInput = false;
+    char soc_name[PROPERTY_VALUE_MAX];
+    property_get("ro.boot.soc_type", soc_name, NULL);
+    if (0 == strcmp(soc_name, "imx8mq")) {
+        kSimulateInput = GetBoolProperty("ro.boot.audio.tinyalsa.simulate_input", true);
+    } else {
+        kSimulateInput = GetBoolProperty("ro.boot.audio.tinyalsa.simulate_input", false);
+    }
+
     static const bool kSimulateOutput =
             GetBoolProperty("ro.boot.audio.tinyalsa.ignore_output", false);
     if (device.type.type == AudioDeviceType::IN_HEADSET &&
