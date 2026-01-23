@@ -1305,6 +1305,7 @@ std::optional<std::vector<int64_t>> DeviceComposer::cacheG2dLayersStats(
         auto drect = layer->getDisplayFrame();
         auto srect = layer->getSourceCropInt();
         auto transform = layer->getTransform();
+        auto mode = layer->getBlendMode();
         auto infoPtr = layer->getBufferInfo(); // the info.buffer_id = 0 for solid color layer
         auto& visible = layer->getVisibleRegion();
         common::Rect visibleRect{0, 0, 0, 0};
@@ -1315,13 +1316,15 @@ std::optional<std::vector<int64_t>> DeviceComposer::cacheG2dLayersStats(
             auto& cache = cachedLayers[id];
             if ((cache.buffer_id == infoPtr->buffer_id) && (cache.zorder == zorder) &&
                 (cache.alpha == alpha) && (cache.drect == drect) && (cache.srect == srect) &&
-                (cache.transform == transform) && (cache.visibleRect == visibleRect)) {
+                (cache.transform == transform) && (cache.mode == mode) &&
+                (cache.visibleRect == visibleRect)) {
                 cache.keep_count++;
             } else {
                 cache.keep_count = 0;
                 cache.buffer_id = infoPtr->buffer_id;
                 cache.zorder = zorder;
                 cache.alpha = alpha;
+                cache.mode = mode;
                 cache.drect = drect;
                 cache.srect = srect;
                 cache.transform = transform;
