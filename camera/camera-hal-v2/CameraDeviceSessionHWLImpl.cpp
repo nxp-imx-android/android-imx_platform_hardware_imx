@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2025 NXP.
+ *  Copyright 2020-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -1707,7 +1707,6 @@ status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2Outbuf(ImxStreamBuffer *srcBu
                                                           FenceFdInfo &outFences,
                                                           CameraMetadata &requestMeta) {
     int ret = 0;
-    bool isSkipHandle = false;
     if (srcBuf == NULL)
         return BAD_VALUE;
 

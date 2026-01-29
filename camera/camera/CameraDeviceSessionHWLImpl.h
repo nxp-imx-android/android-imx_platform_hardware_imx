@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2025 NXP.
+ *  Copyright 2020-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -384,9 +384,6 @@ public:
     int32_t m_raw_v4l2_format = -1;
     int8_t m_color_arrange = -1;
     int mUseCpuEncoder;
-
-private:
-    std::set<uint64_t> setDstPhyAddr;
 };
 
 } // namespace android

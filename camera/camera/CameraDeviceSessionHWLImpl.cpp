@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2025 NXP.
+ *  Copyright 2020-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -222,7 +222,6 @@ CameraDeviceSessionHwlImpl::CameraDeviceSessionHwlImpl(PhysicalMetaMapPtr physic
     mPreSubmitRequestTime = 0;
     mImgProcThread = NULL;
     mWorkThread = NULL;
-    setDstPhyAddr.clear();
 
     physical_meta_map_ = std::move(physical_devices);
 }
@@ -260,7 +259,6 @@ CameraDeviceSessionHwlImpl::~CameraDeviceSessionHwlImpl() {
         delete m_meta;
         m_meta = NULL;
     }
-    setDstPhyAddr.clear();
 }
 
 PipelineInfo *CameraDeviceSessionHwlImpl::GetPipelineInfo(uint32_t id) {
@@ -841,7 +839,6 @@ status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2Outbuf(ImxStreamBuffer *srcBu
                                                           FenceFdInfo &outFences,
                                                           CameraMetadata &requestMeta) {
     int ret = 0;
-    bool isSkipHandle = false;
     if (srcBuf == NULL)
         return BAD_VALUE;
 
@@ -872,35 +869,6 @@ status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2Outbuf(ImxStreamBuffer *srcBu
     if (dstBuf == NULL)
         return BAD_VALUE;
 
-    if (m_bConfigV4L2ByIntent) {
-        // limit the container size
-        ImxStream *src = srcBuf->mStream;
-        ImxStream *dst = dstBuf->mStream;
-
-        if (setDstPhyAddr.size() >= 20) {
-            ALOGW("%s: erase the previous old addr: 0x%lx", __func__, *(setDstPhyAddr.begin()));
-            setDstPhyAddr.erase(setDstPhyAddr.begin());
-        }
-
-        // Adapt for Camra2.apk. The picture resolution may differ from preview resolution.
-        // If resize for preview stream, there will be obvious changes in the preview when taking
-        // picture. And if there is a new dst addr, the process will not be skipped, otherwise it
-        // will flash green.
-        if (((src->width() != dst->width()) || (src->height() != dst->height())) &&
-            dst->isPreview() && src->isPictureIntent()) {
-            if (!setDstPhyAddr.empty() &&
-                (setDstPhyAddr.find(dstBuf->mPhyAddr) != setDstPhyAddr.end())) {
-                isSkipHandle = true;
-                ALOGW("%s: resize from %dx%d to %dx%d, skip preview stream while taking picture",
-                      __func__, src->width(), src->height(), dst->width(), dst->height());
-            } else {
-                ALOGW("%s: Don't skip the preview stream handle, new dst phy addr 0x%lx appear",
-                      __func__, dstBuf->mPhyAddr);
-            }
-        }
-        setDstPhyAddr.insert(dstBuf->mPhyAddr);
-    }
-
     uint64_t t1 = systemTime();
 
     if (dstBuf->mStream->format() == HAL_PIXEL_FORMAT_BLOB) {
@@ -908,8 +876,7 @@ status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2Outbuf(ImxStreamBuffer *srcBu
         mJpegBuilder->setMetadata(&requestMeta);
         processJpegBuffer(srcBuf, dstBuf, &requestMeta);
     } else {
-        if (!isSkipHandle)
-            processFrameBuffer(srcBuf, dstBuf, &requestMeta);
+        processFrameBuffer(srcBuf, dstBuf, &requestMeta);
     }
 
     uint64_t t2 = systemTime();
@@ -1508,9 +1475,6 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
     map_pipeline_info[pipeline_id_] = pipeline_info;
     pipeline_id_++;
 
-    /* clear setDstPhyAddr */
-    setDstPhyAddr.clear();
-
     return OK;
 }
 
@@ -1689,9 +1653,6 @@ void CameraDeviceSessionHwlImpl::DestroyPipelines() {
 
     map_pipeline_info.clear();
     pipelines_built_ = false;
-
-    /* clear setDstPhyAddr */
-    setDstPhyAddr.clear();
 }
 
 status_t CameraDeviceSessionHwlImpl::SubmitRequests(uint32_t frame_number,
