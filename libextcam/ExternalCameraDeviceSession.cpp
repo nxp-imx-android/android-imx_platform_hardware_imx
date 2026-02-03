@@ -3392,6 +3392,17 @@ int ExternalCameraDeviceSession::OutputThread::handleFrame(
         srcValidWidth = 424;
     }
 
+    // imx95 mxc-jpec-dec: 32bit aligned for width, 16-bit aligned for height.
+    if (srcWidth == 448) {
+        if (dstWidth == 424)
+            srcValidWidth = 424;
+        else if (dstWidth == 432)
+            srcValidWidth = 432;
+    }
+    if (srcWidth == 864 && dstWidth == 848) {
+        srcValidWidth = 848;
+    }
+
     srcBuf.mFormat = srcFmt;
     srcBuf.mWidth = srcValidWidth;
     srcBuf.mHeight = srcValidHeight;
@@ -3702,6 +3713,25 @@ bool ExternalCameraDeviceSession::OutputThread::threadLoop() {
     const int kSyncWaitTimeoutMs = 500;
     std::vector<HalStreamBuffer *> prcdBufs;
 
+    // Since we may CopyFromPrcdBuf later, if there are requirements for two streams,
+    // and one is for record, ensure non-video-encoder buffer is processed first.
+    // Otherwise, on imx95, due to the encoder buffer is 32x8 aligned, but the preview is 32x1,
+    // will cause green lines to appear during recording.
+    if (req->buffers.size() == 2) {
+        bool buf0IsVideoEncoder = (static_cast<uint64_t>(req->buffers[0].usage) &
+                                   GRALLOC_USAGE_HW_VIDEO_ENCODER) != 0;
+        bool buf1IsVideoEncoder = (static_cast<uint64_t>(req->buffers[1].usage) &
+                                   GRALLOC_USAGE_HW_VIDEO_ENCODER) != 0;
+
+        // If first buffer is video encoder and second is not, swap them
+        if (buf0IsVideoEncoder && !buf1IsVideoEncoder) {
+            if (mDebug)
+                ALOGI("%s: 1th stream required for record, swap 2 buffers, handle the preview stream first",
+                      __FUNCTION__);
+            std::swap(req->buffers[0], req->buffers[1]);
+        }
+    }
+
     for (auto& halBuf : req->buffers) {
         if (*(halBuf.bufPtr) == nullptr) {
             ALOGW("%s: buffer for stream %d missing", __FUNCTION__, halBuf.streamId);
@@ -3915,11 +3945,17 @@ int ExternalCameraDeviceSession::OutputThread::getOutputBuffer(int timeoutMs) {
     int32_t out_id = -1;
     GraphicBlockInfo* info;
     while (true) {
-        auto st = mFramesSignal.wait_for(mlk, timeout);
-        if (st == std::cv_status::timeout) {
-            ALOGW("%s: wait decoder output timeout!", __FUNCTION__);
-            return BAD_VALUE;
+        if (mReadyFrame.empty()) {
+            auto st = mFramesSignal.wait_for(mlk, timeout);
+            if (st == std::cv_status::timeout) {
+                ALOGW("%s: wait decoder output timeout!", __FUNCTION__);
+                return BAD_VALUE;
+            }
+        } else {
+            if (mDebug)
+                ALOGI("%s: directly copy the ready frame.", __FUNCTION__);
         }
+
         if (mReadyFrame.empty())
             break;
 
