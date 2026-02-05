@@ -1,5 +1,5 @@
 /*
- * Copyright 2023-2025 NXP.
+ * Copyright 2023-2026 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -241,12 +241,18 @@ ImageProcess::ImageProcess()
     property_get("ro.boot.soc_type", mSocType, "");
     ALOGI("%s: mSocType :%s \n", __FUNCTION__, mSocType);
 
+    char value[PROPERTY_VALUE_MAX];
+    property_get("ro.boot.camera.layout", value, "");
+    mLayoutMBCam = (strcmp(value, "mbcam") == 0) ? true : false;
+    ALOGI("%s: mLayoutMBCam %d", __func__, mLayoutMBCam);
+
     mOclBufferType = OCL_MEM_TYPE_GPU;
     memset(path, 0, sizeof(path));
     getModule(path, IMX_OCL_CONVERTER);
     mImxOclCvtModule = dlopen(path, RTLD_NOW);
     if (mImxOclCvtModule == NULL) {
         ALOGW("%s:, dlopen %s failed", __func__, path);
+        mHOcl = NULL;
         m_ocl_open = NULL;
         m_ocl_setParam = NULL;
         m_ocl_getParam = NULL;
@@ -259,6 +265,19 @@ ImageProcess::ImageProcess()
         m_ocl_convert = (ocl_convert)dlsym(mImxOclCvtModule, "OCL_Convert");
         m_ocl_close = (ocl_close)dlsym(mImxOclCvtModule, "OCL_Close");
 
+        // All cases except mbcam, use the ocl handle created in ctor.
+        // Since m_ocl_open takes around 200ms, so save time in ConvertImageByOclCvt().
+        if (mLayoutMBCam == false) {
+            ret = (*m_ocl_open)(OCL_OPEN_FLAG_PROFILE, &mHOcl);
+            if (ret != 0) {
+                mHOcl = NULL;
+                ALOGW("%s: m_ocl_open failed, ret %d", __func__, ret);
+            }
+            ALOGI("%s: mHOcl %p", __func__, mHOcl);
+        } else {
+            mHOcl = NULL;
+        }
+
         if (!strncmp(mSocType, "imx9", 4))
             mOclBufferType = OCL_MEM_TYPE_DEVICE;
 
@@ -268,7 +287,8 @@ ImageProcess::ImageProcess()
     memset(&mWarpBuffer, 0, sizeof(mWarpBuffer));
     memset(&m_warp_param, 0, sizeof(m_warp_param));
 
-    if (mImxOclCvtModule) {
+
+    if (mImxOclCvtModule && mLayoutMBCam) {
         ret = parse_warp_file(DEWARP_COORD_FILE, &m_warp_param);
         if (ret) {
             ALOGW("%s: parse_warp_file failed, ret %d", __func__, ret);
@@ -279,6 +299,11 @@ ImageProcess::ImageProcess()
 }
 
 ImageProcess::~ImageProcess() {
+    if (mHOcl) {
+        m_ocl_close(mHOcl);
+        mHOcl = NULL;
+    }
+
     if (mImxOclCvtModule)
         pthread_key_delete(m_ocl_key);
 
@@ -1177,6 +1202,29 @@ void ImageProcess::cl_Csc(void *g2dHandle, uint8_t *inputBuffer, uint8_t *output
     (*mCLBlit)(g2dHandle, (void *)&src, (void *)&dst);
 }
 
+OCL_HANDLE ImageProcess::GetOCLHandle(bool needDewarp) {
+    if (mLayoutMBCam == false)
+        return mHOcl;
+
+    OCL_HANDLE hOcl = (OCL_HANDLE)pthread_getspecific(m_ocl_key);
+    // first time get, create ocl handle.
+    if (hOcl == NULL) {
+        int ret = (*m_ocl_open)(OCL_OPEN_FLAG_PROFILE, &hOcl);
+        if ((ret != 0) || (hOcl == NULL)) {
+            ALOGW("%s: m_ocl_open failed, ret %d", __func__, ret);
+            return NULL;
+        }
+
+        if ((m_warp_param.enable == 1) && needDewarp)
+            m_ocl_setParam(hOcl, OCL_PARAM_INDEX_WARP_PARAM, &m_warp_param);
+
+        ALOGI("%s: call pthread_setspecific, hOcl %p", __func__, hOcl);
+        pthread_setspecific(m_ocl_key, (void *)hOcl);
+    }
+
+    return hOcl;
+}
+
 void ImageProcess::ImxImageBufferToOclBuffer(ImxImageBuffer &imxImgBuf, OCL_BUFFER &oclBuf,
                                              OCL_FORMAT &oclFmt) {
     int ret = 0;
@@ -1185,7 +1233,7 @@ void ImageProcess::ImxImageBufferToOclBuffer(ImxImageBuffer &imxImgBuf, OCL_BUFF
     memset(&plane_info, 0, sizeof(plane_info));
     plane_info.ocl_format = &oclFmt;
 
-    OCL_HANDLE hOcl = (OCL_HANDLE)pthread_getspecific(m_ocl_key);
+    OCL_HANDLE hOcl = GetOCLHandle();
     if (hOcl == NULL) {
         ALOGE("%s: unexpected hOcl NULL", __func__);
         return;
@@ -1320,21 +1368,10 @@ static void ImxImageBufferToOclFormat(ImxImageBuffer &srcImgBuf, OCL_FORMAT &inp
 int ImageProcess::ConvertImageByOclCvt(ImxImageBuffer &dstBuf, ImxImageBuffer &srcBuf) {
     int ret = 0;
 
-    OCL_HANDLE hOcl = (OCL_HANDLE)pthread_getspecific(m_ocl_key);
-
-    // first time get, create ocl handle.
+    OCL_HANDLE hOcl = GetOCLHandle(srcBuf.mDewarp);
     if (hOcl == NULL) {
-        ret = (*m_ocl_open)(OCL_OPEN_FLAG_PROFILE, &hOcl);
-        if ((ret != 0) || (hOcl == NULL)) {
-            ALOGW("%s: m_ocl_open failed, ret %d", __func__, ret);
-            return BAD_VALUE;
-        }
-
-        if ((m_warp_param.enable == 1) && srcBuf.mDewarp)
-            m_ocl_setParam(hOcl, OCL_PARAM_INDEX_WARP_PARAM, &m_warp_param);
-
-        ALOGI("%s: call pthread_setspecific, hOcl %p", __func__, hOcl);
-        pthread_setspecific(m_ocl_key, (void *)hOcl);
+        ALOGE("%s: unexpected hOcl NULL", __func__);
+        return BAD_VALUE;
     }
 
     /* set format */
@@ -1343,6 +1380,10 @@ int ImageProcess::ConvertImageByOclCvt(ImxImageBuffer &dstBuf, ImxImageBuffer &s
 
     memset(&input_format, 0, sizeof(input_format));
     memset(&output_format, 0, sizeof(output_format));
+
+    // Not 4 ox03c10 dewarp case, use the same 1 handle opened in constructor.
+    if (hOcl == mHOcl)
+        Mutex::Autolock _l(mOclCvtLock);
 
     ImxImageBufferToOclFormat(srcBuf, input_format, dstBuf, output_format);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2023-2025 NXP.
+ * Copyright 2023-2026 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -108,6 +108,9 @@ private:
     // g2d/dpu dewarp
     int PrepareDewarpBinary();
 
+    // get the same handle for process, or the handle per-thread.
+    OCL_HANDLE GetOCLHandle(bool needDewarp = false);
+
 private:
     ImageProcess();
     static Mutex sLock;
@@ -155,12 +158,15 @@ private:
     OCL_MEMORY_TYPE mOclBufferType;
 
     void* mImxOclCvtModule;
+    OCL_HANDLE mHOcl;
     pthread_key_t m_ocl_key;
     ocl_open m_ocl_open;
     ocl_setParam m_ocl_setParam;
     ocl_getParam m_ocl_getParam;
     ocl_convert m_ocl_convert;
     ocl_close m_ocl_close;
+    Mutex mOclCvtLock;
+    bool mLayoutMBCam;
 
     // g3d dewarp
     OCL_WARP_PARAM m_warp_param;
