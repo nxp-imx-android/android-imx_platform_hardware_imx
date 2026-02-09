@@ -531,7 +531,7 @@ void DrmDisplay::updateActiveConfig(std::shared_ptr<HalConfig> configs) {
     DEBUG_LOG("%s: display:%" PRIu32, __FUNCTION__, mId);
 
     uint32_t index = 0;
-    uint32_t delta = UINT_MAX, rdelta = UINT_MAX;
+    uint32_t delta = UINT_MAX, rdelta;
     uint32_t dst_width = 0, dst_height = 0, dst_vrefresh = 60, prefered_mode = 0;
     // get display mode from bootargs.
     parseDisplayMode(&dst_width, &dst_height, &dst_vrefresh, &prefered_mode);

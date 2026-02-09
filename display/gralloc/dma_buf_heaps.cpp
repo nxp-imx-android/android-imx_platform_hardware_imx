@@ -267,7 +267,7 @@ int allocator_get_physical_address(gralloc_handle_t handle, uint64_t *addr) {
         return -EINVAL;
     }
 
-    uint64_t phy_addr = std::numeric_limits<uint64_t>::max();
+    uint64_t phy_addr;
     struct dmabuf_imx_phys_data data;
     int fd_;
     fd_ = open("/dev/dmabuf_imx", O_RDONLY | O_CLOEXEC);

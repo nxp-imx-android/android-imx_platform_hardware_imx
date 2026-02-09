@@ -44,9 +44,7 @@ HWC3::Error checkClientFromSystem(std::string path, std::string filePrefix,
     struct dirent** dirEntry = nullptr;
 #define HWC_PATH_LENGTH 256
     char filePath[HWC_PATH_LENGTH];
-    int count = -1;
-
-    count = scandir(path.c_str(), &dirEntry, 0, alphasort);
+    int count = scandir(path.c_str(), &dirEntry, 0, alphasort);
     if (count < 0) {
         ALOGE("%s: cannot find any %s", __FUNCTION__, filePrefix.c_str());
         return HWC3::Error::NoResources;
