@@ -1382,21 +1382,22 @@ int ImageProcess::ConvertImageByOclCvt(ImxImageBuffer &dstBuf, ImxImageBuffer &s
     memset(&output_format, 0, sizeof(output_format));
 
     // Not 4 ox03c10 dewarp case, use the same 1 handle opened in constructor.
-    if (hOcl == mHOcl)
-        Mutex::Autolock _l(mOclCvtLock);
+    if (hOcl == mHOcl) {
+        mOclCvtLock.lock();
+    }
 
     ImxImageBufferToOclFormat(srcBuf, input_format, dstBuf, output_format);
 
     ret = m_ocl_setParam(hOcl, OCL_PARAM_INDEX_INPUT_FORMAT, &input_format);
     if (ret) {
         ALOGE("%s: m_ocl_setParam OCL_PARAM_INDEX_INPUT_FORMAT failed, ret %d", __func__, ret);
-        return ret;
+        goto finish;
     }
 
     ret = m_ocl_setParam(hOcl, OCL_PARAM_INDEX_OUTPUT_FORMAT, &output_format);
     if (ret) {
         ALOGE("%s: m_ocl_setParam OCL_PARAM_INDEX_OUTPUT_FORMAT failed, ret %d", __func__, ret);
-        return ret;
+        goto finish;
     }
 
     /* set buffer */
@@ -1412,7 +1413,7 @@ int ImageProcess::ConvertImageByOclCvt(ImxImageBuffer &dstBuf, ImxImageBuffer &s
     ret = m_ocl_convert(hOcl, &inBuffer, &outBuffer);
     if (ret) {
         ALOGE("%s: m_ocl_convert failed, ret %d", __func__, ret);
-        return ret;
+        goto finish;
     }
 
     OCL_RUN_TIME time;
@@ -1422,6 +1423,11 @@ int ImageProcess::ConvertImageByOclCvt(ImxImageBuffer &dstBuf, ImxImageBuffer &s
               __func__, ret, input_format.width, input_format.height, input_format.format,
               output_format.width, output_format.height, output_format.format, time.run_time,
               time.kernel_time);
+
+finish:
+    if (hOcl == mHOcl) {
+        mOclCvtLock.unlock();
+    }
 
     return ret;
 }
