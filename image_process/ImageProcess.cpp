@@ -701,7 +701,7 @@ int ImageProcess::ConvertImageByG2DBlit(ImxImageBuffer &dstBuf, ImxImageBuffer &
     s_surface.bottom = crop_top + crop_height;
     s_surface.stride = srcBuf.mStride;
     s_surface.width = srcBuf.mWidth;
-    s_surface.height = srcBuf.mHeight;
+    s_surface.height = srcBuf.mHeightSpan;
     s_surface.rot = G2D_ROTATION_0;
 
     ALOGV("%s: crop from (%d, %d), size %dx%d, srcBuf.mFormatSize %d, mZoomRatio %f", __func__,
