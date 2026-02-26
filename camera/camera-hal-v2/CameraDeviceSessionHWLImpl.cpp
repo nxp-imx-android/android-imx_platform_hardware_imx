@@ -375,6 +375,12 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
         return BAD_VALUE;
     }
 
+    if (srcBuf->mVirtAddr == NULL)
+        GetBufferInfoFromHandle(srcBuf->buffer, *srcBuf, false, true);
+
+    if (dstBuf->mVirtAddr == NULL)
+        GetBufferInfoFromHandle(dstBuf->buffer, *dstBuf, false, true);
+
     ret = meta->getJpegQuality(encodeQuality);
     if (ret != NO_ERROR) {
         ALOGE("%s getJpegQuality failed", __func__);
@@ -1656,51 +1662,6 @@ status_t CameraDeviceSessionHwlImpl::ConstructDefaultRequestSettings(
     return m_meta->getRequestSettings(type, default_settings);
 }
 
-static void DumpStream(void *src, uint32_t srcSize, void *dst, uint32_t dstSize, int32_t id) {
-    char value[PROPERTY_VALUE_MAX];
-    int fdSrc = -1;
-    int fdDst = -1;
-    int32_t streamIdBitVal = 0;
-
-    if ((src == NULL) || (srcSize == 0) || (dst == NULL) || (dstSize == 0))
-        return;
-
-    property_get("vendor.rw.camera.test", value, "");
-    if (strcmp(value, "") == 0)
-        return;
-
-    streamIdBitVal = atoi(value);
-    if ((streamIdBitVal & (1 << id)) == 0)
-        return;
-
-    ALOGI("%s: src size %d, dst size %d, stream id %d", __func__, srcSize, dstSize, id);
-
-    char srcFile[32];
-    char dstFile[32];
-
-    snprintf(srcFile, 32, "/data/%d-src.data", id);
-    srcFile[31] = 0;
-    snprintf(dstFile, 32, "/data/%d-dst.data", id);
-    dstFile[31] = 0;
-
-    fdSrc = open(srcFile, O_CREAT | O_APPEND | O_WRONLY, S_IRWXU | S_IRWXG);
-    fdDst = open(dstFile, O_CREAT | O_APPEND | O_WRONLY, S_IRWXU | S_IRWXG);
-
-    if ((fdSrc < 0) || (fdDst < 0)) {
-        ALOGW("%s: file open error, srcFile: %s, fd %d, dstFile: %s, fd %d", __func__, srcFile,
-              fdSrc, dstFile, fdDst);
-        return;
-    }
-
-    write(fdSrc, src, srcSize);
-    write(fdDst, dst, dstSize);
-
-    close(fdSrc);
-    close(fdDst);
-
-    return;
-}
-
 status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2Outbuf(ImxStreamBuffer *srcBuf,
                                                           StreamBuffer &output_buffers,
                                                           FenceFdInfo &outFences,
@@ -1758,8 +1719,7 @@ status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2Outbuf(ImxStreamBuffer *srcBu
               mCamBlitCscType);
     }
 
-    DumpStream(srcBuf->mVirtAddr, srcBuf->mFormatSize, dstBuf->mVirtAddr, dstBuf->mFormatSize,
-               dstBuf->mStream->id());
+    DumpStream(srcBuf, dstBuf);
 
     ReleaseImxStreamBuffer(dstBuf);
     return 0;

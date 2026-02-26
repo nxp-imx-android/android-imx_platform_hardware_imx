@@ -628,6 +628,12 @@ int ImageProcess::ConvertImageByG2DCopy(ImxImageBuffer &dstBuf, ImxImageBuffer &
         return -EINVAL;
     }
 
+    if ((srcBuf.mPhyAddr == 0) || (srcBuf.mVirtAddr == NULL))
+        GetBufferInfoFromHandle(srcBuf.buffer, srcBuf, true, true);
+
+    if ((dstBuf.mPhyAddr == 0) || (dstBuf.mVirtAddr == NULL))
+        GetBufferInfoFromHandle(dstBuf.buffer, dstBuf, true, true);
+
     void *g2dHandle = getHandle();
     int size = (srcBuf.mSize > dstBuf.mSize) ? dstBuf.mSize : srcBuf.mSize;
 
@@ -644,20 +650,6 @@ int ImageProcess::ConvertImageByG2DCopy(ImxImageBuffer &dstBuf, ImxImageBuffer &
     }
 
     return ret;
-}
-
-static int AllocPhyBufferByFmtRes(ImxImageBuffer &imgBuf, uint32_t format, uint32_t width,
-                                  uint32_t height, uint32_t stride, bool bCached = true) {
-    int ret = AllocPhyBuffer(stride, height, format, imgBuf, bCached);
-    if (ret) {
-        ALOGE("%s: AllocPhyBuffer failed, formatSize %d, allocSize %d", __func__,
-              (int)imgBuf.mFormatSize, (int)imgBuf.mSize);
-        return ret;
-    }
-
-    imgBuf.mHeightSpan = height;
-
-    return 0;
 }
 
 int ImageProcess::ConvertImageByG2DBlit(ImxImageBuffer &dstBuf, ImxImageBuffer &srcBuf) {
@@ -679,13 +671,13 @@ int ImageProcess::ConvertImageByG2DBlit(ImxImageBuffer &dstBuf, ImxImageBuffer &
 
     int ret;
     void *g2dHandle = getHandle();
-    struct g2d_buf s_buf, d_buf;
     struct g2d_surface s_surface, d_surface;
 
-    s_buf.buf_paddr = srcBuf.mPhyAddr;
-    s_buf.buf_vaddr = srcBuf.mVirtAddr;
-    d_buf.buf_paddr = dstBuf.mPhyAddr;
-    d_buf.buf_vaddr = dstBuf.mVirtAddr;
+    if (srcBuf.mPhyAddr == 0)
+        GetBufferInfoFromHandle(srcBuf.buffer, srcBuf, true, false);
+
+    if (dstBuf.mPhyAddr == 0)
+        GetBufferInfoFromHandle(dstBuf.buffer, dstBuf, true, false);
 
     // zoom feature
     uint32_t crop_left = 0;
@@ -702,7 +694,7 @@ int ImageProcess::ConvertImageByG2DBlit(ImxImageBuffer &dstBuf, ImxImageBuffer &
     }
 
     s_surface.format = (g2d_format)convertPixelFormatToG2DFormat(srcBuf.mFormat);
-    s_surface.planes[0] = (long)s_buf.buf_paddr;
+    s_surface.planes[0] = (long)srcBuf.mPhyAddr;
     s_surface.left = crop_left;
     s_surface.top = crop_top;
     s_surface.right = crop_left + crop_width;
@@ -725,8 +717,8 @@ int ImageProcess::ConvertImageByG2DBlit(ImxImageBuffer &dstBuf, ImxImageBuffer &
          (srcBuf.mWidth == dstBuf.mWidth &&
           srcBuf.mHeight == dstBuf.mHeight))) { // just scale or just csc or just dewarp
         d_surface.format = (g2d_format)convertPixelFormatToG2DFormat(dstBuf.mFormat);
-        d_surface.planes[0] = (long)d_buf.buf_paddr;
-        d_surface.planes[1] = (long)d_buf.buf_paddr + dstBuf.mStride * dstBuf.mHeight;
+        d_surface.planes[0] = (long)dstBuf.mPhyAddr;
+        d_surface.planes[1] = (long)dstBuf.mPhyAddr + dstBuf.mStride * dstBuf.mHeight;
         d_surface.left = 0;
         d_surface.top = 0;
         d_surface.right = dstBuf.mWidth;
@@ -756,10 +748,10 @@ int ImageProcess::ConvertImageByG2DBlit(ImxImageBuffer &dstBuf, ImxImageBuffer &
         memset(&resizeBuf, 0, sizeof(resizeBuf));
         struct g2d_surface tmp_surface;
 
-        ret = AllocPhyBufferByFmtRes(resizeBuf, srcBuf.mFormat, dstBuf.mWidth, dstBuf.mHeight,
-                                     dstBuf.mStride);
+        ret = AllocPhyBuffer(dstBuf.mStride, dstBuf.mHeight, srcBuf.mFormat, resizeBuf, true, true,
+                             false);
         if (ret) {
-            ALOGE("%s:%d AllocPhyBufferByFmtRes failed", __func__, __LINE__);
+            ALOGE("%s:%d AllocPhyBuffer failed", __func__, __LINE__);
             return BAD_VALUE;
         }
         ALOGV("%s: resizeBuf.mFormatSize %d, resizeBuf.mSize %d", __func__,
@@ -789,8 +781,8 @@ int ImageProcess::ConvertImageByG2DBlit(ImxImageBuffer &dstBuf, ImxImageBuffer &
 
         // then csc to dst format
         d_surface.format = (g2d_format)convertPixelFormatToG2DFormat(dstBuf.mFormat);
-        d_surface.planes[0] = (long)d_buf.buf_paddr;
-        d_surface.planes[1] = (long)d_buf.buf_paddr + dstBuf.mStride * dstBuf.mHeight;
+        d_surface.planes[0] = (long)dstBuf.mPhyAddr;
+        d_surface.planes[1] = (long)dstBuf.mPhyAddr + dstBuf.mStride * dstBuf.mHeight;
         d_surface.left = 0;
         d_surface.top = 0;
         d_surface.right = dstBuf.mWidth;
@@ -969,6 +961,12 @@ int ImageProcess::ConvertImageByGPU_3D(ImxImageBuffer &dstBuf, ImxImageBuffer &s
           srcBuf.mWidth, srcBuf.mHeight, dstBuf.mWidth, dstBuf.mHeight, srcBuf.mFormat,
           dstBuf.mFormat, (int)srcBuf.mFormatSize);
 
+    if (srcBuf.mPhyAddr == 0)
+        GetBufferInfoFromHandle(srcBuf.buffer, srcBuf, true, false);
+
+    if (dstBuf.mPhyAddr == 0)
+        GetBufferInfoFromHandle(dstBuf.buffer, dstBuf, true, false);
+
     // case 1: same format, same resolution, copy
     if ((srcBuf.mFormat == dstBuf.mFormat) && (srcBuf.mWidth == dstBuf.mWidth) &&
         (srcBuf.mHeightSpan == dstBuf.mHeightSpan)) {
@@ -1007,10 +1005,9 @@ int ImageProcess::ConvertImageByGPU_3D(ImxImageBuffer &dstBuf, ImxImageBuffer &s
             bCached = false;
         }
 
-        ret = AllocPhyBufferByFmtRes(resizeBuf, srcBuf.mFormat, dstBuf.mWidth, dstBuf.mHeight,
-                                     dstBuf.mStride, bCached);
+        ret = AllocPhyBuffer(dstBuf.mStride, dstBuf.mHeight, srcBuf.mFormat, resizeBuf, bCached);
         if (ret) {
-            ALOGE("%s:%d AllocPhyBufferByFmtRes failed", __func__, __LINE__);
+            ALOGE("%s:%d AllocPhyBuffer failed", __func__, __LINE__);
             return -EINVAL;
         }
 
@@ -1049,6 +1046,12 @@ int ImageProcess::ConvertImageByCPU(ImxImageBuffer &dstBuf, ImxImageBuffer &srcB
     int ret;
     bool bResize = false;
 
+    if (srcBuf.mVirtAddr == NULL)
+        GetBufferInfoFromHandle(srcBuf.buffer, srcBuf, false, true);
+
+    if (dstBuf.mVirtAddr == NULL)
+        GetBufferInfoFromHandle(dstBuf.buffer, dstBuf, false, true);
+
     // case 1: same format, same resolution, copy
     if ((srcBuf.mFormat == dstBuf.mFormat) && (srcBuf.mWidth == dstBuf.mWidth) &&
         (srcBuf.mHeight == dstBuf.mHeight)) {
@@ -1061,7 +1064,8 @@ int ImageProcess::ConvertImageByCPU(ImxImageBuffer &dstBuf, ImxImageBuffer &srcB
             int crop_height = srcBuf.mHeight / srcBuf.mZoomRatio;
 
             resizeBuf.mFormatSize = srcBuf.mFormatSize;
-            ret = AllocPhyBuffer(crop_width, crop_height, srcBuf.mFormat, resizeBuf);
+            ret = AllocPhyBuffer(crop_width, crop_height, srcBuf.mFormat, resizeBuf, true, false,
+                                 true);
             if (ret) {
                 ALOGE("%s:%d AllocPhyBuffer failed", __func__, __LINE__);
                 return BAD_VALUE;
@@ -1111,10 +1115,9 @@ int ImageProcess::ConvertImageByCPU(ImxImageBuffer &dstBuf, ImxImageBuffer &srcB
     // case 3: diffrent format, different resolution
     // first resize, then go through case 4.
     if ((srcBuf.mWidth != dstBuf.mWidth) || (srcBuf.mHeight != dstBuf.mHeight)) {
-        ret = AllocPhyBufferByFmtRes(resizeBuf, srcBuf.mFormat, dstBuf.mWidth, dstBuf.mHeight,
-                                     dstBuf.mStride);
+        ret = AllocPhyBuffer(dstBuf.mStride, dstBuf.mHeight, srcBuf.mFormat, resizeBuf);
         if (ret) {
-            ALOGE("%s:%d AllocPhyBufferByFmtRes failed", __func__, __LINE__);
+            ALOGE("%s:%d AllocPhyBuffer failed", __func__, __LINE__);
             return -EINVAL;
         }
 
@@ -1381,6 +1384,12 @@ int ImageProcess::ConvertImageByOclCvt(ImxImageBuffer &dstBuf, ImxImageBuffer &s
     memset(&input_format, 0, sizeof(input_format));
     memset(&output_format, 0, sizeof(output_format));
 
+    if ((mOclBufferType == OCL_MEM_TYPE_GPU) && (srcBuf.mPhyAddr == 0))
+        GetBufferInfoFromHandle(srcBuf.buffer, srcBuf, true, false);
+
+    if ((mOclBufferType == OCL_MEM_TYPE_GPU) && (dstBuf.mPhyAddr == 0))
+        GetBufferInfoFromHandle(dstBuf.buffer, dstBuf, true, false);
+
     // Not 4 ox03c10 dewarp case, use the same 1 handle opened in constructor.
     if (hOcl == mHOcl) {
         mOclCvtLock.lock();
@@ -1526,6 +1535,12 @@ g3d_resize:
 
 cpu_resize:
     // cpu resize
+    if (srcBuf.mVirtAddr == NULL)
+        GetBufferInfoFromHandle(srcBuf.buffer, srcBuf, false, true);
+
+    if (dstBuf.mVirtAddr == NULL)
+        GetBufferInfoFromHandle(dstBuf.buffer, dstBuf, false, true);
+
     if (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCBCR_422_I)
         ret = yuv422iResize((uint8_t *)srcBuf.mVirtAddr, srcBuf.mWidth, srcBuf.mHeight,
                             (uint8_t *)dstBuf.mVirtAddr, dstBuf.mWidth, dstBuf.mHeight);
@@ -1647,7 +1662,8 @@ int ImageProcess::parse_warp_file(const char *file_name, OCL_WARP_PARAM *warp_pa
     // alloc data buffer
     aligned_size = (data_size + 4095) & ~4095;
     if (mOclBufferType == OCL_MEM_TYPE_DEVICE) {
-        ret = AllocPhyBuffer(aligned_size, 1, HAL_PIXEL_FORMAT_BLOB, mWarpBuffer, false);
+        ret = AllocPhyBuffer(aligned_size, 1, HAL_PIXEL_FORMAT_BLOB, mWarpBuffer, false, false,
+                             true);
         if (ret) {
             ALOGE("%s: AllocPhyBuffer for mWarpBuffer failed, size %u, aligned_size %u", __func__,
                   data_size, aligned_size);

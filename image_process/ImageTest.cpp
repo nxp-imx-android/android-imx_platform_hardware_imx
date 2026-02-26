@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 NXP.
+ *  Copyright 2025-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -50,7 +50,8 @@ static int InvalideCacheTest() {
     memset(&dstBuf, 0, sizeof(dstBuf));
 
     // alloc src
-    ret = AllocPhyBuffer(TEST_WIDTH, TEST_HEIGHT, HAL_PIXEL_FORMAT_YCbCr_422_I, srcBuf, false);
+    ret = AllocPhyBuffer(TEST_WIDTH, TEST_HEIGHT, HAL_PIXEL_FORMAT_YCbCr_422_I, srcBuf, false, true,
+                         true);
     if (ret) {
         ALOGE("%s: AllocPhyBuffer for src failed, ret %d", __func__, ret);
         return -1;
@@ -59,7 +60,8 @@ static int InvalideCacheTest() {
           __func__, srcBuf.mSize, srcBuf.mFormatSize, srcBuf.mUsage);
 
     // alloc dst
-    ret = AllocPhyBuffer(TEST_WIDTH, TEST_HEIGHT, HAL_PIXEL_FORMAT_YCbCr_422_I, dstBuf, true);
+    ret = AllocPhyBuffer(TEST_WIDTH, TEST_HEIGHT, HAL_PIXEL_FORMAT_YCbCr_422_I, dstBuf, true, true,
+                         true);
     if (ret) {
         FreePhyBuffer(srcBuf.buffer);
         ALOGE("%s: AllocPhyBuffer for dst failed, ret %d", __func__, ret);
@@ -117,7 +119,8 @@ static int FlushCacheTest() {
     memset(&dstBuf, 0, sizeof(dstBuf));
 
     // alloc src
-    ret = AllocPhyBuffer(TEST_WIDTH, TEST_HEIGHT, HAL_PIXEL_FORMAT_YCbCr_422_I, srcBuf, true);
+    ret = AllocPhyBuffer(TEST_WIDTH, TEST_HEIGHT, HAL_PIXEL_FORMAT_YCbCr_422_I, srcBuf, true, true,
+                         true);
     if (ret) {
         ALOGE("%s: AllocPhyBuffer for src failed, ret %d", __func__, ret);
         return -1;
@@ -128,7 +131,8 @@ static int FlushCacheTest() {
     srcBuf.mUsage = 0;
 
     // alloc dst
-    ret = AllocPhyBuffer(TEST_WIDTH, TEST_HEIGHT, HAL_PIXEL_FORMAT_YCbCr_422_I, dstBuf, false);
+    ret = AllocPhyBuffer(TEST_WIDTH, TEST_HEIGHT, HAL_PIXEL_FORMAT_YCbCr_422_I, dstBuf, false, true,
+                         true);
     if (ret) {
         FreePhyBuffer(srcBuf.buffer);
         ALOGE("%s: AllocPhyBuffer for dst failed, ret %d", __func__, ret);
