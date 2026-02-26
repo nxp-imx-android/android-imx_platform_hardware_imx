@@ -1,5 +1,5 @@
 /*
- *  Copyright 2023-2025 NXP.
+ *  Copyright 2023-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -859,7 +859,7 @@ int32_t getSizeByForamtRes(int32_t format, uint32_t width, uint32_t height, bool
 }
 
 int AllocPhyBuffer(uint32_t width, uint32_t height, uint32_t format, ImxImageBuffer &outBufInfo,
-                   bool bCached) {
+                   bool bCached, bool bGetPhyAddr, bool bGetVirtAddr) {
     buffer_handle_t bufferHandle;
     uint32_t bufferStride;
     uint64_t usage = GRALLOC_USAGE_HW_CAMERA_WRITE | GRALLOC_USAGE_PRIVATE_3; // need to make sure physical contiguous memory
@@ -877,7 +877,7 @@ int AllocPhyBuffer(uint32_t width, uint32_t height, uint32_t format, ImxImageBuf
         return BAD_VALUE;
     }
 
-    int ret = GetBufferInfoFromHandle(bufferHandle, outBufInfo);
+    int ret = GetBufferInfoFromHandle(bufferHandle, outBufInfo, bGetPhyAddr, bGetVirtAddr);
     if (ret) {
         ALOGE("%s, GetBufferInfoFromHandle failed, ret %d", __func__, ret);
         return BAD_VALUE;
@@ -950,7 +950,8 @@ int UnlockPhyBuffer(buffer_handle_t buffer) {
     return 0;
 }
 
-int GetBufferInfoFromHandle(buffer_handle_t bufferHandle, ImxImageBuffer &outBufInfo) {
+int GetBufferInfoFromHandle(buffer_handle_t bufferHandle, ImxImageBuffer &outBufInfo,
+                            bool bGetPhyAddr, bool bGetVirtAddr) {
 #ifdef USE_MALI
     const struct imported_handle *nativeHandle = (const struct imported_handle *)bufferHandle;
     if (nativeHandle == NULL)
@@ -976,13 +977,15 @@ int GetBufferInfoFromHandle(buffer_handle_t bufferHandle, ImxImageBuffer &outBuf
     int32_t sharedFd = bufferHandle->data[0];
 
     uint64_t phyAddr = (uint64_t)(nativeHandle->phys);
-    if (phyAddr == 0) {
+    // Get physical address may take some time, get if required.
+    if ((phyAddr == 0) && bGetPhyAddr) {
         ALOGW("%s: phyAddr got from handle is NULL, use GetPhyAddrFromBuffer to get!", __FUNCTION__);
         phyAddr = GetPhyAddrFromBuffer(sharedFd);
     }
 
     void *vaddr = (void *)nativeHandle->base;
-    if (vaddr == NULL) {
+    // Get virtual address may take some time, get if required.
+    if ((vaddr == NULL) && bGetVirtAddr) {
         ALOGW("%s: vaddr got from handle is NULL, use GraphicBufferMapper to get!", __FUNCTION__);
         GraphicBufferMapper &mapper = GraphicBufferMapper::getInstance();
         const ::android::Rect rect{0, 0, static_cast<int32_t>(width), static_cast<int32_t>(height)};

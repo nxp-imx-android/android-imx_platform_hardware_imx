@@ -616,8 +616,9 @@ void CameraDeviceSessionHwlImpl::ImgProcThread::DumpImage() {
 
         // If driver has issue, v4l2Buffer can be NULL, ref CapAndFeed().
         if (imgFeed->v4l2Buffer)
-            ALOGI("%s: frame %u, v4l2 buffer addr virt %p, phy 0x%lx", __func__, imgFeed->frame,
-                  imgFeed->v4l2Buffer->mVirtAddr, imgFeed->v4l2Buffer->mPhyAddr);
+            ALOGI("%s: frame %u, v4l2 buffer addr virt %p, phy 0x%lx, fd %d", __func__,
+                  imgFeed->frame, imgFeed->v4l2Buffer->mVirtAddr, imgFeed->v4l2Buffer->mPhyAddr,
+                  imgFeed->v4l2Buffer->fd);
         else
             ALOGI("%s: frame %u", __func__, imgFeed->frame);
     }
@@ -789,51 +790,6 @@ Stream *CameraDeviceSessionHwlImpl::GetStreamFromStreamBuffer(StreamBuffer *buf)
     return NULL;
 }
 
-static void DumpStream(void *src, uint32_t srcSize, void *dst, uint32_t dstSize, int32_t id) {
-    char value[PROPERTY_VALUE_MAX];
-    int fdSrc = -1;
-    int fdDst = -1;
-    int32_t streamIdBitVal = 0;
-
-    if ((src == NULL) || (srcSize == 0) || (dst == NULL) || (dstSize == 0))
-        return;
-
-    property_get("vendor.rw.camera.test", value, "");
-    if (strcmp(value, "") == 0)
-        return;
-
-    streamIdBitVal = atoi(value);
-    if ((streamIdBitVal & (1 << id)) == 0)
-        return;
-
-    ALOGI("%s: src size %d, dst size %d, stream id %d", __func__, srcSize, dstSize, id);
-
-    char srcFile[32];
-    char dstFile[32];
-
-    snprintf(srcFile, 32, "/data/%d-src.data", id);
-    srcFile[31] = 0;
-    snprintf(dstFile, 32, "/data/%d-dst.data", id);
-    dstFile[31] = 0;
-
-    fdSrc = open(srcFile, O_CREAT | O_APPEND | O_WRONLY, S_IRWXU | S_IRWXG);
-    fdDst = open(dstFile, O_CREAT | O_APPEND | O_WRONLY, S_IRWXU | S_IRWXG);
-
-    if ((fdSrc < 0) || (fdDst < 0)) {
-        ALOGW("%s: file open error, srcFile: %s, fd %d, dstFile: %s, fd %d", __func__, srcFile,
-              fdSrc, dstFile, fdDst);
-        return;
-    }
-
-    write(fdSrc, src, srcSize);
-    write(fdDst, dst, dstSize);
-
-    close(fdSrc);
-    close(fdDst);
-
-    return;
-}
-
 status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2Outbuf(ImxStreamBuffer *srcBuf,
                                                           StreamBuffer &output_buffers,
                                                           FenceFdInfo &outFences,
@@ -890,8 +846,7 @@ status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2Outbuf(ImxStreamBuffer *srcBu
               dstBuf->mStream->height(), dstBuf->mStream->format());
     }
 
-    DumpStream(srcBuf->mVirtAddr, srcBuf->mFormatSize, dstBuf->mVirtAddr, dstBuf->mFormatSize,
-               dstBuf->mStream->id());
+    DumpStream(srcBuf, dstBuf),
 
     ReleaseImxStreamBuffer(dstBuf);
     return 0;
@@ -981,6 +936,12 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
         ALOGE("%s invalid param, capture %p, srcStream %p", __func__, capture, srcStream);
         return BAD_VALUE;
     }
+
+    if (srcBuf->mVirtAddr == NULL)
+        GetBufferInfoFromHandle(srcBuf->buffer, *srcBuf, false, true);
+
+    if (dstBuf->mVirtAddr == NULL)
+        GetBufferInfoFromHandle(dstBuf->buffer, *dstBuf, false, true);
 
     ret = meta->getJpegQuality(encodeQuality);
     if (ret != NO_ERROR) {

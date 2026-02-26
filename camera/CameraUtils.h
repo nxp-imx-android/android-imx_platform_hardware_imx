@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2025 NXP.
+ *  Copyright 2020-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -195,6 +195,7 @@ int32_t handleFrame(ImxStreamBuffer &dstBuf, ImxStreamBuffer &srcBuf, ImxEngine 
 int32_t ImageBufferToStreamBuffer(ImxImageBuffer &imageBuffer, ImxStreamBuffer &streamBuffer);
 ImxStreamBuffer *CreateImxStreamBufferFromBufferHandle(buffer_handle_t buffer, Stream *stream);
 void ReleaseImxStreamBuffer(ImxStreamBuffer *imxBuf);
+void DumpStream(ImxStreamBuffer *srcBuf, ImxStreamBuffer *dstBuf);
 } // namespace android
 
 #endif // CAMERA_UTILS_H

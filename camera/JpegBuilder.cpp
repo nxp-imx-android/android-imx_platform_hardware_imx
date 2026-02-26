@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2012-2016 Freescale Semiconductor, Inc.
- * Copyright 2017-2020, 2025 NXP
+ * Copyright 2017-2020, 2025-2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -299,7 +299,8 @@ status_t JpegBuilder::encodeJpeg(JpegParams *input, char *hw_jpeg_enc, const voi
         bResize = true;
 
         resizeBuf = new ImxStreamBuffer();
-        ret = AllocPhyBuffer(input->out_width, input->out_height, format, *resizeBuf);
+        ret = AllocPhyBuffer(input->out_width, input->out_height, format, *resizeBuf, true, false,
+                             true);
         if (ret != 0) {
             ALOGE("%s: allocate resizeBuf failed", __func__);
             delete (resizeBuf);
