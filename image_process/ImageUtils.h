@@ -1,5 +1,5 @@
 /*
- *  Copyright 2023-2025 NXP.
+ *  Copyright 2023-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -84,12 +84,13 @@ int convertV4L2FormatToPixelFormat(uint32_t fourcc);
 int32_t getSizeByForamtRes(int32_t format, uint32_t width, uint32_t height, bool align);
 
 int AllocPhyBuffer(uint32_t width, uint32_t height, uint32_t format, ImxImageBuffer &outBufInfo,
-                   bool bCached = true);
+                   bool bCached = true, bool bGetPhyAddr = false, bool bGetVirtAddr = false);
 int FreePhyBuffer(buffer_handle_t buffer);
 uint64_t GetPhyAddrFromBuffer(int fd);
 int SyncBuffer(int bufFd, int operation);
 int UnlockPhyBuffer(buffer_handle_t buffer);
-int GetBufferInfoFromHandle(buffer_handle_t buffer, ImxImageBuffer &outBufInfo);
+int GetBufferInfoFromHandle(buffer_handle_t buffer, ImxImageBuffer &outBufInfo,
+                            bool bGetPhyAddr = false, bool bGetVirtAddr = false);
 void SwitchImxBuf(ImxImageBuffer &imxBufA, ImxImageBuffer &imxBufB);
 
 void Revert16BitEndian(uint8_t *pSrc, uint8_t *pDst, uint32_t pixels);

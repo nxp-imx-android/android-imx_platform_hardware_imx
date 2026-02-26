@@ -226,4 +226,64 @@ void ReleaseImxStreamBuffer(ImxStreamBuffer *imxBuf) {
     delete imxBuf;
 }
 
+void DumpStream(ImxStreamBuffer *srcBuf, ImxStreamBuffer *dstBuf) {
+    char value[PROPERTY_VALUE_MAX];
+    int fdSrc = -1;
+    int fdDst = -1;
+    int32_t streamIdBitVal = 0;
+    int32_t id = dstBuf->mStream->id();
+
+    if ((srcBuf == NULL) || (dstBuf == NULL))
+        return;
+
+    property_get("vendor.rw.camera.test", value, "");
+    if (strcmp(value, "") == 0)
+        return;
+
+    streamIdBitVal = atoi(value);
+    if ((streamIdBitVal & (1 << id)) == 0)
+        return;
+
+    if (srcBuf->mVirtAddr == NULL)
+        GetBufferInfoFromHandle(srcBuf->buffer, *srcBuf, false, true);
+
+    if (dstBuf->mVirtAddr == NULL)
+        GetBufferInfoFromHandle(dstBuf->buffer, *dstBuf, false, true);
+
+    void *src = srcBuf->mVirtAddr;
+    uint32_t srcSize = srcBuf->mFormatSize;
+    void *dst = dstBuf->mVirtAddr;
+    uint32_t dstSize = dstBuf->mFormatSize;
+
+    if ((src == NULL) || (srcSize == 0) || (dst == NULL) || (dstSize == 0))
+        return;
+
+    ALOGI("%s: src size %d, dst size %d, stream id %d", __func__, srcSize, dstSize, id);
+
+    char srcFile[32];
+    char dstFile[32];
+
+    snprintf(srcFile, 32, "/data/%d-src.data", id);
+    srcFile[31] = 0;
+    snprintf(dstFile, 32, "/data/%d-dst.data", id);
+    dstFile[31] = 0;
+
+    fdSrc = open(srcFile, O_CREAT | O_APPEND | O_WRONLY, S_IRWXU | S_IRWXG);
+    fdDst = open(dstFile, O_CREAT | O_APPEND | O_WRONLY, S_IRWXU | S_IRWXG);
+
+    if ((fdSrc < 0) || (fdDst < 0)) {
+        ALOGW("%s: file open error, srcFile: %s, fd %d, dstFile: %s, fd %d", __func__, srcFile,
+              fdSrc, dstFile, fdDst);
+        return;
+    }
+
+    write(fdSrc, src, srcSize);
+    write(fdDst, dst, dstSize);
+
+    close(fdSrc);
+    close(fdDst);
+
+    return;
+}
+
 } // namespace android
