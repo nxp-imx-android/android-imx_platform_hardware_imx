@@ -1330,13 +1330,6 @@ std::optional<std::vector<int64_t>> DeviceComposer::cacheG2dLayersStats(
                 cache.transform = transform;
                 cache.visibleRect = visibleRect;
             }
-            /* find that the layer with RGBX_8888 format(blend mode=NONE) in intermediate
-               composition cannot be processed normally when do final composition(the pixel
-               alpha seems not process correctly).
-               TODO: need to DPU team to make sure NONE blend mode work normally.
-             */
-            if (infoPtr->buffer_id != 0 && infoPtr->drm_format != DRM_FORMAT_ABGR8888)
-                cache.keep_count = 0;
         } else {
             cachedLayers.emplace(id,
                                  G2dInterLayer{
