@@ -344,6 +344,8 @@ private:
     // dewarp on ox03c10
     ImxImageBuffer mDewarpBuf;
 
+    bool mZoomInByProp = false;
+
     // process multi-cameras in multi-threads
     class ImgProcThread : public Thread {
     public:

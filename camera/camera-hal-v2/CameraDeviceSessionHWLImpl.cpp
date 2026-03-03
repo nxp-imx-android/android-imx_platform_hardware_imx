@@ -1455,6 +1455,7 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequests(uint32_t frame_number,
     char value[PROPERTY_VALUE_MAX];
     property_get("vendor.rw.camera.test", value, "");
     mDebug = (strcmp(value, "debug") == 0) ? true : false;
+    mZoomInByProp = (strcmp(value, "zoomin") == 0) ? true : false;
 
     if (mDebug)
         ALOGI("%s: frame_number %u", __func__, frame_number);
@@ -1950,6 +1951,16 @@ void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
     srcBuf.mStream = new ImxStream(m_libcamera_stream_width, m_libcamera_stream_height,
                                    m_libcamera_stream_format, srcBuf.mUsage, 0, false);
     ALOGV("srcBuf %dx%d, 0x%x", srcBuf.mWidth, srcBuf.mHeight, srcBuf.mFormat);
+
+    if (mCamBlitCscType == ENG_G2D) {
+        camera_metadata_ro_entry entry;
+        int ret = requestMeta.Get(ANDROID_CONTROL_ZOOM_RATIO, &entry);
+        if ((ret == 0) && srcBuf.mStream)
+            srcBuf.mStream->mZoomRatio = entry.data.f[0];
+
+        if (mZoomInByProp && srcBuf.mStream)
+            srcBuf.mStream->mZoomRatio = 2.0;
+    }
 
     if (!mSensorData.mNeedDewarp) {
         ProcessCapbuf2MultiOutbuf(&srcBuf, hwReq->output_buffers, frameRequest->outBufferFences,

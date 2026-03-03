@@ -724,6 +724,9 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
         ret = requestMeta.Get(ANDROID_CONTROL_ZOOM_RATIO, &entry);
         if ((ret == 0) && imgFeed->v4l2Buffer && imgFeed->v4l2Buffer->mStream)
             imgFeed->v4l2Buffer->mStream->mZoomRatio = entry.data.f[0];
+
+        if ((mZoomInByProp) && imgFeed->v4l2Buffer && imgFeed->v4l2Buffer->mStream)
+            imgFeed->v4l2Buffer->mStream->mZoomRatio = 2.0;
     }
 
     // Image process
@@ -1622,6 +1625,7 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequests(uint32_t frame_number,
     char value[PROPERTY_VALUE_MAX];
     property_get("vendor.rw.camera.test", value, "");
     mDebug = (strcmp(value, "debug") == 0) ? true : false;
+    mZoomInByProp = (strcmp(value, "zoomin") == 0) ? true : false;
 
     int size = requests.size();
     std::vector<FrameRequest> *frame_request = new std::vector<FrameRequest>(size);
