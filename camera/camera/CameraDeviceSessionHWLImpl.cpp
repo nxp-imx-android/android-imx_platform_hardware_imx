@@ -618,7 +618,7 @@ void CameraDeviceSessionHwlImpl::ImgProcThread::DumpImage() {
         if (imgFeed->v4l2Buffer)
             ALOGI("%s: frame %u, v4l2 buffer addr virt %p, phy 0x%lx, fd %d", __func__,
                   imgFeed->frame, imgFeed->v4l2Buffer->mVirtAddr, imgFeed->v4l2Buffer->mPhyAddr,
-                  imgFeed->v4l2Buffer->fd);
+                  imgFeed->v4l2Buffer->mFd);
         else
             ALOGI("%s: frame %u", __func__, imgFeed->frame);
     }
