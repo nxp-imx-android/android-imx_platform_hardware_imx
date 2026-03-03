@@ -379,6 +379,7 @@ private:
     bool m_bConfigV4L2ByIntent = false;
     uint32_t maxStreamWidth = 0;
     uint32_t maxStreamHeight = 0;
+    bool mZoomInByProp = false;
 
 public:
     int32_t m_raw_v4l2_format = -1;
