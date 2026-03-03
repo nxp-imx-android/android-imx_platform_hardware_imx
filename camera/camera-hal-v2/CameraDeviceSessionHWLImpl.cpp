@@ -454,7 +454,7 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
     // Handle zoom in
     if (srcStream->mZoomRatio > 1.0) {
         resizeBuf.mFormatSize = srcBuf->mFormatSize;
-        ret = AllocPhyBuffer(srcBuf->mWidth, srcBuf->mHeight, srcBuf->mFormat, resizeBuf);
+        ret = AllocPhyBuffer(srcBuf->mWidth, srcBuf->mHeight, srcBuf->mFormat, resizeBuf, true, false, true);
         if (ret) {
             ALOGE("%s:%d AllocPhyBuffer failed", __func__, __LINE__);
             return BAD_VALUE;
