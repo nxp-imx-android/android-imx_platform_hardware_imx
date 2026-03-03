@@ -231,7 +231,6 @@ void DumpStream(ImxStreamBuffer *srcBuf, ImxStreamBuffer *dstBuf) {
     int fdSrc = -1;
     int fdDst = -1;
     int32_t streamIdBitVal = 0;
-    int32_t id = dstBuf->mStream->id();
 
     if ((srcBuf == NULL) || (dstBuf == NULL))
         return;
@@ -241,6 +240,7 @@ void DumpStream(ImxStreamBuffer *srcBuf, ImxStreamBuffer *dstBuf) {
         return;
 
     streamIdBitVal = atoi(value);
+    int32_t id = dstBuf->mStream->id();
     if ((streamIdBitVal & (1 << id)) == 0)
         return;
 

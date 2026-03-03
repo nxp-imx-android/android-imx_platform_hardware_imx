@@ -1052,6 +1052,9 @@ int ImageProcess::ConvertImageByCPU(ImxImageBuffer &dstBuf, ImxImageBuffer &srcB
     if (dstBuf.mVirtAddr == NULL)
         GetBufferInfoFromHandle(dstBuf.buffer, dstBuf, false, true);
 
+    if ((srcBuf.mVirtAddr == NULL) || (dstBuf.mVirtAddr == NULL))
+        return BAD_VALUE;
+
     // case 1: same format, same resolution, copy
     if ((srcBuf.mFormat == dstBuf.mFormat) && (srcBuf.mWidth == dstBuf.mWidth) &&
         (srcBuf.mHeight == dstBuf.mHeight)) {
@@ -1540,6 +1543,9 @@ cpu_resize:
 
     if (dstBuf.mVirtAddr == NULL)
         GetBufferInfoFromHandle(dstBuf.buffer, dstBuf, false, true);
+
+    if ((srcBuf.mVirtAddr == NULL) || (dstBuf.mVirtAddr == NULL))
+        return BAD_VALUE;
 
     if (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCBCR_422_I)
         ret = yuv422iResize((uint8_t *)srcBuf.mVirtAddr, srcBuf.mWidth, srcBuf.mHeight,
