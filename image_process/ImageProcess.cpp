@@ -406,9 +406,9 @@ int ImageProcess::ConvertImage(ImxImageBuffer &dstBuf, ImxImageBuffer &srcBuf, I
         dstBuf.mFormat = HAL_PIXEL_FORMAT_YCBCR_420_888;
     }
 
-    // for 8mp, g2d not support nv12 scale, use software to scale, or will cause
+    // for 8mp, g2d not support nv12 scale, use OCLCVT to scale, or will cause
     // testAllOutputYUVResolutions failed.
-    // zoom in also need handled by cpu
+    // zoom in also need handled by OCLCVT
     if (srcBuf.mFormat == dstBuf.mFormat && dstBuf.mFormat == HAL_PIXEL_FORMAT_YCBCR_420_888) {
         if ((srcBuf.mZoomRatio <= 1.0 && (srcBuf.mWidth != dstBuf.mWidth || srcBuf.mHeight != dstBuf.mHeight)) ||
             (srcBuf.mZoomRatio > 1.0 && srcBuf.mWidth == dstBuf.mWidth && srcBuf.mHeight == dstBuf.mHeight)) {
@@ -1315,16 +1315,32 @@ static void ImxImageBufferToOclFormat(ImxImageBuffer &srcImgBuf, OCL_FORMAT &inp
     HalPixelFormatToOclPixelFormat(srcImgBuf.mFormat, srcPixelFormat);
     HalPixelFormatToOclPixelFormat(dstImgBuf.mFormat, dstPixelFormat);
 
-    // Calculate scale ratios for each dimension
     int h_offset = 0;
     int v_offset = 0;
-    int crop_width = srcImgBuf.mWidth;
-    int crop_height = srcImgBuf.mHeightSpan;
-    float h_scale_ratio = (float)srcImgBuf.mWidth / dstImgBuf.mWidth;
-    float v_scale_ratio = (float)srcImgBuf.mHeightSpan / dstImgBuf.mHeight;
+    int crop_width = 0;
+    int crop_height = 0;
+    float h_scale_ratio = 1.0;
+    float v_scale_ratio = 1.0;
+    float scale_ratio = 1.0;
+
+    // zoom in
+    if ((srcImgBuf.mZoomRatio > 1.0) && (srcImgBuf.mWidth == dstImgBuf.mWidth) &&
+        (srcImgBuf.mHeight == dstImgBuf.mHeight)) {
+        crop_width = srcImgBuf.mWidth / srcImgBuf.mZoomRatio;
+        crop_height = srcImgBuf.mHeight / srcImgBuf.mZoomRatio;
+        h_offset = (srcImgBuf.mWidth - crop_width) / 2;
+        v_offset = (srcImgBuf.mHeight - crop_height) / 2;
+        goto set_format;
+    }
+
+    // Calculate scale ratios for each dimension
+    crop_width = srcImgBuf.mWidth;
+    crop_height = srcImgBuf.mHeightSpan;
+    h_scale_ratio = (float)srcImgBuf.mWidth / dstImgBuf.mWidth;
+    v_scale_ratio = (float)srcImgBuf.mHeightSpan / dstImgBuf.mHeight;
 
     // Use the smaller scale ratio to maintain aspect ratio (crop the other dimension)
-    float scale_ratio = (h_scale_ratio < v_scale_ratio) ? h_scale_ratio : v_scale_ratio;
+    scale_ratio = (h_scale_ratio < v_scale_ratio) ? h_scale_ratio : v_scale_ratio;
 
     if (scale_ratio > 1.0f) {
         // Calculate what the source dimensions should be to maintain aspect ratio
@@ -1346,6 +1362,7 @@ static void ImxImageBufferToOclFormat(ImxImageBuffer &srcImgBuf, OCL_FORMAT &inp
               dstImgBuf.mHeight);
     }
 
+set_format:
     // Set source format, update input format to use the cropped area
     input_format.format = srcPixelFormat;
     input_format.width = srcImgBuf.mWidth;
