@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2025 NXP.
+ * Copyright 2017-2026 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -501,9 +501,7 @@ G2dInterBuffer* DeviceComposer::preComposition(Layer* layer, buffer_handle_t han
     if ((type != Composition::DEVICE) || (handle == nullptr))
         return nullptr;
 
-    HandleInfo inBufInfo;
-    if (getInfoFromHandle(handle, &inBufInfo) != 0)
-        return nullptr;
+    HandleInfo& inBufInfo = *(layer->getBufferInfo());
 
     uint32_t dstW = 0, dstH = 0, dstFormat = 0, dstUsage = 0;
     int interBufferType = G2D_CONVERSION_TYPE_NONE;
@@ -1514,7 +1512,8 @@ void DeviceComposer::composeG2dLayers(uint32_t displayId, std::vector<int64_t>& 
                 // set side band parameters.
                 continue;
 
-            auto hnd = layer.priv->getBuffer().getBuffer();
+            // wait for layer buffer ready before composition
+            auto hnd = layer.priv->waitAndGetBuffer();
             G2dInterBuffer* interData = preComposition(layer.priv, hnd);
 
             if (interData != nullptr) {

@@ -1,6 +1,6 @@
 /*
  * Copyright 2022 The Android Open Source Project
- * Copyright 2023-2024 NXP
+ * Copyright 2023-2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -79,8 +79,9 @@ public:
     virtual HWC3::Error prepareDrmPlanesForValidate(uint32_t displayId, uint32_t* uiPlaneBackup) {
         return HWC3::Error::None;
     }
-    virtual std::tuple<HWC3::Error, uint32_t> getPlaneForLayerBuffer(
-            uint32_t displayId, const native_handle_t* handle) {
+    virtual std::tuple<HWC3::Error, uint32_t> getPlaneForLayerBuffer(uint32_t displayId,
+                                                                     const native_handle_t* handle,
+                                                                     HandleInfo* infoPtr) {
         return std::make_tuple(HWC3::Error::NoResources, 0);
     }
 
