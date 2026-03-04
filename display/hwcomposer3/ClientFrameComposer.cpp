@@ -1,6 +1,6 @@
 /*
  * Copyright 2022 The Android Open Source Project
- * Copyright 2023-2025 NXP
+ * Copyright 2023-2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -475,7 +475,8 @@ HWC3::Error ClientFrameComposer::validateDisplay(Display* display, DisplayChange
                 mergeRect(uiMaskedRect, rectFrame);
             } else {
                 auto handle = layer->getBuffer().getBuffer();
-                auto [error, planeId] = client->getPlaneForLayerBuffer(displayId, handle);
+                auto infoPtr = layer->getBufferInfo();
+                auto [error, planeId] = client->getPlaneForLayerBuffer(displayId, handle, infoPtr);
                 if (error == HWC3::Error::None) {
                     layersForOverlay.emplace(planeId, layer);
 
@@ -604,12 +605,9 @@ HWC3::Error ClientFrameComposer::presentDisplay(
         }
 
         if (!hasSecureLayer && mHdcpEnabled) {
-            HandleInfo info;
-            auto buff = layer->getBuffer().getBuffer();
-            if (buff && (getInfoFromHandle(buff, &info) == 0) &&
-                (info.usage & GRALLOC_USAGE_PROTECTED)) {
+            auto infoPtr = layer->getBufferInfo();
+            if (infoPtr->usage & GRALLOC_USAGE_PROTECTED)
                 hasSecureLayer = true;
-            }
         }
     }
 
@@ -625,12 +623,12 @@ HWC3::Error ClientFrameComposer::presentDisplay(
     if (layersForComposition.size() > 0) {
         bool secure = false;
         for (auto& layer : layersForComposition) {
-            HandleInfo info;
-            auto buff = layer->waitAndGetBuffer();
-            // wait for all layer buffer ready, and check if there secure layer
-            if (buff && (getInfoFromHandle(buff, &info) == 0) &&
-                (info.usage & GRALLOC_USAGE_PROTECTED))
+            auto infoPtr = layer->getBufferInfo();
+            // check if there secure layer
+            if (infoPtr->usage & GRALLOC_USAGE_PROTECTED) {
                 secure = true;
+                break;
+            }
         }
 
         auto [error, renderTarget] = client->getComposerTarget(mG2dComposer, displayId, secure);

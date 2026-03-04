@@ -1,6 +1,6 @@
 /*
  * Copyright 2022 The Android Open Source Project
- * Copyright 2023-2024 NXP
+ * Copyright 2023-2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -89,7 +89,7 @@ public:
     void buildPlaneIdPool(uint32_t* outTopOverlayId);
     void reservePlaneId(uint32_t planeId);
     uint32_t getPrimaryPlaneId();
-    uint32_t findDrmPlane(const native_handle_t* handle);
+    uint32_t findDrmPlane(const native_handle_t* handle, HandleInfo* infoPtr);
 
     int32_t getActiveConfigId() { return mActiveConfigId; }
     HalDisplayConfig& getActiveConfig() { return mActiveConfig; }
