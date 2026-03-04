@@ -1,6 +1,6 @@
 /*
  * Copyright 2022 The Android Open Source Project
- * Copyright 2023-2024 NXP
+ * Copyright 2023-2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -465,7 +465,7 @@ void DrmDisplay::reservePlaneId(uint32_t planeId) {
         mPlaneIdPool.erase(it);
 }
 
-uint32_t DrmDisplay::findDrmPlane(const native_handle_t* handle) {
+uint32_t DrmDisplay::findDrmPlane(const native_handle_t* handle, HandleInfo* infoPtr) {
     DEBUG_LOG("%s: display:%" PRIu32, __FUNCTION__, mId);
 
     if (mPlaneIdPool.size() == 0) {
@@ -480,20 +480,15 @@ uint32_t DrmDisplay::findDrmPlane(const native_handle_t* handle) {
     }
 #endif
 
-    HandleInfo info;
-    if (!handle || (getInfoFromHandle(handle, &info) != 0)) {
-        ALOGE("%s: display:%" PRIu32 " invalid native_handle", __FUNCTION__, mId);
-        return 0;
-    }
-
-    uint32_t format = info.drm_format;
-    uint64_t modifier = info.modifier;
+    uint32_t format = infoPtr->drm_format;
+    uint64_t modifier = infoPtr->modifier;
 #ifdef DEBUG_NXP_HWC
     {
         char fmt[6];
         char* name = drmGetFormatName(format, fmt); // defined in HWC, no malloc memory
         char* modifier_name = drmGetFormatModifierName(modifier);
-        DEBUG_LOG("%s: Checking buffer:%s :%s %s", __FUNCTION__, info.name, name, modifier_name);
+        DEBUG_LOG("%s: Checking buffer:%s :%s %s", __FUNCTION__, infoPtr->name, name,
+                  modifier_name);
         free(modifier_name);
     }
 #endif

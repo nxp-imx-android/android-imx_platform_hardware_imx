@@ -1,6 +1,6 @@
 /*
  * Copyright 2022 The Android Open Source Project
- * Copyright 2023-2024 NXP
+ * Copyright 2023-2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -146,14 +146,9 @@ HWC3::Error Layer::setCompositionType(Composition compositionType) {
 Composition Layer::getCompositionType() const {
 #ifdef DEBUG_NXP_HWC
     const auto compositionTypeString = toString(mCompositionType);
-    const char* name = "";
-    auto handle = mBuffer.getBuffer();
-    HandleInfo info;
-    if (handle && (getInfoFromHandle(handle, &info) == 0))
-        name = info.name;
-
     DEBUG_LOG("%s: layer:%" PRId64 " composition type:%s, zorder=%d, buffer-name:%s", __FUNCTION__,
-              mId, compositionTypeString.c_str(), mZOrder, name);
+              mId, compositionTypeString.c_str(), mZOrder,
+              mBufferInfo.name ? "" : mBufferInfo.name);
 #endif
     return mCompositionType;
 }

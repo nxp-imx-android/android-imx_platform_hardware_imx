@@ -1,6 +1,6 @@
 /*
  * Copyright 2022 The Android Open Source Project
- * Copyright 2023-2024 NXP
+ * Copyright 2023-2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -570,17 +570,16 @@ HWC3::Error DrmClient::checkOverlayLimitation(uint32_t displayId, Layer* layer) 
         return HWC3::Error::Unsupported;
     }
 
-    HandleInfo info;
-    auto buff = layer->getBuffer().getBuffer();
-    if (!buff || (getInfoFromHandle(buff, &info) != 0)) {
+    if (!layer->getBuffer().getBuffer()) {
         return HWC3::Error::BadParameter;
     }
 
+    auto infoPtr = layer->getBufferInfo();
     // format limitation
-    if ((info.format >= static_cast<uint32_t>(common::PixelFormat::RGBA_8888)) &&
-        (info.format <= static_cast<uint32_t>(common::PixelFormat::BGRA_8888))) {
+    if ((infoPtr->format >= static_cast<uint32_t>(common::PixelFormat::RGBA_8888)) &&
+        (infoPtr->format <= static_cast<uint32_t>(common::PixelFormat::BGRA_8888))) {
         DEBUG_LOG("%s: layer %" PRId64 " buffer format(0x%x) check failed", __FUNCTION__,
-                  layer->getId(), info.format);
+                  layer->getId(), infoPtr->format);
         return HWC3::Error::Unsupported;
     }
 
@@ -604,16 +603,18 @@ HWC3::Error DrmClient::checkOverlayLimitation(uint32_t displayId, Layer* layer) 
     }
 
     if (srcW < 64 &&
-        ((info.drm_format == DRM_FORMAT_NV12) || (info.drm_format == DRM_FORMAT_NV21) ||
-         (info.drm_format == DRM_FORMAT_P010))) {
+        ((infoPtr->drm_format == DRM_FORMAT_NV12) || (infoPtr->drm_format == DRM_FORMAT_NV21) ||
+         (infoPtr->drm_format == DRM_FORMAT_P010))) {
         DEBUG_LOG("%s: layer %" PRId64 " small resolution(src width=%d, format=0x%x) check failed",
-                  __FUNCTION__, layer->getId(), srcW, info.drm_format);
+                  __FUNCTION__, layer->getId(), srcW, infoPtr->drm_format);
         return HWC3::Error::Unsupported;
     } else if (srcW < 32 &&
-               ((info.drm_format == DRM_FORMAT_UYVY) || (info.drm_format == DRM_FORMAT_VYUY) ||
-                (info.drm_format == DRM_FORMAT_YUYV) || (info.drm_format == DRM_FORMAT_YVYU))) {
+               ((infoPtr->drm_format == DRM_FORMAT_UYVY) ||
+                (infoPtr->drm_format == DRM_FORMAT_VYUY) ||
+                (infoPtr->drm_format == DRM_FORMAT_YUYV) ||
+                (infoPtr->drm_format == DRM_FORMAT_YVYU))) {
         DEBUG_LOG("%s: layer %" PRId64 " small resolution(src width=%d, format=0x%x) check failed",
-                  __FUNCTION__, layer->getId(), srcW, info.drm_format);
+                  __FUNCTION__, layer->getId(), srcW, infoPtr->drm_format);
         return HWC3::Error::Unsupported;
     } else if (srcW < 16 || srcH < 8) {
         DEBUG_LOG("%s: layer %" PRId64 " small resolution(src width=%d, height=%d) check failed",
@@ -630,7 +631,8 @@ HWC3::Error DrmClient::checkOverlayLimitation(uint32_t displayId, Layer* layer) 
     }
 
     // check buffer resolution
-    if (info.width > 8192 || info.height > 8192 || info.width < 60 || info.height < 60) {
+    if (infoPtr->width > 8192 || infoPtr->height > 8192 || infoPtr->width < 60 ||
+        infoPtr->height < 60) {
         DEBUG_LOG("%s: layer %" PRId64 " no-scaling resolution(src: %d x %d) check failed",
                   __FUNCTION__, layer->getId(), srcW, srcH);
         return HWC3::Error::Unsupported;
@@ -665,7 +667,8 @@ HWC3::Error DrmClient::prepareDrmPlanesForValidate(uint32_t displayId, uint32_t*
 }
 
 std::tuple<HWC3::Error, uint32_t> DrmClient::getPlaneForLayerBuffer(uint32_t displayId,
-                                                                    buffer_handle_t handle) {
+                                                                    buffer_handle_t handle,
+                                                                    HandleInfo* infoPtr) {
     if (mDisplays.find(displayId) == mDisplays.end()) {
         DEBUG_LOG("%s: invalid display:%" PRIu32, __FUNCTION__, displayId);
         return std::make_tuple(HWC3::Error::BadDisplay, 0);
@@ -675,16 +678,10 @@ std::tuple<HWC3::Error, uint32_t> DrmClient::getPlaneForLayerBuffer(uint32_t dis
         return std::make_tuple(HWC3::Error::BadParameter, 0);
     }
 
-#ifdef DEBUG_NXP_HWC
-    char* name = nullptr;
-    HandleInfo info;
-    if (handle && (getInfoFromHandle(handle, &info) == 0))
-        name = info.name;
-#endif
-    uint32_t planeId = mDisplays[displayId]->findDrmPlane(handle);
+    uint32_t planeId = mDisplays[displayId]->findDrmPlane(handle, infoPtr);
     if (planeId > 0) {
         DEBUG_LOG("%s: display:%" PRIu32 " Found plane=%d for buffer:%s", __FUNCTION__, displayId,
-                  planeId, name);
+                  planeId, infoPtr->name);
         return std::make_tuple(HWC3::Error::None, planeId);
     } else {
         return std::make_tuple(HWC3::Error::NoResources, 0);
