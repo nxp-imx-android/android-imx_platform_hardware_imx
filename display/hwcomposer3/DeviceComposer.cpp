@@ -1357,19 +1357,22 @@ std::optional<std::vector<int64_t>> DeviceComposer::cacheG2dLayersStats(
 
     std::unordered_map<int32_t, std::vector<int64_t>> cachedIds;
     int32_t idx = 0;
+    bool isBottom = true;
     std::vector<int64_t> slices;
     for (auto& id : orderedIds) {
         auto& l = cachedLayers[id];
         DEBUG_LOG_G2D("%s: layer %ld, keep %d, slices size=%zu", __FUNCTION__, id, l.keep_count,
                       slices.size());
-        if ((l.keep_count >= LAYER_LEAST_KEEP_CNT) && (l.alpha == 0xff)) {
+        if ((l.keep_count >= LAYER_LEAST_KEEP_CNT) && (isBottom || l.alpha == 0xff)) {
             slices.push_back(l.id);
         } else if (slices.size() >= LAYER_LEAST_ADJACENT_CNT) {
             cachedIds.emplace(idx, slices);
             slices.clear();
             idx++;
+            isBottom = false;
         } else {
             slices.clear();
+            isBottom = false;
         }
     }
     if (slices.size() >= LAYER_LEAST_ADJACENT_CNT) {
