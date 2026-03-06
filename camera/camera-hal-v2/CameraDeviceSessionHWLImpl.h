@@ -134,8 +134,7 @@ public:
 
     void DestroyPipelines() override;
 
-    status_t SubmitRequests(uint32_t frame_number,
-                            std::vector<HwlPipelineRequest> &requests) override;
+    status_t SubmitRequest(HwlPipelineRequest request) override;
 
     status_t Flush() override;
 

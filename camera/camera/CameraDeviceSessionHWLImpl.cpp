@@ -1619,66 +1619,7 @@ void CameraDeviceSessionHwlImpl::DestroyPipelines() {
     pipelines_built_ = false;
 }
 
-status_t CameraDeviceSessionHwlImpl::SubmitRequests(uint32_t frame_number,
-                                                    std::vector<HwlPipelineRequest> &requests) {
-    char value[PROPERTY_VALUE_MAX];
-    property_get("vendor.rw.camera.test", value, "");
-    mDebug = (strcmp(value, "debug") == 0) ? true : false;
-    mZoomInByProp = (strcmp(value, "zoomin") == 0) ? true : false;
-
-    int size = requests.size();
-    std::vector<FrameRequest> *frame_request = new std::vector<FrameRequest>(size);
-
-    for (int i = 0; i < size; i++) {
-        uint32_t pipeline_id = requests[i].pipeline_id;
-
-        if (mDebug)
-            ALOGI("%s, frame_number %d, pipeline_id %d, outbuffer num %d", __func__, frame_number,
-                  (int)pipeline_id, (int)requests[i].output_buffers.size());
-
-        frame_request->at(i).idx = i;
-        frame_request->at(i).num = size;
-        frame_request->at(i).vector = (void *)frame_request;
-
-        frame_request->at(i).hwlReq.pipeline_id = pipeline_id;
-        frame_request->at(i).hwlReq.settings = HalCameraMetadata::Clone(requests[i].settings.get());
-        frame_request->at(i).hwlReq.output_buffers.reserve(requests[i].output_buffers.size());
-        frame_request->at(i).hwlReq.output_buffers.assign(requests[i].output_buffers.begin(),
-                                                          requests[i].output_buffers.end());
-
-        frame_request->at(i).hwlReq.input_buffers.reserve(requests[i].input_buffers.size());
-        frame_request->at(i).hwlReq.input_buffers.assign(requests[i].input_buffers.begin(),
-                                                         requests[i].input_buffers.end());
-        frame_request->at(i).hwlReq.input_buffer_metadata.reserve(
-                requests[i].input_buffer_metadata.size());
-
-        frame_request->at(i).camera_ids.reserve(camera_ids.size());
-        frame_request->at(i).camera_ids.assign(camera_ids.begin(), camera_ids.end());
-
-        // Record fence fd
-        uint32_t outBufNum = requests[i].output_buffers.size();
-        frame_request->at(i).outBufferFences.resize(outBufNum);
-        for (int j = 0; j < (int)outBufNum; j++) {
-            FenceFdInfo fenceInfo = {-1, -1};
-            fenceInfo.acquire_fence_fd =
-                    importFence(requests[i].output_buffers[j].acquire_fence, mDebug);
-            ALOGV("%s, acquire_fence_fd %d", __func__, fenceInfo.acquire_fence_fd);
-            frame_request->at(i).outBufferFences[j] = fenceInfo;
-            frame_request->at(i).hwlReq.output_buffers[j].acquire_fence = NULL;
-            frame_request->at(i).hwlReq.output_buffers[j].release_fence = NULL;
-        }
-    }
-
-    Mutex::Autolock _l(mLock);
-    map_frame_request[frame_number] = frame_request;
-    mInQueRequestIdx++;
-    mCondition.signal();
-
-    if (mDebug) {
-        ALOGI("%s: mInQueRequestIdx %lu", __func__, mInQueRequestIdx);
-        ItvlStat(mPreSubmitRequestTime, (char *)"SubmitRequests");
-    }
-
+status_t CameraDeviceSessionHwlImpl::SubmitRequest(HwlPipelineRequest request) {
     return OK;
 }
 
