@@ -1271,15 +1271,13 @@ int CameraDeviceSessionHwlImpl::PickConfigStreamLocked(uint32_t pipeline_id, uin
     return configIdx;
 }
 
-status_t CameraDeviceSessionHwlImpl::PickAndConfigLibcamera(
-        std::vector<HwlPipelineRequest> &requests) {
-    if (requests.size() == 0) {
-        ALOGW("%s: unexpected requests size 0", __func__);
+status_t CameraDeviceSessionHwlImpl::PickAndConfigLibcamera(HwlPipelineRequest &request) {
+    if (request.output_buffers.empty() && request.input_buffers.empty()) {
+        ALOGW("%s: unexpected request with no buffers", __func__);
         return BAD_VALUE;
     }
 
-    // Use the 1st request
-    HwlPipelineRequest &hwReq = requests[0];
+    HwlPipelineRequest &hwReq = request;
     uint32_t pipeline_id = hwReq.pipeline_id;
 
     Mutex::Autolock _l(mLock);
@@ -1452,6 +1450,108 @@ void CameraDeviceSessionHwlImpl::GetConfigSize(int halFmt, uint32_t refWidth, ui
 }
 
 status_t CameraDeviceSessionHwlImpl::SubmitRequest(HwlPipelineRequest request) {
+    char value[PROPERTY_VALUE_MAX];
+    property_get("vendor.rw.camera.test", value, "");
+    mDebug = (strcmp(value, "debug") == 0) ? true : false;
+    mZoomInByProp = (strcmp(value, "zoomin") == 0) ? true : false;
+
+    if (mDebug)
+        ALOGI("%s: frame_number %u", __func__, request.frame_number);
+
+    int ret = 0;
+
+    // Although m_bConfigLibcameraByIntent is hard code to false,
+    // keep the logic, so can easily switch to it if need.
+    if (m_bConfigLibcameraByIntent) {
+        ret = PickAndConfigLibcamera(request);
+        if (ret) {
+            ALOGE("%s: PickAndConfigLibcamzra failed, ret %d", __func__, ret);
+            return ret;
+        }
+    } else {
+        ret = ConfigLibcameraLocked(mSensorData.mLibcameraBuffers, m_libcamera_stream_format,
+                                    maxStreamWidth, maxStreamHeight);
+        if (ret) {
+            ALOGE("%s: ConfigLibcameraLocked failed, ret %d, buffers %d, format 0x%x, width %d, height %d",
+                  __func__, ret, mSensorData.mLibcameraBuffers, m_libcamera_stream_format,
+                  maxStreamWidth, maxStreamHeight);
+            return ret;
+        }
+    }
+
+    if (state_ == CameraState::Stopped) {
+        ALOGI("%s: call camera_->start", __func__);
+        ret = camera_->start();
+        if (ret) {
+            ALOGE("%s: Failed to start camera", __func__);
+            return ret;
+        }
+        state_ = CameraState::Running;
+    }
+
+    FrameRequest *frame_request = new FrameRequest();
+    std::list<std::unique_ptr<libcamera::FrameBuffer>> frameBuffers;
+
+    Mutex::Autolock _l(mLock);
+    uint32_t pipeline_id = request.pipeline_id;
+
+    if (mDebug)
+        ALOGI("%s, frame_number %d, pipeline_id %d, outbuffer num %d", __func__, request.frame_number,
+                (int)pipeline_id, (int)request.output_buffers.size());
+
+    PipelineInfo *pInfo = GetPipelineInfo(pipeline_id);
+    if (pInfo == NULL) {
+        ALOGE("%s: Unexpected, pipeline %d is invalid", __func__, pipeline_id);
+        return BAD_VALUE;
+    }
+
+    frame_request->frame_number = request.frame_number;
+    frame_request->hwlReq.pipeline_id = pipeline_id;
+    frame_request->hwlReq.frame_number = request.frame_number;
+    frame_request->hwlReq.settings = HalCameraMetadata::Clone(request.settings.get());
+    frame_request->hwlReq.output_buffers.reserve(request.output_buffers.size());
+    frame_request->hwlReq.output_buffers.assign(request.output_buffers.begin(),
+                                                        request.output_buffers.end());
+
+    frame_request->hwlReq.input_buffers.reserve(request.input_buffers.size());
+    frame_request->hwlReq.input_buffers.assign(request.input_buffers.begin(),
+                                                        request.input_buffers.end());
+    frame_request->hwlReq.input_buffer_metadata.reserve(
+            request.input_buffer_metadata.size());
+
+    frame_request->camera_ids.reserve(camera_ids.size());
+    frame_request->camera_ids.assign(camera_ids.begin(), camera_ids.end());
+
+    // Record fence fd
+    uint32_t outBufNum = request.output_buffers.size();
+    frame_request->outBufferFences.resize(outBufNum);
+    for (int j = 0; j < (int)outBufNum; j++) {
+        FenceFdInfo fenceInfo = {-1, -1};
+        fenceInfo.acquire_fence_fd =
+                importFence(request.output_buffers[j].acquire_fence, mDebug);
+        ALOGV("%s, acquire_fence_fd %d", __func__, fenceInfo.acquire_fence_fd);
+        frame_request->outBufferFences[j] = fenceInfo;
+        frame_request->hwlReq.output_buffers[j].acquire_fence = NULL;
+        frame_request->hwlReq.output_buffers[j].release_fence = NULL;
+    }
+
+queue_request:
+    ret = queueRequestToLibcameraLocked(request.settings.get());
+    if (ret) {
+        ALOGE("%s: queueRequestToLibcameraLocked failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    map_frame_request[request.frame_number] = frame_request;
+    // DumpRequest();
+    mInQueRequestIdx++;
+
+    if (mDebug || (mInQueRequestIdx <= 5)) {
+        ALOGI("%s: session %p, mInQueRequestIdx %lu, mDeQueRequestIdx %lu, requestList size %zu",
+              __func__, this, mInQueRequestIdx, mDeQueRequestIdx, requestList.size());
+        ItvlStat(mPreSubmitRequestTime, (char *)"SubmitRequest");
+    }
+
     return OK;
 }
 
@@ -1461,18 +1561,14 @@ int CameraDeviceSessionHwlImpl::CleanRequestsLocked() {
 
     for (auto it = map_frame_request.begin(); it != map_frame_request.end(); it++) {
         uint32_t frame = it->first;
-        std::vector<FrameRequest> *request = it->second;
+        FrameRequest *request = it->second;
         if (request == NULL) {
             ALOGW("%s: frame %d request is null", __func__, frame);
             continue;
         }
 
-        uint32_t reqNum = request->size();
-        ALOGV("%s, map_frame_request, frame %d, reqNum %d", __func__, frame, reqNum);
-
-        for (uint32_t i = 0; i < reqNum; i++) ReleaseFrameRequest(request->at(i));
-
-        request->clear();
+        ALOGV("%s, map_frame_request, frame %d", __func__, frame);
+        ReleaseFrameRequest(*request);
         delete request;
     }
 
@@ -1758,10 +1854,9 @@ void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
     }
 
     uint32_t frame = map_frame_request.begin()->first;
-    std::vector<FrameRequest> *frameRequestVec = map_frame_request.begin()->second;
 
     // currently 1 frame map 1 request
-    FrameRequest *frameRequest = &((*frameRequestVec)[0]);
+    FrameRequest *frameRequest = map_frame_request.begin()->second;
     if (frameRequest == NULL) {
         ALOGE("%s: frameRequest NULL", __func__);
         return;
@@ -1880,17 +1975,9 @@ void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
     if (mDebug)
         ItvlStat(mPreHandleImageTime, (char *)"requestComplete(), process_pipeline_result");
 
-    // Till now, always 1 frame, 1 request. But consider GCH interface
-    // SubmitRequests(uint32_t frame_number, std::vector<HwlPipelineRequest> &requests),
-    // need wait last FrameRequest, then erase the item in map_frame_request.
-    if (frameRequest->idx == frameRequest->num - 1) {
-        map_frame_request.erase(frame);
-        std::vector<FrameRequest> *request = (std::vector<FrameRequest> *)frameRequest->vector;
-        if (request) {
-            request->clear();
-            delete request;
-        }
-    }
+    // erase the item in map_frame_request.
+    map_frame_request.erase(frame);
+    delete frameRequest;
 
     ReturnFrameBufferLocked();
 

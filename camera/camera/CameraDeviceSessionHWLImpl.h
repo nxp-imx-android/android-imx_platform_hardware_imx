@@ -86,13 +86,6 @@ typedef struct tag_request {
     HwlPipelineRequest hwlReq;
     std::vector<FenceFdInfo> outBufferFences;
     std::vector<uint32_t> camera_ids;
-
-    // In SubmitRequests(), FrameRequest is a vector, although till now the vector size is 1.
-    // In imgProc::HandleImage(), FrameRequest is proced one by one.
-    // So need free the vector when last FrameRequest is processed.
-    int idx;
-    int num;
-    void *vector; // save "std::vector<FrameRequest> *frame_request"
 } FrameRequest;
 
 // Implementation of CameraDeviceSessionHwl interface
@@ -323,7 +316,7 @@ private:
     bool pipelines_built_ = false;
     CameraMetadata *m_meta;
     std::map<uint32_t, PipelineInfo *> map_pipeline_info;
-    std::map<uint32_t, std::vector<FrameRequest> *> map_frame_request;
+    std::map<uint32_t, FrameRequest *> map_frame_request;
 
     std::vector<uint32_t> camera_ids;
 
