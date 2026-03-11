@@ -1618,7 +1618,8 @@ int DeviceComposer::composeInterLayer(uint32_t displayId, int64_t interId,
 }
 
 std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
-        uint32_t displayId, std::vector<Layer*>& layers, buffer_handle_t target) {
+        uint32_t displayId, std::vector<Layer*>& layers, buffer_handle_t target,
+        const std::vector<common::Rect>& overlayRects) {
     ATRACE_CALL();
 
     Mutex::Autolock _l(sLock);
@@ -1694,6 +1695,18 @@ std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
     lockSurface(mTarget);
     // clear blank area to avoid UI mess when overlay used
     clearWormHole(displayId, finalIds, mTarget);
+
+    // When there are overlay layers, also clear the overlay regions to avoid mouse cursor ghosting.
+    // This is because when the mouse moves over the overlay area, its old position may not be
+    // properly cleared by clearWormHole() which only clears areas not covered by G2D layers.
+    if (overlayRects.size() > 0) {
+        for (auto& rect : overlayRects) {
+            common::Rect overlayRect = rect;
+            clearRect(mTarget, overlayRect, 0x00 << 24); // clear with transparent color
+        }
+        DEBUG_LOG_G2D("%s: clear %zu overlay regions to avoid cursor ghosting", __FUNCTION__,
+                  overlayRects.size());
+    }
     composeG2dLayers(displayId, finalIds, mTarget);
     unlockSurface(mTarget);
 
