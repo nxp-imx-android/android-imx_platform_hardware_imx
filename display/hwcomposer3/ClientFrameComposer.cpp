@@ -634,8 +634,17 @@ HWC3::Error ClientFrameComposer::presentDisplay(
 #ifdef DEBUG_DUMP_G2D_CONSUMPTION
         nsecs_t composeStart = systemTime(CLOCK_MONOTONIC);
 #endif
+        // Collect overlay layer display frame rects to pass to G2D composer.
+        // These regions need to be cleared to avoid mouse cursor ghosting when moving over overlay area.
+        std::vector<common::Rect> overlayRects;
+        for (const auto& [_, layer] : layersForOverlay) {
+            for (auto& rect : layer->getVisibleRegion()) {
+                overlayRects.push_back(rect);
+            }
+        }
         auto [ret, composeFence] =
-                mG2dComposer->composeLayers(displayId, layersForComposition, renderTarget);
+                mG2dComposer->composeLayers(displayId, layersForComposition, renderTarget,
+                                            overlayRects);
 #ifdef DEBUG_DUMP_G2D_CONSUMPTION
         nsecs_t composeEnd = systemTime(CLOCK_MONOTONIC);
         totalCostTime += composeEnd - composeStart;
