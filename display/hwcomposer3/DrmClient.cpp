@@ -634,6 +634,24 @@ HWC3::Error DrmClient::checkOverlayLimitation(uint32_t displayId, Layer* layer) 
                   layer->getId(), srect.left, srect.top, srect.right, srect.bottom);
         return HWC3::Error::Unsupported;
     }
+
+    // DPU95/DPU952 has only one hscaler and one vscaler shared among all overlay planes.
+    // Check if this layer requires scaling (upscaling is supported, but only one at a time).
+    bool needsScaling = (srcW != w) || (srcH != h);
+    if (needsScaling) {
+        if (mScalerUsedForValidate) {
+            // Scaler resource is already used by another overlay plane.
+            // Fall back this layer to GPU/G2D composition.
+            DEBUG_LOG("%s: layer %" PRId64 " needs scaling but scaler already in use, "
+                      "falling back to GPU composition",
+                      __FUNCTION__, layer->getId());
+            return HWC3::Error::Unsupported;
+        }
+        // Mark scaler as used for this validation cycle
+        mScalerUsedForValidate = true;
+        DEBUG_LOG("%s: layer %" PRId64 " will use the scaler resource (src: %d x %d, dst: %d x %d)",
+                  __FUNCTION__, layer->getId(), srcW, srcH, w, h);
+    }
 #endif
     DEBUG_LOG("%s: Overlay check pass for layer=%" PRId64, __FUNCTION__, layer->getId());
 
@@ -652,6 +670,13 @@ HWC3::Error DrmClient::prepareDrmPlanesForValidate(uint32_t displayId, uint32_t*
         mDisplays[displayId]->reservePlaneId(topOverlayId);
         *uiPlaneBackup = topOverlayId;
     }
+
+#ifdef OVERLAY_LIMITATION_DPU
+    // Reset scaler usage tracking at the beginning of each validation phase.
+    // DPU952 has only one hscaler and one vscaler, so only one overlay plane
+    // can use scaling at a time.
+    mScalerUsedForValidate = false;
+#endif
 
     return HWC3::Error::None;
 }

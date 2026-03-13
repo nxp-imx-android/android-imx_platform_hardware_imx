@@ -170,6 +170,12 @@ private:
 
     uint32_t mLastOverlayCount = 0;
     TimePoint mCheckOverlayTime;
+
+#ifdef OVERLAY_LIMITATION_DPU
+    // DPU952 has only one hscaler and one vscaler shared among all overlay planes.
+    // Track if the scaler resource is already used during validation phase.
+    bool mScalerUsedForValidate = false;
+#endif
 };
 
 } // namespace aidl::android::hardware::graphics::composer3::impl
