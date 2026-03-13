@@ -120,6 +120,9 @@ public:
 
     bool isSecureDisplay(int64_t displayId) override;
 
+    void lockDisplay() override { mDisplaysMutex.lock(); }
+    void unlockDisplay() override { mDisplaysMutex.unlock(); }
+
 private:
     using DrmPrimeBufferHandle = uint32_t;
     using DrmBufferCache = LruCache<DrmPrimeBufferHandle, std::shared_ptr<DrmBuffer>>;

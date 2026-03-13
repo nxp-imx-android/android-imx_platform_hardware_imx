@@ -135,6 +135,17 @@ private:
                                    DisplayConnectionType connectionType);
     HWC3::Error destroyHdcpForDisplay(int64_t displayId);
     void notifyFrameworkHdcpState(int64_t displayId, bool state, bool isPrimary);
+
+    class AutoDisplayLock {
+    public:
+        inline explicit AutoDisplayLock(DeviceClient* client) : mClient(client) {
+            mClient->lockDisplay();
+        }
+        inline ~AutoDisplayLock() { mClient->unlockDisplay(); }
+
+    private:
+        DeviceClient* mClient;
+    };
 };
 
 } // namespace aidl::android::hardware::graphics::composer3::impl
