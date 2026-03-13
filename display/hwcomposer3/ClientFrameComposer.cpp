@@ -552,6 +552,14 @@ HWC3::Error ClientFrameComposer::presentDisplay(
     const auto displayId = display->getId();
     DEBUG_LOG("%s display:%d", __FUNCTION__, displayId);
 
+    auto [error, client] = getDeviceClient(displayId);
+    if (error != HWC3::Error::None) {
+        ALOGE("%s: display:%d cannot find Drm Client", __FUNCTION__, displayId);
+        return error;
+    }
+
+    AutoDisplayLock lock(client);
+
     auto displayBufferIt = mDisplayBuffers.find(displayId);
     if (displayBufferIt == mDisplayBuffers.end()) {
         ALOGE("%s: failed to find display buffers for display:%d", __FUNCTION__, displayId);
@@ -563,12 +571,6 @@ HWC3::Error ClientFrameComposer::presentDisplay(
     auto& layersForPrivate = mDisplayLayers[displayId].layersForNxpPrivate;
     auto& compositionResultPlaneId = mDisplayLayers[displayId].compositionPlaneId;
     auto& luckyLayer = mDisplayLayers[displayId].luckyLayer;
-
-    auto [error, client] = getDeviceClient(displayId);
-    if (error != HWC3::Error::None) {
-        ALOGE("%s: display:%d cannot find Drm Client", __FUNCTION__, displayId);
-        return error;
-    }
 
 #ifdef DEBUG_DUMP_FRAME
     buffer_handle_t dumpBuffer = NULL;

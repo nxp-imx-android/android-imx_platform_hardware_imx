@@ -124,6 +124,9 @@ public:
 
     virtual bool isSecureDisplay(int64_t displayId) = 0;
 
+    virtual void lockDisplay() {}
+    virtual void unlockDisplay() {}
+
 protected:
     uint32_t mMaxComposerTargetsPerDisplay = 3;
     void getTargetsNumFromProp() {
