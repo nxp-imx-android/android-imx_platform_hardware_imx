@@ -19,9 +19,6 @@
 #include <aidl/android/hardware/audio/core/BnBluetooth.h>
 #include <aidl/android/hardware/audio/core/BnBluetoothA2dp.h>
 #include <aidl/android/hardware/audio/core/BnBluetoothLe.h>
-#include <core-impl/AudioCardManager.h>
-#include <tinyalsa/asoundlib.h>
-#include <audio_utils/resampler.h>
 
 namespace aidl::android::hardware::audio::core {
 
@@ -44,34 +41,6 @@ class Bluetooth : public BnBluetooth {
 
     ScoConfig mScoConfig;
     HfpConfig mHfpConfig;
-
-  private:
-    struct pcm_config pcm_config_sco;
-    struct pcm_config pcm_config_speaker;
-    struct pcm *pcm_speaker_out = NULL;
-    struct pcm *pcm_mic_in = NULL;
-    struct pcm *pcm_sco_out = NULL;
-    struct pcm *pcm_sco_in = NULL;
-
-    struct resampler_itfe *mUplinkResampler = NULL;
-    int16_t *mUplinkResamplerBuffer = NULL;
-
-    struct resampler_itfe *mDownlinkResampler = NULL;
-    int16_t *mDownlinkResamplerBuffer = NULL;
-
-    pthread_t tid_uplink = 0;
-    pthread_t tid_downlink = 0;
-    bool uplink_running = false;
-    bool downlink_running = false;
-
-    void startHfp();
-    void stopHfp();
-    static void *uplink_task(void *arg);
-    void *uplink_task_impl();
-    static void *downlink_task(void *arg);
-    void *downlink_task_impl();
-    int openPcmForDevice(const audio_devices_t& audioDevice, unsigned int flags,
-        struct pcm_config *config, struct pcm** pcm);
 };
 
 class BluetoothA2dp : public BnBluetoothA2dp, public ParamChangeHandler {

@@ -16,8 +16,8 @@
 
 #define LOG_TAG "AHAL_Config"
 
+#include <Log.h>
 #include <aidl/android/media/audio/common/AudioProductStrategyType.h>
-#include <android-base/logging.h>
 #include <media/AidlConversionCppNdk.h>
 #include <media/TypeConverter.h>
 #include <media/convert.h>

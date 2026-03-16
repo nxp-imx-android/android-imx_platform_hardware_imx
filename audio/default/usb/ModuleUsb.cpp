@@ -17,11 +17,11 @@
 #include <vector>
 
 #define LOG_TAG "AHAL_ModuleUsb"
+#include <Log.h>
 #include <Utils.h>
-#include <android-base/logging.h>
 
 #include "UsbAlsaMixerControl.h"
-#include "alsa/Utils.h"
+#include "alsa/UtilsAlsa.h"
 #include "core-impl/ModuleUsb.h"
 #include "core-impl/StreamUsb.h"
 
@@ -105,6 +105,7 @@ ndk::ScopedAStatus ModuleUsb::checkAudioPatchEndpointsMatch(
                 LOG(ERROR) << __func__
                            << ": mismatch port configuration, source=" << source->toString()
                            << ", sink=" << sink->toString();
+                return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
             }
         }
     }

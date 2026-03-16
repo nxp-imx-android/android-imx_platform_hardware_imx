@@ -19,7 +19,7 @@
 #include <stdio.h>
 #include <vector>
 
-#include <android-base/logging.h>
+#include <Log.h>
 #include <error/expected_utils.h>
 
 #include "SubmixRoute.h"
@@ -28,6 +28,7 @@
 
 using aidl::android::hardware::audio::common::SinkMetadata;
 using aidl::android::hardware::audio::common::SourceMetadata;
+using aidl::android::media::audio::common::AudioChannelLayout;
 using aidl::android::media::audio::common::AudioDeviceAddress;
 using aidl::android::media::audio::common::AudioFormatType;
 using aidl::android::media::audio::common::AudioIoFlags;

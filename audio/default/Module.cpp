@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2022 The Android Open Source Project
- * Copyright 2025 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +18,9 @@
 #include <set>
 
 #define LOG_TAG "AHAL_Module"
+#include <Log.h>
 #include <aidl/android/media/audio/common/AudioInputFlags.h>
 #include <aidl/android/media/audio/common/AudioOutputFlags.h>
-#include <android-base/logging.h>
 #include <android/binder_ibinder_platform.h>
 #include <error/expected_utils.h>
 
@@ -62,6 +61,7 @@ using aidl::android::media::audio::common::AudioPortConfig;
 using aidl::android::media::audio::common::AudioPortExt;
 using aidl::android::media::audio::common::AudioProfile;
 using aidl::android::media::audio::common::Boolean;
+using aidl::android::media::audio::common::FlushFromFrameSupport;
 using aidl::android::media::audio::common::Int;
 using aidl::android::media::audio::common::MicrophoneInfo;
 using aidl::android::media::audio::common::PcmType;
@@ -186,9 +186,10 @@ ndk::ScopedAStatus Module::createStreamContext(
     // Since this is a private method, it is assumed that
     // validity of the portConfigId has already been checked.
     int32_t minimumStreamBufferSizeFrames = 0;
-    if (!calculateBufferSizeFrames(
-                portConfigIt->format.value(), nominalLatencyMs,
-                portConfigIt->sampleRate.value().value, &minimumStreamBufferSizeFrames).isOk()) {
+    if (!calculateBufferSizeFrames(portConfigIt->format.value(), portConfigIt->flags.value(),
+                                   nominalLatencyMs, portConfigIt->sampleRate.value().value,
+                                   &minimumStreamBufferSizeFrames)
+                 .isOk()) {
         return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
     }
     if (in_bufferSizeFrames < minimumStreamBufferSizeFrames) {
@@ -393,8 +394,9 @@ int32_t Module::getNominalLatencyMs(const AudioPortConfig&) {
 }
 
 ndk::ScopedAStatus Module::calculateBufferSizeFrames(
-        const ::aidl::android::media::audio::common::AudioFormatDescription &format,
-        int32_t latencyMs, int32_t sampleRateHz, int32_t *bufferSizeFrames) {
+        const ::aidl::android::media::audio::common::AudioFormatDescription& format,
+        const AudioIoFlags& /*flags*/, int32_t latencyMs, int32_t sampleRateHz,
+        int32_t* bufferSizeFrames) {
     if (format.type == AudioFormatType::PCM) {
         *bufferSizeFrames = calculateBufferSizeFramesForPcm(latencyMs, sampleRateHz);
         return ndk::ScopedAStatus::ok();
@@ -983,10 +985,10 @@ ndk::ScopedAStatus Module::getAudioRoutesForAudioPort(int32_t in_portId,
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Module::validateAudioTrackAttributeTags(const std::vector<std::string>& tags) {
+ndk::ScopedAStatus Module::validateMetadataAttributeTags(const std::vector<std::string>& tags) {
     for (auto& tag : tags) {
         if (!common::isVendorExtension(tag)) {
-            LOG(ERROR) << __func__ << ": " << mType << ": AudioTrack attribute tag " << tag
+            LOG(ERROR) << __func__ << ": " << mType << ": metadata attribute tag " << tag
                        << " is invalid.";
             return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
         }
@@ -999,7 +1001,7 @@ ndk::ScopedAStatus Module::openInputStream(const OpenInputStreamArguments& in_ar
     LOG(DEBUG) << __func__ << ": " << mType << ": port config id " << in_args.portConfigId
                << ", buffer size " << in_args.bufferSizeFrames << " frames";
     for (const auto& track : in_args.sinkMetadata.tracks) {
-        RETURN_STATUS_IF_ERROR(validateAudioTrackAttributeTags(track.tags));
+        RETURN_STATUS_IF_ERROR(validateMetadataAttributeTags(track.tags));
     }
     AudioPort* port = nullptr;
     RETURN_STATUS_IF_ERROR(findPortIdForNewStream(in_args.portConfigId, &port));
@@ -1034,7 +1036,14 @@ ndk::ScopedAStatus Module::openOutputStream(const OpenOutputStreamArguments& in_
                << ", has offload info? " << (in_args.offloadInfo.has_value()) << ", buffer size "
                << in_args.bufferSizeFrames << " frames";
     for (const auto& track : in_args.sourceMetadata.tracks) {
-        RETURN_STATUS_IF_ERROR(validateAudioTrackAttributeTags(track.tags));
+        RETURN_STATUS_IF_ERROR(validateMetadataAttributeTags(track.tags));
+        if (const auto& codecMime = track.codecProvenance;
+            codecMime.has_value() && !codecMime->empty()) {
+            if (!aidl::android::hardware::audio::common::isAudioMimeType(*codecMime)) {
+                LOG(ERROR) << __func__ << ": invalid audio MIME type: \"" << *codecMime << "\"";
+                return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
+            }
+        }
     }
     AudioPort* port = nullptr;
     RETURN_STATUS_IF_ERROR(findPortIdForNewStream(in_args.portConfigId, &port));
@@ -1181,8 +1190,9 @@ ndk::ScopedAStatus Module::setAudioPatch(const AudioPatch& in_requested, AudioPa
     auto maxSampleRateIt = std::max_element(sampleRates.begin(), sampleRates.end());
     const int32_t latencyMs = getNominalLatencyMs(*(maxSampleRateIt->second));
     if (!calculateBufferSizeFrames(
-                maxSampleRateIt->second->format.value(), latencyMs, maxSampleRateIt->first,
-                &_aidl_return->minimumStreamBufferSizeFrames).isOk()) {
+                 maxSampleRateIt->second->format.value(), maxSampleRateIt->second->flags.value(),
+                 latencyMs, maxSampleRateIt->first, &_aidl_return->minimumStreamBufferSizeFrames)
+                 .isOk()) {
         if (patchesBackup.has_value()) {
             mPatches = std::move(*patchesBackup);
         }
@@ -1389,35 +1399,6 @@ ndk::ScopedAStatus Module::setAudioPortConfigImpl(
         *applied = true;
         LOG(DEBUG) << __func__ << ": " << mType << ": updated port config "
                    << out_suggested->toString();
-
-        const AudioDevice audioDevice =
-                out_suggested->ext.get<AudioPortExt::Tag::device>().device;
-
-        if (audioDevice.type.type == AudioDeviceType::OUT_BUS &&
-                audioDevice.type.connection.empty()) {
-            mCard = AudioCardManager::getCardForDevice(audioDevice);
-            if (mCard) {
-                struct mixer_ctl *ctl = NULL;
-                struct mixer *mixer;
-                unsigned int j;
-                std::vector<int32_t> gain = out_suggested->gain.value().values;
-                int out_vol_min = mCard->out_volume_min;
-                int out_vol_max = mCard->out_volume_max;
-                int volume = (int)(out_vol_min + ((500.0f + (float)gain[0]) / 500.0f) * (out_vol_max - out_vol_min));
-
-                mixer = mixer_open(mCard->card);
-                if (mixer) {
-                    ctl = mixer_get_ctl_by_name(mixer, mCard->out_volume_ctl->ctl_name);
-                    if (ctl) {
-                        /* This ensures multiple (i.e. stereo) values are set jointly */
-                        for (j = 0; j < mixer_ctl_get_num_values(ctl); j++) {
-                            mixer_ctl_set_value(ctl, j, volume);
-                        }
-                    }
-                    mixer_close(mixer);
-                }
-            }
-        }
     } else {
         LOG(DEBUG) << __func__ << ": " << mType << ": not applied; existing config ? "
                    << (existing != configs.end()) << "; requested is valid? " << requestedIsValid
@@ -1430,6 +1411,10 @@ ndk::ScopedAStatus Module::setAudioPortConfigImpl(
 bool Module::setAudioPortConfigGain(const AudioPort& port, const AudioGainConfig& gainRequested) {
     if (gainRequested.index < 0 || gainRequested.index >= (int)port.gains.size()) {
         LOG(ERROR) << __func__ << ": gains for port " << port.id << " is undefined";
+        return false;
+    }
+    if (gainRequested.values.empty()) {
+        LOG(ERROR) << __func__ << ": received empty gain values";
         return false;
     }
     int stepValue = port.gains[gainRequested.index].stepValue;
@@ -1903,6 +1888,12 @@ std::vector<MicrophoneInfo> Module::getMicrophoneInfos() {
 
 ndk::ScopedAStatus Module::bluetoothParametersUpdated() {
     return mStreams.bluetoothParametersUpdated();
+}
+
+ndk::ScopedAStatus Module::getFlushFromFrameSupport(const AudioPortConfig& in_config __unused,
+                                                    FlushFromFrameSupport* _aidl_return __unused) {
+    LOG(VERBOSE) << __func__ << ": " << mType;
+    return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
 }
 
 }  // namespace aidl::android::hardware::audio::core

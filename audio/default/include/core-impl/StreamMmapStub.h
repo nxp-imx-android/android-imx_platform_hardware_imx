@@ -65,7 +65,9 @@ class DriverMmapStubImpl : public DriverStubImpl {
     explicit DriverMmapStubImpl(const StreamContext& context);
     ::android::status_t init(DriverCallbackInterface* callback) override;
     ::android::status_t drain(StreamDescriptor::DrainMode drainMode) override;
+    ::android::status_t flush() override;
     ::android::status_t pause() override;
+    ::android::status_t standby() override;
     ::android::status_t start() override;
     ::android::status_t transfer(void* buffer, size_t frameCount, size_t* actualFrameCount,
                                  int32_t* latencyMs) override;

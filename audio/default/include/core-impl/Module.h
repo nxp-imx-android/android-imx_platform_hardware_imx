@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2022 The Android Open Source Project
- * Copyright 2025 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +28,6 @@
 
 #include "core-impl/ChildInterface.h"
 #include "core-impl/Stream.h"
-#include <core-impl/AudioCardManager.h>
 
 namespace aidl::android::hardware::audio::core {
 
@@ -144,10 +142,12 @@ class Module : public BnModule {
     ndk::ScopedAStatus supportsVariableLatency(bool* _aidl_return) override;
     ndk::ScopedAStatus getAAudioMixerBurstCount(int32_t* _aidl_return) override;
     ndk::ScopedAStatus getAAudioHardwareBurstMinUsec(int32_t* _aidl_return) override;
+    ndk::ScopedAStatus getFlushFromFrameSupport(
+            const ::aidl::android::media::audio::common::AudioPortConfig& in_config,
+            ::aidl::android::media::audio::common::FlushFromFrameSupport* _aidl_return) override;
 
     // The maximum stream buffer size is 1 GiB = 2 ** 30 bytes;
     static constexpr int32_t kMaximumStreamBufferSizeBytes = 1 << 30;
-    struct audio_card *mCard = NULL;
 
   private:
     struct VendorDebug {
@@ -212,8 +212,9 @@ class Module : public BnModule {
     virtual int32_t getNominalLatencyMs(
             const ::aidl::android::media::audio::common::AudioPortConfig& portConfig);
     virtual ndk::ScopedAStatus calculateBufferSizeFrames(
-            const ::aidl::android::media::audio::common::AudioFormatDescription &format,
-            int32_t latencyMs, int32_t sampleRateHz, int32_t *bufferSizeFrames);
+            const ::aidl::android::media::audio::common::AudioFormatDescription& format,
+            const ::aidl::android::media::audio::common::AudioIoFlags& flags, int32_t latencyMs,
+            int32_t sampleRateHz, int32_t* bufferSizeFrames);
     virtual ndk::ScopedAStatus createMmapBuffer(
             const ::aidl::android::media::audio::common::AudioPortConfig& portConfig,
             int32_t bufferSizeFrames, int32_t frameSizeBytes, MmapBufferDescriptor* desc);
@@ -277,7 +278,7 @@ class Module : public BnModule {
     bool setAudioPortConfigGain(
             const ::aidl::android::media::audio::common::AudioPort& port,
             const ::aidl::android::media::audio::common::AudioGainConfig& gainRequested);
-    ndk::ScopedAStatus validateAudioTrackAttributeTags(const std::vector<std::string>& tags);
+    ndk::ScopedAStatus validateMetadataAttributeTags(const std::vector<std::string>& tags);
 };
 
 std::ostream& operator<<(std::ostream& os, Module::Type t);

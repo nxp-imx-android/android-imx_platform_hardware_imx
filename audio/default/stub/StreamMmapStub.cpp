@@ -18,7 +18,7 @@
 #include <cstdlib>
 
 #define LOG_TAG "AHAL_MmapStream"
-#include <android-base/logging.h>
+#include <Log.h>
 #include <audio_utils/clock.h>
 #include <error/Result.h>
 #include <utils/SystemClock.h>
@@ -105,9 +105,25 @@ DriverMmapStubImpl::DriverMmapStubImpl(const StreamContext& context)
     return ::android::OK;
 }
 
+::android::status_t DriverMmapStubImpl::flush() {
+    RETURN_STATUS_IF_ERROR(DriverStubImpl::flush());
+    mDspWorker.pause();
+    if (mIsInput) {
+        RETURN_STATUS_IF_ERROR(standby());
+    }
+    return ::android::OK;
+}
+
 ::android::status_t DriverMmapStubImpl::pause() {
     RETURN_STATUS_IF_ERROR(DriverStubImpl::pause());
     mDspWorker.pause();
+    return ::android::OK;
+}
+
+::android::status_t DriverMmapStubImpl::standby() {
+    RETURN_STATUS_IF_ERROR(DriverStubImpl::standby());
+    std::lock_guard l(mState.lock);
+    RETURN_STATUS_IF_ERROR(releaseSharedMemory());
     return ::android::OK;
 }
 

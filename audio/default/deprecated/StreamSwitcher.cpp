@@ -18,8 +18,8 @@
 
 #define LOG_TAG "AHAL_StreamSwitcher"
 
+#include <Log.h>
 #include <Utils.h>
-#include <android-base/logging.h>
 #include <error/expected_utils.h>
 
 #include "core-impl/StreamStub.h"

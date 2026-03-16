@@ -48,12 +48,11 @@ class StreamBluetooth : public StreamCommonImpl {
             const ::aidl::android::hardware::bluetooth::audio::PcmConfiguration& pcmConfig,
             const ::aidl::android::media::audio::common::AudioConfigBase& config);
 
-    StreamBluetooth(
-            StreamContext* context, const Metadata& metadata,
-            ModuleBluetooth::BtProfileHandles&& btHandles,
-            const std::shared_ptr<::android::bluetooth::audio::aidl::BluetoothAudioPortAidl>&
-                    btDeviceProxy,
-            const ::aidl::android::hardware::bluetooth::audio::PcmConfiguration& pcmConfig);
+    StreamBluetooth(StreamContext* context, const Metadata& metadata,
+                    ModuleBluetooth::BtProfileHandles&& btHandles,
+                    const std::shared_ptr<::android::bluetooth::audio::aidl::BluetoothAudioPort>&
+                            btDeviceProxy,
+                    const ::aidl::android::hardware::bluetooth::audio::PcmConfiguration& pcmConfig);
     ~StreamBluetooth();
 
     // Methods of 'DriverInterface'.
@@ -90,9 +89,11 @@ class StreamBluetooth : public StreamCommonImpl {
     std::string mSessionTypeName;
     mutable std::mutex mLock;
     // The lock is also used to serialize calls to the proxy.
-    std::shared_ptr<::android::bluetooth::audio::aidl::BluetoothAudioPortAidl> mBtDeviceProxy
+    std::shared_ptr<::android::bluetooth::audio::aidl::BluetoothAudioPort> mBtDeviceProxy
             GUARDED_BY(mLock);  // proxy may be null if the stream is not connected to a device
     bool mEnabled GUARDED_BY(mLock) = true;
+    int64_t mDecimPresentationPosition;
+    ::aidl::android::hardware::bluetooth::audio::PresentationPosition mActualPresentationPosition;
 };
 
 class StreamInBluetooth final : public StreamIn, public StreamBluetooth {
@@ -106,7 +107,7 @@ class StreamInBluetooth final : public StreamIn, public StreamBluetooth {
             const ::aidl::android::hardware::audio::common::SinkMetadata& sinkMetadata,
             const std::vector<::aidl::android::media::audio::common::MicrophoneInfo>& microphones,
             ModuleBluetooth::BtProfileHandles&& btHandles,
-            const std::shared_ptr<::android::bluetooth::audio::aidl::BluetoothAudioPortAidl>&
+            const std::shared_ptr<::android::bluetooth::audio::aidl::BluetoothAudioPort>&
                     btDeviceProxy,
             const ::aidl::android::hardware::bluetooth::audio::PcmConfiguration& pcmConfig);
 
@@ -131,7 +132,7 @@ class StreamOutBluetooth final : public StreamOut, public StreamBluetooth {
             const std::optional<::aidl::android::media::audio::common::AudioOffloadInfo>&
                     offloadInfo,
             ModuleBluetooth::BtProfileHandles&& btHandles,
-            const std::shared_ptr<::android::bluetooth::audio::aidl::BluetoothAudioPortAidl>&
+            const std::shared_ptr<::android::bluetooth::audio::aidl::BluetoothAudioPort>&
                     btDeviceProxy,
             const ::aidl::android::hardware::bluetooth::audio::PcmConfiguration& pcmConfig);
 

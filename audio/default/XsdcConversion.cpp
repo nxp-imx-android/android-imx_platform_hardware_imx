@@ -19,7 +19,7 @@
 #include <unordered_set>
 
 #define LOG_TAG "AHAL_Config"
-#include <android-base/logging.h>
+#include <Log.h>
 #include <android-base/strings.h>
 #include <android/binder_enums.h>
 
@@ -286,7 +286,14 @@ ConversionResult<int> convertGainModeToAidl(const std::vector<ap_xsd::AudioGainM
             gainModeMask |= static_cast<int>(legacyGainMode);
         }
     }
-    return gainModeMask;
+    ConversionResult<int> result = legacy2aidl_audio_gain_mode_t_int32_t_mask(
+            static_cast<audio_gain_mode_t>(gainModeMask));
+    if (!result.ok()) {
+        LOG(ERROR) << __func__ << " Review Audio Policy config, " << gainModeMask
+                   << " has invalid gain mode(s).";
+        return unexpected(BAD_VALUE);
+    }
+    return result;
 }
 
 ConversionResult<AudioChannelLayout> convertChannelMaskToAidl(
@@ -829,10 +836,11 @@ std::unordered_map<std::string, int> getLegacyProductStrategyMap() {
                            AudioProductStrategyType::SONIFICATION_RESPECTFUL),
             STRATEGY_ENTRY(DTMF, AudioProductStrategyType::DTMF),
             STRATEGY_ENTRY(ENFORCED_AUDIBLE, AudioProductStrategyType::ENFORCED_AUDIBLE),
-            STRATEGY_ENTRY(CALL_ASSISTANT, AudioProductStrategyType::SYS_RESERVED_CALL_ASSISTANT),
+            STRATEGY_ENTRY(CALL_ASSISTANT, AudioProductStrategyType::CALL_ASSISTANT),
             STRATEGY_ENTRY(TRANSMITTED_THROUGH_SPEAKER,
                            AudioProductStrategyType::TRANSMITTED_THROUGH_SPEAKER),
-            STRATEGY_ENTRY(ACCESSIBILITY, AudioProductStrategyType::ACCESSIBILITY)};
+            STRATEGY_ENTRY(ACCESSIBILITY, AudioProductStrategyType::ACCESSIBILITY),
+            STRATEGY_ENTRY(ASSISTANT, AudioProductStrategyType::ASSISTANT)};
 #undef STRATEGY_ENTRY
 }
 
