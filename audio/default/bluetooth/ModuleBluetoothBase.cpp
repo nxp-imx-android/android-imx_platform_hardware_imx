@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2025 The Android Open Source Project
+ * Copyright 2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -75,6 +76,13 @@ AudioChannelLayout channelLayoutFromChannelMode(ChannelMode mode) {
 ModuleBluetoothBase::ModuleBluetoothBase(std::unique_ptr<Module::Configuration>&& config)
     : Module(Type::BLUETOOTH, std::move(config)) {}
 
+ndk::ScopedAStatus ModuleBluetoothBase::getBluetooth(
+        std::shared_ptr<IBluetooth>* _aidl_return) {
+    *_aidl_return = getBt().getInstance();
+    LOG(DEBUG) << __func__ << ": returning instance of IBluetooth: " << _aidl_return->get();
+    return ndk::ScopedAStatus::ok();
+}
+
 ndk::ScopedAStatus ModuleBluetoothBase::getBluetoothA2dp(
         std::shared_ptr<IBluetoothA2dp>* _aidl_return) {
     *_aidl_return = getBtA2dp().getInstance();
@@ -87,6 +95,14 @@ ndk::ScopedAStatus ModuleBluetoothBase::getBluetoothLe(
     *_aidl_return = getBtLe().getInstance();
     LOG(DEBUG) << __func__ << ": returning instance of IBluetoothLe: " << _aidl_return->get();
     return ndk::ScopedAStatus::ok();
+}
+
+ChildInterface<Bluetooth>& ModuleBluetoothBase::getBt() {
+    if (!mBluetooth) {
+        auto handle = ndk::SharedRefBase::make<Bluetooth>();
+        mBluetooth = handle;
+    }
+    return mBluetooth;
 }
 
 ChildInterface<BluetoothA2dp>& ModuleBluetoothBase::getBtA2dp() {

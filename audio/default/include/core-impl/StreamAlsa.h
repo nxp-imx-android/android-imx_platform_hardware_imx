@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2023 The Android Open Source Project
+ * Copyright 2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,7 +61,7 @@ class StreamAlsa : public StreamCommonImpl {
     const size_t mFrameSizeBytes;
     const int mSampleRate;
     const bool mIsInput;
-    const std::optional<struct pcm_config> mConfig;
+    std::optional<struct pcm_config> mConfig;
     const int mReadWriteRetries;
 
   private:
@@ -74,12 +75,40 @@ class StreamAlsa : public StreamCommonImpl {
     std::atomic<float> mGain = 1.0;
 
     // All fields below are only used on the worker thread.
-    std::vector<alsa::DeviceProxy> mAlsaDeviceProxies;
     // Only 'libnbaio_mono' is vendor-accessible, thus no access to the multi-reader Pipe.
     std::vector<::android::sp<::android::MonoPipe>> mSinks;
     std::vector<::android::sp<::android::MonoPipeReader>> mSources;
     std::vector<std::thread> mIoThreads;
     std::atomic<bool> mIoThreadIsRunning = false;  // used by all threads
+  protected:
+    std::vector<alsa::DeviceProxy> mAlsaDeviceProxies;
+    /*
+      Enable audio dump feature:
+        setprop persist.vendor.audio.dump 1
+        touch /data/out_alsa.pcm
+        touch /data/in_alsa.pcm
+        touch /data/out_primary.pcm
+        touch /data/in_primary.pcm
+        chmod 777 /data/out_alsa.pcm
+        chmod 777 /data/in_alsa.pcm
+        chmod 777 /data/out_primary.pcm
+        chmod 777 /data/in_primary.pcm
+      Each boot:
+        setenforce 0
+        pkill audioserver
+      Do audio tests...
+      Pull the data:
+        adb pull /data/out_alsa.pcm .
+        adb pull /data/in_alsa.pcm .
+        adb pull /data/out_primary.pcm .
+        adb pull /data/in_primary.pcm .
+    */
+    bool mDump = false;
+    const char* kDumpAlsaOutputFile = "/data/out_alsa.pcm";
+    const char* kDumpAlsaInputFile = "/data/in_alsa.pcm";
+    const char* kDumpPrimaryOutputFile = "/data/out_primary.pcm";
+    const char* kDumpPrimaryInputFile = "/data/in_primary.pcm";
+    void dump(const void *buffer, size_t size, const char* name);
 };
 
 }  // namespace aidl::android::hardware::audio::core
