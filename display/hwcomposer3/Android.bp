@@ -113,7 +113,9 @@ hwc_config_soc_cc_defaults {
                         ],
             },
             IMX95: {
-                cflags: ["-DMAX_DRM_CONFIG_4K"],
+                cflags: ["-DMAX_DRM_CONFIG_4K",
+                         "-DMAX_SUPPORTED_OVERLAY=3",
+                        ],
             },
             IMX8ULP: {
                 cflags: ["-DMAX_DRM_CONFIG_720P"],
@@ -123,6 +125,9 @@ hwc_config_soc_cc_defaults {
             },
             IMX943: {
                 cflags: ["-DPXP_LIMITATION_DOWN_SCALE"],
+            },
+            IMX952: {
+                cflags: ["-DMAX_SUPPORTED_OVERLAY=2"],
             },
         },
     },
