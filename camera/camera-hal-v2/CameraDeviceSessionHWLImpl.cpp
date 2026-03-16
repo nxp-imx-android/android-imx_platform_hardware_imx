@@ -31,6 +31,8 @@
 #include "CameraUtils.h"
 #include "ImageProcess.h"
 
+#define DEBUG_FRAME_NUM 10
+
 using namespace cameraconfigparser;
 namespace android {
 std::map<CameraDeviceSessionHwlImpl *, sp<CameraDeviceSessionHwlImpl::ImgProcThread>>
@@ -1454,8 +1456,10 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequest(HwlPipelineRequest request) {
     mDebug = (strcmp(value, "debug") == 0) ? true : false;
     mZoomInByProp = (strcmp(value, "zoomin") == 0) ? true : false;
 
-    if (mDebug)
-        ALOGI("%s: frame_number %u", __func__, request.frame_number);
+    if (mDebug || (mInQueRequestIdx < DEBUG_FRAME_NUM)) {
+        ALOGI("enter %s: session %p, mInQueRequestIdx %lu, mDeQueRequestIdx %lu, requestList size %zu, frame_number %u",
+              __func__, this, mInQueRequestIdx, mDeQueRequestIdx, requestList.size(), request.frame_number);
+    }
 
     int ret = 0;
 
@@ -1545,8 +1549,8 @@ queue_request:
     // DumpRequest();
     mInQueRequestIdx++;
 
-    if (mDebug || (mInQueRequestIdx <= 5)) {
-        ALOGI("%s: session %p, mInQueRequestIdx %lu, mDeQueRequestIdx %lu, requestList size %zu",
+    if (mDebug || (mInQueRequestIdx <= DEBUG_FRAME_NUM)) {
+        ALOGI("leave %s: session %p, mInQueRequestIdx %lu, mDeQueRequestIdx %lu, requestList size %zu",
               __func__, this, mInQueRequestIdx, mDeQueRequestIdx, requestList.size());
         ItvlStat(mPreSubmitRequestTime, (char *)"SubmitRequest");
     }
@@ -1794,9 +1798,12 @@ void CameraDeviceSessionHwlImpl::ReturnFrameBufferLocked() {
 }
 
 void CameraDeviceSessionHwlImpl::requestCompleteDispatch(libcamera::Request *request) {
-    if (mDebug)
-        ALOGI("%s: dispatch session %p to task %p, tid %d", __func__, this,
-              sessionThreadMap[this].get(), sessionThreadMap[this]->getTid());
+    if (request == NULL)
+        return;
+
+    if (mDebug || (request->sequence() < DEBUG_FRAME_NUM))
+        ALOGI("%s: dispatch session %p to task %p, tid %d, sequence %d", __func__, this,
+              sessionThreadMap[this].get(), sessionThreadMap[this]->getTid(), request->sequence());
 
     Mutex::Autolock _l(mRequestPendingListLock);
     mRequestPendingList.push_back(request);
@@ -1826,6 +1833,10 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
 }
 
 void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
+    if (mDebug || (mDeQueRequestIdx < DEBUG_FRAME_NUM))
+        ALOGI("enter %s: session %p, mInQueRequestIdx %lu, mDeQueRequestIdx %lu", __func__, this,
+              mInQueRequestIdx, mDeQueRequestIdx);
+
     if (request == NULL) {
         ALOGE("%s: request NULL", __func__);
         return;
@@ -1981,8 +1992,8 @@ void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
     ReturnFrameBufferLocked();
 
     mDeQueRequestIdx++;
-    if (mDebug || (mDeQueRequestIdx <= 5))
-        ALOGI("%s: session %p, mInQueRequestIdx %lu, mDeQueRequestIdx %lu", __func__, this,
+    if (mDebug || (mDeQueRequestIdx <= DEBUG_FRAME_NUM))
+        ALOGI("leave %s: session %p, mInQueRequestIdx %lu, mDeQueRequestIdx %lu", __func__, this,
               mInQueRequestIdx, mDeQueRequestIdx);
 
     return;
