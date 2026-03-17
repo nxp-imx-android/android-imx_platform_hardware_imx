@@ -153,7 +153,7 @@ cc_binary {
         "device/nxp/common/kernel-headers",
         "vendor/nxp/wsialloc/android/src",
         "vendor/nxp/wsialloc/android/src/include",
-        "vendor/nxp/imx_opencl_converter/ghdr",
+        "vendor/nxp-opensource/imx_opencl_converter/ghdr",
     ],
 
     shared_libs: [
