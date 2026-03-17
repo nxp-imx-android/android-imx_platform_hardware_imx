@@ -1020,6 +1020,26 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
     map_pipeline_info[pipeline_id_] = pipeline_info;
     pipeline_id_++;
 
+    if (m_bConfigLibcameraByIntent == false) {
+        ret = ConfigLibcameraLocked(mSensorData.mLibcameraBuffers, m_libcamera_stream_format,
+                                    maxStreamWidth, maxStreamHeight);
+        if (ret) {
+            ALOGE("%s: ConfigLibcameraLocked failed, ret %d, buffers %d, format 0x%x, width %d, height %d",
+                  __func__, ret, mSensorData.mLibcameraBuffers, m_libcamera_stream_format,
+                  maxStreamWidth, maxStreamHeight);
+            goto err_out;
+        }
+
+        ALOGI("%s: call camera_->start", __func__);
+        ret = camera_->start();
+        if (ret) {
+            ALOGE("%s: Failed to start camera", __func__);
+            goto err_out;
+        }
+        ALOGI("%s: camera_->start ok", __func__);
+        state_ = CameraState::Running;
+    }
+
     return OK;
 
 err_out:
@@ -1469,15 +1489,6 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequest(HwlPipelineRequest request) {
         ret = PickAndConfigLibcamera(request);
         if (ret) {
             ALOGE("%s: PickAndConfigLibcamzra failed, ret %d", __func__, ret);
-            return ret;
-        }
-    } else {
-        ret = ConfigLibcameraLocked(mSensorData.mLibcameraBuffers, m_libcamera_stream_format,
-                                    maxStreamWidth, maxStreamHeight);
-        if (ret) {
-            ALOGE("%s: ConfigLibcameraLocked failed, ret %d, buffers %d, format 0x%x, width %d, height %d",
-                  __func__, ret, mSensorData.mLibcameraBuffers, m_libcamera_stream_format,
-                  maxStreamWidth, maxStreamHeight);
             return ret;
         }
     }
