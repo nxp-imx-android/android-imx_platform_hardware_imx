@@ -38,11 +38,6 @@ void AudioCardManager::init()
     parseCardFromJson();
     scanAvailableCard();
 
-    for (size_t i = 0; i < mCards.size(); i++)
-        set_route_by_array(mMixers[i], mCards[i]->init_ctl, 1);
-
-    for (size_t i = 0; i < mCards.size(); i++)
-        set_route_by_array(mMixers[i], mCards[i]->builtin_mic_ctl, 1);
 }
 
 void AudioCardManager::release()
@@ -101,8 +96,11 @@ struct audio_card* AudioCardManager::getCardForDevice(const audio_devices_t& aud
     }
     if (card)
         ALOGI("%s: device: %x, card%d: %s", __func__, audioDevice, card->card, card->driver_name);
-    else
+    else {
         ALOGE("%s: device: %x, card not found.", __func__, audioDevice);
+        ALOGI("Re-scan the available card.");
+        scanAvailableCard();
+    }
 
     return card;
 }
@@ -122,8 +120,11 @@ struct audio_card* AudioCardManager::getCardForBus(const char *bus_name)
 
     if (card)
         ALOGI("%s: bus: %s, card%d: %s", __func__, bus_name, card->card, card->driver_name);
-    else
+    else {
         ALOGE("%s: bus: %s, card not found.", __func__, bus_name);
+        ALOGI("Re-scan the available card.");
+        scanAvailableCard();
+    }
 
     return card;
 }
@@ -268,6 +269,8 @@ std::vector<struct mixer *>AudioCardManager::mMixers;
 
 void AudioCardManager::scanAvailableCard()
 {
+    mCards.clear();
+    mMixers.clear();
     for (int card = 0; card < MAX_SUPPORT_CARD_NUM; card++) {
         struct mixer *mixer = mixer_open(card);
         if (!mixer) {
@@ -299,6 +302,12 @@ void AudioCardManager::scanAvailableCard()
     ALOGI("Total %zu cards match", mCards.size());
     for (const auto& card : mCards)
         ALOGI("card%d: %s", card->card, card->driver_name);
+
+    for (size_t i = 0; i < mCards.size(); i++)
+        set_route_by_array(mMixers[i], mCards[i]->init_ctl, 1);
+
+    for (size_t i = 0; i < mCards.size(); i++)
+        set_route_by_array(mMixers[i], mCards[i]->builtin_mic_ctl, 1);
 
     if (mCards.empty()) {
         ALOGE("no supported sound card found.");
