@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2008 The Android Open Source Project
  * Copyright (C) 2012-2015 Freescale Semiconductor, Inc.
- * Copyright 2017-2018, 2025 NXP
+ * Copyright 2017-2018, 2025-2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -61,12 +61,10 @@ public:
                        int outHeight, const void *app1Buffer, size_t app1Size, bool debug = false);
 
     virtual ~YuvToJpegEncoder() {}
-    int getColorFormat() { return mColorFormat; }
 
 protected:
     int fNumPlanes;
     int color;
-    int mColorFormat;
     int mPixelFormat;
 
     void setJpegCompressStruct(jpeg_compress_struct *cinfo, int width, int height, int quality);
@@ -83,7 +81,6 @@ protected:
                           __attribute__((unused)) uint8_t *dstBuf,
                           __attribute__((unused)) int dstWidth,
                           __attribute__((unused)) int dstHeight);
-    bool supportVpu;
     bool mDebug;
 };
 
