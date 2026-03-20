@@ -175,6 +175,7 @@ HWC3::Error ComposerClient::init() {
 
     mCapabilities.push_back(Capability::LAYER_LIFECYCLE_BATCH_COMMAND);
     mBatchCommandSupported = true;
+    mCapabilities.push_back(Capability::DISPLAY_COMMAND_CONFIG_CHANGE);
 
     DEBUG_LOG("%s initialized!", __FUNCTION__);
     return HWC3::Error::None;
