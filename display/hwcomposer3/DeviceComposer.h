@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2025 NXP.
+ * Copyright 2017-2026 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -128,7 +128,8 @@ private:
     void* getHandle();
 
     // clear worm hole introduced by layers not cover whole screen.
-    int clearWormHole(uint32_t displayId, std::vector<int64_t>& layerIds, G2dBuffer& target);
+    int clearWormHole(uint32_t displayId, std::vector<int64_t>& layerIds, G2dBuffer& target,
+                      const std::vector<common::Rect>& dirtyRects);
     G2dInterBuffer* preComposition(Layer* layer, buffer_handle_t handle);
     // compose display layer.
     int composeLayerLocked(G2dBuffer& layerBuffer, G2dBuffer& targetBuffer, bool bypass);

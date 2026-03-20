@@ -327,7 +327,7 @@ int DeviceComposer::clearRect(G2dBuffer& buff, common::Rect& rect, uint32_t colo
 }
 
 int DeviceComposer::clearWormHole(uint32_t displayId, std::vector<int64_t>& layerIds,
-                                  G2dBuffer& target) {
+                                  G2dBuffer& target, const std::vector<common::Rect>& dirtyRects) {
     DEBUG_LOG("%s: clear worm hole", __FUNCTION__);
     if (target.hnd == nullptr || target.infoPtr == nullptr) {
         ALOGE("%s: no effective render buffer", __FUNCTION__);
@@ -1605,7 +1605,7 @@ int DeviceComposer::composeInterLayer(uint32_t displayId, int64_t interId,
 
 std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
         uint32_t displayId, std::vector<Layer*>& layers, buffer_handle_t target,
-        const std::vector<common::Rect>& overlayRects) {
+        const std::vector<common::Rect>& dirtyRects) {
     ATRACE_CALL();
 
     Mutex::Autolock _l(sLock);
@@ -1636,9 +1636,11 @@ std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
     auto& cachedComposition = mCachedDisplays[displayId].cachedCompositions;
     auto& cachedLayers = mCachedDisplays[displayId].cachedLayers;
 
+    bool anyLayerUpdated = true; // If some layer update, need to clear worm holes
     std::vector<int64_t> finalIds;
     auto ids = cacheG2dLayersStats(displayId, layers);
     if (ids) {
+        anyLayerUpdated = false; // the intermediate composition may inclues all UI layers
         std::vector<int64_t>& orderedInterIds = *ids;
         uint32_t idx = 0;
         bool found = false;
@@ -1665,6 +1667,7 @@ std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
                         cachedIds = nullptr;
                     found = false;
                 }
+                anyLayerUpdated = true; // some layer need to do final composition
             }
         }
 
@@ -1672,6 +1675,7 @@ std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
             if (cachedComposition[oid].state == INTER_STATE_VALIDATED) { // need to do composition
                 composeInterLayer(displayId, oid, cachedComposition[oid]);
                 cachedComposition[oid].state = INTER_STATE_COMPOSED;
+                anyLayerUpdated = true;
             }
         }
     } else {
@@ -1680,19 +1684,9 @@ std::tuple<bool, ::android::base::unique_fd> DeviceComposer::composeLayers(
 
     lockSurface(mTarget);
     // clear blank area to avoid UI mess when overlay used
-    clearWormHole(displayId, finalIds, mTarget);
+    if (anyLayerUpdated)
+        clearWormHole(displayId, finalIds, mTarget, dirtyRects);
 
-    // When there are overlay layers, also clear the overlay regions to avoid mouse cursor ghosting.
-    // This is because when the mouse moves over the overlay area, its old position may not be
-    // properly cleared by clearWormHole() which only clears areas not covered by G2D layers.
-    if (overlayRects.size() > 0) {
-        for (auto& rect : overlayRects) {
-            common::Rect overlayRect = rect;
-            clearRect(mTarget, overlayRect, 0x00 << 24); // clear with transparent color
-        }
-        DEBUG_LOG_G2D("%s: clear %zu overlay regions to avoid cursor ghosting", __FUNCTION__,
-                  overlayRects.size());
-    }
     composeG2dLayers(displayId, finalIds, mTarget);
     unlockSurface(mTarget);
 
