@@ -86,8 +86,7 @@ public:
     }
 
     HWC3::Error registerOnHdcpChangedCallback(const HdcpChangedCallback& cb) override;
-    HWC3::Error startHdcpNegotiation(
-            Display* display, const aidl::android::hardware::drm::HdcpLevels& levels) override;
+    HWC3::Error startHdcpNegotiation(Display* display, const drm::HdcpLevels& levels) override;
 
 private:
     std::tuple<HWC3::Error, DeviceClient*> getDeviceClient(uint32_t displayId);

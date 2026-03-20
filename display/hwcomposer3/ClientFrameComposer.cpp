@@ -936,8 +936,8 @@ HWC3::Error ClientFrameComposer::registerOnHdcpChangedCallback(const HdcpChanged
     return HWC3::Error::None;
 }
 
-HWC3::Error ClientFrameComposer::startHdcpNegotiation(
-        Display* display, const aidl::android::hardware::drm::HdcpLevels& levels) {
+HWC3::Error ClientFrameComposer::startHdcpNegotiation(Display* display,
+                                                      const drm::HdcpLevels& levels) {
     const auto displayId = display->getId();
     DEBUG_LOG("%s: display:%d", __FUNCTION__, displayId);
 
@@ -962,9 +962,9 @@ HWC3::Error ClientFrameComposer::startHdcpNegotiation(
     auto& hdcpContext = it->second;
 
     // get current HDCP levels
-    aidl::android::hardware::drm::HdcpLevel connectedLevel = levels.connectedLevel;
-    aidl::android::hardware::drm::HdcpLevel maxLevel = levels.maxLevel;
-    aidl::android::hardware::drm::HdcpLevels curLevels;
+    drm::HdcpLevel connectedLevel = levels.connectedLevel;
+    drm::HdcpLevel maxLevel = levels.maxLevel;
+    drm::HdcpLevels curLevels;
 
     hdcpContext.hdcpThread->getHdcpLevels(curLevels);
 
@@ -992,7 +992,7 @@ void ClientFrameComposer::notifyFrameworkHdcpState(int64_t displayId, bool state
     auto it = mDisplayHdcpContexts.find(displayId);
     if (it != mDisplayHdcpContexts.end()) {
         auto& hdcpContext = it->second;
-        aidl::android::hardware::drm::HdcpLevels curLevels;
+        drm::HdcpLevels curLevels;
         hdcpContext.hdcpThread->getHdcpLevels(curLevels);
         if (!isPrimary) {
             // for external display, hdcp state will be changed according to secure layer.

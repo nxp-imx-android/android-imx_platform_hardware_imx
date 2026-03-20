@@ -158,10 +158,8 @@ HWC3::Error ComposerClient::init() {
         return error;
     }
 
-    const auto HdcpChangedCallback = [this](long displayId,
-                                            bool hdcpState,
-                                            aidl::android::hardware::drm::HdcpLevels levels) {
-        handleHdcpChanged(displayId, hdcpState, levels);
+    const auto HdcpChangedCallback = [this](int64_t hwcId, bool hdcpState, drm::HdcpLevels levels) {
+        handleHdcpChanged(hwcId, hdcpState, levels);
     };
     error = mComposer->registerOnHdcpChangedCallback(HdcpChangedCallback);
     if (error != HWC3::Error::None) {
@@ -630,19 +628,17 @@ ndk::ScopedAStatus ComposerClient::getPreferredBootDisplayConfig(int64_t hwcId,
 }
 
 ndk::ScopedAStatus ComposerClient::getHdrConversionCapabilities(
-        std::vector<aidl::android::hardware::graphics::common::HdrConversionCapability>*
-                capabilities) {
+        std::vector<common::HdrConversionCapability>* capabilities) {
     DEBUG_LOG("%s", __FUNCTION__);
     capabilities->clear();
     return ToBinderStatus(HWC3::Error::None);
 }
 
 ndk::ScopedAStatus ComposerClient::setHdrConversionStrategy(
-        const aidl::android::hardware::graphics::common::HdrConversionStrategy& conversionStrategy,
-        aidl::android::hardware::graphics::common::Hdr* preferredHdrOutputType) {
+        const common::HdrConversionStrategy& conversionStrategy,
+        common::Hdr* preferredHdrOutputType) {
     DEBUG_LOG("%s", __FUNCTION__);
-    using HdrConversionStrategyTag =
-            aidl::android::hardware::graphics::common::HdrConversionStrategy::Tag;
+    using HdrConversionStrategyTag = common::HdrConversionStrategy::Tag;
     switch (conversionStrategy.getTag()) {
         case HdrConversionStrategyTag::autoAllowedHdrTypes: {
             auto& autoHdrTypes =
@@ -657,7 +653,7 @@ ndk::ScopedAStatus ComposerClient::setHdrConversionStrategy(
             break;
         }
     }
-    *preferredHdrOutputType = aidl::android::hardware::graphics::common::Hdr::INVALID;
+    *preferredHdrOutputType = common::Hdr::INVALID;
     return ToBinderStatus(HWC3::Error::None);
 }
 
@@ -791,8 +787,8 @@ ndk::ScopedAStatus ComposerClient::getMaxLayerPictureProfiles(int64_t hwcId, int
     return ToBinderStatus(HWC3::Error::Unsupported);
 }
 
-ndk::ScopedAStatus ComposerClient::startHdcpNegotiation(
-        int64_t hwcId, const aidl::android::hardware::drm::HdcpLevels& levels) {
+ndk::ScopedAStatus ComposerClient::startHdcpNegotiation(int64_t hwcId,
+                                                        const drm::HdcpLevels& levels) {
     DEBUG_LOG("%s", __FUNCTION__);
 
     GET_DISPLAY_OR_RETURN_ERROR();
@@ -809,8 +805,13 @@ ndk::ScopedAStatus ComposerClient::getLuts(int64_t hwcId, const std::vector<Buff
     return ToBinderStatus(HWC3::Error::Unsupported);
 }
 
-ndk::ScopedAStatus ComposerClient::getDisplayKnownVsyncSample(int64_t displayId, ::aidl::android::hardware::graphics::composer3::VsyncSample* _aidl_return) {
-	return ToBinderStatus(HWC3::Error::Unsupported);
+ndk::ScopedAStatus ComposerClient::getDisplayKnownVsyncSample(int64_t hwcId,
+                                                              VsyncSample* /*sample*/) {
+    DEBUG_LOG("%s", __FUNCTION__);
+
+    GET_DISPLAY_OR_RETURN_ERROR();
+
+    return ToBinderStatus(HWC3::Error::Unsupported);
 }
 
 ndk::SpAIBinder ComposerClient::createBinder() {
@@ -932,6 +933,9 @@ void ComposerClient::executeDisplayCommand(CommandResultWriter& commandResults,
         }
     }
     DISPATCH_DISPLAY_COMMAND(displayCommand, commandResults, *display, brightness, SetBrightness);
+    DISPATCH_DISPLAY_COMMAND(displayCommand, commandResults, *display, activeConfig,
+                             SetActiveConfig);
+
     for (const LayerCommand& layerCmd : displayCommand.layers) {
         // ignore layer data update if command is DESTROY
         if (layerCmd.layerLifecycleBatchCommandType != LayerLifecycleBatchCommandType::DESTROY) {
@@ -1015,6 +1019,19 @@ void ComposerClient::executeDisplayCommandSetBrightness(CommandResultWriter& com
     DEBUG_LOG("%s", __FUNCTION__);
 
     auto error = display.setBrightness(brightness.brightness);
+    if (error != HWC3::Error::None) {
+        LOG_DISPLAY_COMMAND_ERROR(display, error);
+        commandResults.addError(error);
+    }
+}
+
+void ComposerClient::executeDisplayCommandSetActiveConfig(CommandResultWriter& commandResults,
+                                                          Display& display,
+                                                          ActiveConfigCommand activeConfig) {
+    DEBUG_LOG("%s hwc display:%" PRIu64 " config:%" PRIu32, __FUNCTION__, display.getHwcId(),
+              activeConfig.configId);
+
+    auto error = display.setActiveConfig(activeConfig.configId);
     if (error != HWC3::Error::None) {
         LOG_DISPLAY_COMMAND_ERROR(display, error);
         commandResults.addError(error);
@@ -1673,19 +1690,18 @@ HWC3::Error ComposerClient::handleHotplug(bool connected,
     return HWC3::Error::None;
 }
 
-HWC3::Error ComposerClient::handleHdcpChanged(long displayId,
-                                              bool hdcpState,
-                                              aidl::android::hardware::drm::HdcpLevels levels) {
+HWC3::Error ComposerClient::handleHdcpChanged(int64_t hwcId, bool hdcpState,
+                                              drm::HdcpLevels levels) {
     if (!mCallbacks) {
         return HWC3::Error::None;
     }
     if (hdcpState) {
-        mCallbacks->onHdcpLevelsChanged(displayId, levels);
+        mCallbacks->onHdcpLevelsChanged(hwcId, levels);
     } else {
-        aidl::android::hardware::drm::HdcpLevels noneLevels;
-        noneLevels.connectedLevel = aidl::android::hardware::drm::HdcpLevel::HDCP_NONE;
+        drm::HdcpLevels noneLevels;
+        noneLevels.connectedLevel = drm::HdcpLevel::HDCP_NONE;
         noneLevels.maxLevel = levels.maxLevel;
-        mCallbacks->onHdcpLevelsChanged(displayId, noneLevels);
+        mCallbacks->onHdcpLevelsChanged(hwcId, noneLevels);
     }
     return HWC3::Error::None;
 }

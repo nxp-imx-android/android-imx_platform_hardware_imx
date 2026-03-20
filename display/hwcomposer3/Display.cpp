@@ -1095,7 +1095,7 @@ HWC3::Error Display::notifyExpectedPresent(const ClockMonotonicTimestamp& expect
     return HWC3::Error::Unsupported;
 }
 
-HWC3::Error Display::startHdcpNegotiation(const aidl::android::hardware::drm::HdcpLevels& levels) {
+HWC3::Error Display::startHdcpNegotiation(const drm::HdcpLevels& levels) {
     DEBUG_LOG("%s: hwc display:%" PRId64, __FUNCTION__, mId);
 
     /* check if display support hdcp */

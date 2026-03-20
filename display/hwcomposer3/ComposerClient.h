@@ -101,12 +101,10 @@ public:
     ndk::ScopedAStatus clearBootDisplayConfig(int64_t hwcId) override;
     ndk::ScopedAStatus getPreferredBootDisplayConfig(int64_t hwcId, int32_t* config) override;
     ndk::ScopedAStatus getHdrConversionCapabilities(
-            std::vector<aidl::android::hardware::graphics::common::HdrConversionCapability>*)
-            override;
+            std::vector<common::HdrConversionCapability>*) override;
     ndk::ScopedAStatus setHdrConversionStrategy(
-            const aidl::android::hardware::graphics::common::HdrConversionStrategy&
-                    conversionStrategy,
-            aidl::android::hardware::graphics::common::Hdr* preferredHdrOutputType) override;
+            const common::HdrConversionStrategy& conversionStrategy,
+            common::Hdr* preferredHdrOutputType) override;
     ndk::ScopedAStatus setAutoLowLatencyMode(int64_t hwcId, bool on) override;
     ndk::ScopedAStatus setClientTargetSlotCount(int64_t hwcId, int32_t count) override;
     ndk::ScopedAStatus setColorMode(int64_t hwcId, ColorMode mode, RenderIntent intent) override;
@@ -129,13 +127,10 @@ public:
                                              const ClockMonotonicTimestamp& expectedPresentTime,
                                              int32_t frameIntervalNs) override;
     ndk::ScopedAStatus getMaxLayerPictureProfiles(int64_t hwcId, int32_t* outMaxProfiles) override;
-    ndk::ScopedAStatus startHdcpNegotiation(
-            int64_t hwcId, const aidl::android::hardware::drm::HdcpLevels& levels) override;
-    ndk::ScopedAStatus getLuts(int64_t displayId, const std::vector<Buffer>&,
+    ndk::ScopedAStatus startHdcpNegotiation(int64_t hwcId, const drm::HdcpLevels& levels) override;
+    ndk::ScopedAStatus getLuts(int64_t hwcId, const std::vector<Buffer>&,
                                std::vector<Luts>*) override;
-    ndk::ScopedAStatus getDisplayKnownVsyncSample(
-            int64_t in_display,
-            ::aidl::android::hardware::graphics::composer3::VsyncSample* _aidl_return) override;
+    ndk::ScopedAStatus getDisplayKnownVsyncSample(int64_t hwcId, VsyncSample* sample) override;
 
 protected:
     ndk::SpAIBinder createBinder() override;
@@ -152,6 +147,8 @@ private:
                                                 Display& display, const std::vector<float>& matrix);
     void executeDisplayCommandSetBrightness(CommandResultWriter& commandResults, Display& display,
                                             const DisplayBrightness& brightness);
+    void executeDisplayCommandSetActiveConfig(CommandResultWriter& commandResults, Display& display,
+                                              ActiveConfigCommand activeConfig);
     void executeDisplayCommandSetClientTarget(CommandResultWriter& commandResults, Display& display,
                                               const ClientTarget& command);
     void executeDisplayCommandSetOutputBuffer(CommandResultWriter& commandResults, Display& display,
@@ -241,7 +238,7 @@ private:
     HWC3::Error destroyDisplayLocked(int64_t hwcId) EXCLUSIVE_LOCKS_REQUIRED(mDisplaysMutex);
 
     HWC3::Error handleHotplug(bool connected, std::unique_ptr<HalMultiConfigs> halConfigs);
-    HWC3::Error handleHdcpChanged(long displayId, bool hdcpState, aidl::android::hardware::drm::HdcpLevels levels);
+    HWC3::Error handleHdcpChanged(long displayId, bool hdcpState, drm::HdcpLevels levels);
 
     std::mutex mDisplaysMutex;
     std::map<int64_t, std::shared_ptr<Display>> mDisplays GUARDED_BY(mDisplaysMutex);

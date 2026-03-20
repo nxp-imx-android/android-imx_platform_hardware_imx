@@ -87,8 +87,7 @@ public:
         return HWC3::Error::None;
     }
 
-    HWC3::Error startHdcpNegotiation(
-            Display* display, const aidl::android::hardware::drm::HdcpLevels& levels) override {
+    HWC3::Error startHdcpNegotiation(Display* display, const drm::HdcpLevels& levels) override {
         return HWC3::Error::None;
     }
 

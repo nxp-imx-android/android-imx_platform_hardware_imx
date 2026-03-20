@@ -142,7 +142,7 @@ public:
     HWC3::Error notifyExpectedPresent(const ClockMonotonicTimestamp& expectedPresentTime,
                                       int32_t frameIntervalNs);
 
-    HWC3::Error startHdcpNegotiation(const aidl::android::hardware::drm::HdcpLevels& levels);
+    HWC3::Error startHdcpNegotiation(const drm::HdcpLevels& levels);
 
     // Non HWCComposer3 interface.
     int64_t getHwcId() const { return mId; }
