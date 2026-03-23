@@ -1459,9 +1459,9 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequests(uint32_t frame_number,
     mDebug = (strcmp(value, "debug") == 0) ? true : false;
     mZoomInByProp = (strcmp(value, "zoomin") == 0) ? true : false;
 
-    if (mDebug || (mInQueRequestIdx < DEBUG_FRAME_NUM)) {
-        ALOGI("enter %s: session %p, mInQueRequestIdx %lu, mDeQueRequestIdx %lu, requestList size %zu, frame_number %u",
-              __func__, this, mInQueRequestIdx, mDeQueRequestIdx, requestList.size(), frame_number);
+    if (mDebug || (frame_number < DEBUG_FRAME_NUM)) {
+        ALOGI("enter %s: session %p, requestList size %zu, frame_number %u",
+              __func__, this, requestList.size(), frame_number);
     }
 
     int ret = 0;
@@ -1561,9 +1561,9 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequests(uint32_t frame_number,
     // DumpRequest();
     mInQueRequestIdx++;
 
-    if (mDebug || (mInQueRequestIdx <= DEBUG_FRAME_NUM)) {
-        ALOGI("leave %s: session %p, mInQueRequestIdx %lu, mDeQueRequestIdx %lu, requestList size %zu",
-              __func__, this, mInQueRequestIdx, mDeQueRequestIdx, requestList.size());
+    if (mDebug || (frame_number < DEBUG_FRAME_NUM)) {
+        ALOGI("leave %s: session %p, frame_number %u, mInQueRequestIdx %lu, mDeQueRequestIdx %lu",
+              __func__, this, frame_number, mInQueRequestIdx, mDeQueRequestIdx);
         ItvlStat(mPreSubmitRequestTime, (char *)"SubmitRequests");
     }
 
@@ -1849,14 +1849,13 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
 }
 
 void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
-    if (mDebug || (mDeQueRequestIdx < DEBUG_FRAME_NUM))
-        ALOGI("enter %s: session %p, mInQueRequestIdx %lu, mDeQueRequestIdx %lu", __func__, this,
-              mInQueRequestIdx, mDeQueRequestIdx);
-
     if (request == NULL) {
         ALOGE("%s: request NULL", __func__);
         return;
     }
+
+    if (mDebug || (request->sequence() < DEBUG_FRAME_NUM))
+        ALOGI("enter %s: session %p, sequence %u", __func__, this, request->sequence());
 
     Mutex::Autolock _l(mLock);
 
@@ -2018,9 +2017,9 @@ void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
     ReturnFrameBufferLocked();
 
     mDeQueRequestIdx++;
-    if (mDebug || (mDeQueRequestIdx <= DEBUG_FRAME_NUM))
-        ALOGI("leave %s: session %p, mInQueRequestIdx %lu, mDeQueRequestIdx %lu", __func__, this,
-              mInQueRequestIdx, mDeQueRequestIdx);
+    if (mDebug || (request->sequence() < DEBUG_FRAME_NUM))
+        ALOGI("leave %s: session %p, sequence %u, mInQueRequestIdx %lu, mDeQueRequestIdx %lu", __func__, this,
+              request->sequence(), mInQueRequestIdx, mDeQueRequestIdx);
 
     return;
 }
