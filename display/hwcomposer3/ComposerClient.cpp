@@ -806,13 +806,12 @@ ndk::ScopedAStatus ComposerClient::getLuts(int64_t hwcId, const std::vector<Buff
     return ToBinderStatus(HWC3::Error::Unsupported);
 }
 
-ndk::ScopedAStatus ComposerClient::getDisplayKnownVsyncSample(int64_t hwcId,
-                                                              VsyncSample* /*sample*/) {
+ndk::ScopedAStatus ComposerClient::getDisplayKnownVsyncSample(int64_t hwcId, VsyncSample* sample) {
     DEBUG_LOG("%s", __FUNCTION__);
 
     GET_DISPLAY_OR_RETURN_ERROR();
 
-    return ToBinderStatus(HWC3::Error::Unsupported);
+    return ToBinderStatus(display->getKnownVsyncSample(sample));
 }
 
 ndk::SpAIBinder ComposerClient::createBinder() {

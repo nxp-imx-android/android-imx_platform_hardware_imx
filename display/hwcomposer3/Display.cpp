@@ -1061,6 +1061,8 @@ HWC3::Error Display::checkAndWaitNextVsync(int64_t* timestamp) {
     if (ret != HWC3::Error::None) {
         DEBUG_LOG("%s: hwc display:%" PRId64 " cannot get Vsync timestamp", __FUNCTION__, mId);
     }
+    mVsyncTimestamp = *timestamp;
+
     return ret;
 }
 
@@ -1109,6 +1111,31 @@ HWC3::Error Display::startHdcpNegotiation(const drm::HdcpLevels& levels) {
     }
 
     return mComposer->startHdcpNegotiation(this, levels);
+}
+
+HWC3::Error Display::getKnownVsyncSample(VsyncSample* sample) {
+    DEBUG_LOG("%s: hwc display:%" PRId64, __FUNCTION__, mId);
+
+    std::unique_lock<std::recursive_mutex> lock(mStateMutex);
+
+    if (!mActiveConfigId) {
+        ALOGE("%s : hwc display:%" PRId64 " no active config", __FUNCTION__, mId);
+        return HWC3::Error::BadConfig;
+    }
+
+    const auto it = mConfigs.find(*mActiveConfigId);
+    if (it == mConfigs.end()) {
+        ALOGE("%s : hwc display:%" PRId64 " failed to find active config:%" PRId32, __FUNCTION__,
+              mId, *mActiveConfigId);
+        return HWC3::Error::BadConfig;
+    }
+    const DisplayConfig& activeConfig = it->second;
+    int32_t vsyncPeriod = activeConfig.getAttribute(DisplayAttribute::VSYNC_PERIOD);
+
+    sample->timestampNs = mVsyncTimestamp;
+    sample->vsyncPeriodNs = vsyncPeriod;
+
+    return HWC3::Error::None;
 }
 
 } // namespace aidl::android::hardware::graphics::composer3::impl

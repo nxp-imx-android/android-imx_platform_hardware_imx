@@ -143,6 +143,7 @@ public:
                                       int32_t frameIntervalNs);
 
     HWC3::Error startHdcpNegotiation(const drm::HdcpLevels& levels);
+    HWC3::Error getKnownVsyncSample(VsyncSample* sample);
 
     // Non HWCComposer3 interface.
     int64_t getHwcId() const { return mId; }
@@ -226,6 +227,8 @@ private:
     ClientTargetProperty mClientTargetProperty{common::PixelFormat::RGBA_8888,
                                                common::Dataspace::SRGB_LINEAR};
     common::PixelFormat mFbFormat = common::PixelFormat::UNSPECIFIED; // used for virtual display
+
+    int64_t mVsyncTimestamp = 0;
 };
 
 } // namespace aidl::android::hardware::graphics::composer3::impl
