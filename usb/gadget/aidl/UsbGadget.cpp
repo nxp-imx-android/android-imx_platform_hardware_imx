@@ -91,31 +91,30 @@ static void *monitorFfs(void *param) {
     struct epoll_event events[EPOLL_EVENTS];
     steady_clock::time_point disconnect;
 
-    while (!stopMonitor) {
-        bool descriptorWritten = true;
-        for (int i = 0; i < static_cast<int>(usbGadget->mEndpointList.size()); i++) {
-            if (access(usbGadget->mEndpointList.at(i).c_str(), R_OK)) {
-                descriptorWritten = false;
-                break;
-            }
+    bool descriptorWritten = true;
+    for (int i = 0; i < static_cast<int>(usbGadget->mEndpointList.size()); i++) {
+        if (access(usbGadget->mEndpointList.at(i).c_str(), R_OK)) {
+            descriptorWritten = false;
+            break;
         }
+    }
 
-        // notify here if the endpoints are already present.
-        if (descriptorWritten) {
-            usleep(PULL_UP_DELAY);
-            if (!access(string("/sys/class/udc/" + GADGET_NAME).c_str(), F_OK)) {
-                if (!!WriteStringToFile(GADGET_NAME, PULLUP_PATH)) {
-                    lock_guard<mutex> lock(usbGadget->mLock);
-                    usbGadget->mCurrentUsbFunctionsApplied = true;
-                    gadgetPullup = true;
-                    writeUdc = false;
-                    ALOGI("GADGET pulled up");
-                    usbGadget->mCv.notify_all();
-                }
-            }
+    // notify here if the endpoints are already present.
+    if (descriptorWritten) {
+        usleep(PULL_UP_DELAY);
+        if (!!WriteStringToFile(GADGET_NAME, PULLUP_PATH)) {
+            lock_guard<mutex> lock(usbGadget->mLock);
+            usbGadget->mCurrentUsbFunctionsApplied = true;
+            gadgetPullup = true;
+            writeUdc = false;
+            ALOGI("GADGET pulled up");
+            usbGadget->mCv.notify_all();
         }
+    }
+
+    while (!stopMonitor) {
         int nrEvents =
-                epoll_wait(usbGadget->mEpollFd, events, EPOLL_EVENTS, gadgetPullup ? -1 : 2000);
+                epoll_wait(usbGadget->mEpollFd, events, EPOLL_EVENTS, -1);
         if (nrEvents <= 0) {
             continue;
         }
@@ -155,16 +154,14 @@ static void *monitorFfs(void *param) {
                             PULL_UP_DELAY)
                             usleep(PULL_UP_DELAY);
 
-                        if (!access(string("/sys/class/udc/" + GADGET_NAME).c_str(), F_OK)) {
-                            if (!!WriteStringToFile(GADGET_NAME, PULLUP_PATH)) {
-                                lock_guard<mutex> lock(usbGadget->mLock);
-                                usbGadget->mCurrentUsbFunctionsApplied = true;
-                                ALOGI("GADGET pulled up");
-                                writeUdc = false;
-                                gadgetPullup = true;
-                                // notify the main thread to signal userspace.
-                                usbGadget->mCv.notify_all();
-                            }
+                        if (!!WriteStringToFile(GADGET_NAME, PULLUP_PATH)) {
+                            lock_guard<mutex> lock(usbGadget->mLock);
+                            usbGadget->mCurrentUsbFunctionsApplied = true;
+                            ALOGI("GADGET pulled up");
+                            writeUdc = false;
+                            gadgetPullup = true;
+                            // notify the main thread to signal userspace.
+                            usbGadget->mCv.notify_all();
                         }
                     }
                 }
