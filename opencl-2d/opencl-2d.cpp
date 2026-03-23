@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-2024 NXP.
+ * Copyright 2018-2024, 2026 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -333,7 +333,7 @@ static cl_program CreateProgramFromBinary(cl_context context, cl_device_id devic
     errNum = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
     if (errNum != CL_SUCCESS) {
         // Determine the reason for the error
-        char buildLog[16384];
+        static char buildLog[16384];
         clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buildLog), buildLog,
                               NULL);
         g2d_printf("%s: Error in program: ", __func__);
@@ -390,7 +390,7 @@ static cl_program CreateProgram(cl_context context, cl_device_id device, const c
     errNum = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
     if (errNum != CL_SUCCESS) {
         // Determine the reason for the error
-        char buildLog[16384];
+        static char buildLog[16384];
         clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG, sizeof(buildLog), buildLog,
                               NULL);
         g2d_printf("%s: Error in build kernel:\n", __func__);
