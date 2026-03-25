@@ -1951,19 +1951,6 @@ void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
     result->input_buffers.reserve(0);
     result->physical_camera_results.reserve(0);
 
-    if (mDebug) {
-        libcamera::ControlList &metadata = request->metadata();
-        ALOGI("%s: frame %d, output_buffers %lu, result->regsult_metadata %p, entry count %d, libcamera::Request buffers %lu, sequence %u, metadata size %lu, session %p",
-              __func__, frame, result->output_buffers.size(), result->result_metadata.get(),
-              (int)result->result_metadata->GetEntryCount(), request->buffers().size(),
-              request->sequence(), metadata.size(), this);
-        for (libcamera::ControlList::iterator it = metadata.begin(); it != metadata.end(); it++) {
-            int i = it->first;
-            libcamera::ControlValue ctlVal = it->second;
-            ALOGI("meta id: %d, val: %s, type %d, numElements %zu", i, ctlVal.toString().c_str(),
-                  ctlVal.type(), ctlVal.numElements());
-        }
-    }
     libcamera::FrameBuffer *frameBuffer = request->findBuffer(mLibCameraStream);
     ImxImageBuffer srcImgBuf = mFrameBufferHandleMap[frameBuffer];
 
