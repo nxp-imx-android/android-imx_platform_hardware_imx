@@ -129,6 +129,8 @@ public:
 
     status_t SubmitRequest(HwlPipelineRequest request) override;
 
+    status_t SubmitBatchRequest(std::vector<HwlPipelineRequest> requests) override;
+
     status_t Flush() override;
 
     uint32_t GetCameraId() const override;

@@ -1569,6 +1569,10 @@ queue_request:
     return OK;
 }
 
+status_t CameraDeviceSessionHwlImpl::SubmitBatchRequest(std::vector<HwlPipelineRequest> requests) {
+    return OK;
+}
+
 int CameraDeviceSessionHwlImpl::CleanRequestsLocked() {
     if (map_frame_request.empty())
         return 0;
