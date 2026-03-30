@@ -35,10 +35,28 @@ constexpr std::string_view kUserSpaceSuffix("step_wise");
 constexpr std::string_view kCoolingDeviceCurStateSuffix("cur_state");
 
 namespace {
+std::string getConfigFileName() {
+    std::string soc_type = ::android::base::GetProperty(kSocType, "");
+    std::string model_name;
+    std::string config_name = "thermal_info_config";
 
-std::string kConfigDefaultFileName =
-        ::android::base::StringPrintf("%s_%s%s", "thermal_info_config",
-                                    ::android::base::GetProperty(kSocType, "").c_str(), ".json");
+    if (::android::base::ReadFileToString("/proc/device-tree/model", &model_name)) {
+        model_name = ::android::base::Trim(model_name);
+        LOG(INFO) << "Device model: " << model_name;
+
+        if (model_name.find("FRDM") != std::string::npos ||
+            model_name.find("frdm") != std::string::npos) {
+            return ::android::base::StringPrintf("%s_%s_frdm.json", config_name.c_str(),
+                                                 soc_type.c_str());
+        }
+    } else {
+        LOG(WARNING) << "Failed to read /proc/device-tree/model, using default config";
+    }
+
+    return ::android::base::StringPrintf("%s_%s.json", config_name.c_str(), soc_type.c_str());
+}
+
+std::string kConfigDefaultFileName = getConfigFileName();
 
 std::size_t getNumberOfCores() {
     std::string file;
