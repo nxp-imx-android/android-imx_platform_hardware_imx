@@ -32,10 +32,12 @@ ImxContextHub::ImxContextHub() {
   }
 }
 
-void ImxContextHub::onChreRestarted() {
-  mLogger.resetNanoappDetokenizerState();
+void ImxContextHub::onChreReconnected(bool chreRestarted) {
+  if (chreRestarted) {
+    mLogger.resetNanoappDetokenizerState();
+  }
   mPreloadedNanoappLoader->loadPreloadedNanoapps();
-  MultiClientContextHubBase::onChreRestarted();
+  MultiClientContextHubBase::onChreReconnected();
 }
 
 void ImxContextHub::onChreDisconnected()

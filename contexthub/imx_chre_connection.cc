@@ -140,7 +140,7 @@ bool ImxChreConnection::init() {
           /* timeoutMs= */ std::chrono::milliseconds(10000));
       LOGW("SCP restarted! CHRE recover time: %" PRIu64 "ms.",
            ::android::elapsedRealtime() - startTime);
-      chreConnection->getCallback()->onChreRestarted();
+      chreConnection->getCallback()->onChreReconnected();
     } else if (chreCurrentState == SCP_CHRE_START && chreNextState == SCP_CHRE_STOP) {
       chreConnection->getCallback()->onChreDisconnected();
     }

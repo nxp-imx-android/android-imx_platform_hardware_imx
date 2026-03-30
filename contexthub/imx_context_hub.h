@@ -33,7 +33,7 @@ class ImxContextHub : public MultiClientContextHubBase {
   ImxContextHub();
 
  protected:
-  void onChreRestarted() override;
+  void onChreReconnected(bool chreRestarted = true) override;
   void onChreDisconnected() override;
   const std::string kPreloadedNanoappsConfigPath =
       "/vendor/etc/chre/preloaded_nanoapps.json";
