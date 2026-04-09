@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2025 NXP.
+ *  Copyright 2020-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -24,12 +24,7 @@
 #include "CameraConfigurationParser.h"
 #include "CameraMetadata.h"
 #include "CameraUtils.h"
-#include "libcamera/camera.h"
-#include "libcamera/camera_manager.h"
-#include "libcamera/formats.h"
-#include "libcamera/framebuffer.h"
-#include "libcamera/pixel_format.h"
-#include "libcamera/request.h"
+#include "CameraWrapper.h"
 
 namespace android {
 
@@ -50,7 +45,7 @@ using namespace cameraconfigparser;
 
 class CameraDeviceHwlImpl : public CameraDeviceHwl {
 public:
-    static std::unique_ptr<CameraDeviceHwl> Create(std::shared_ptr<libcamera::Camera> &camera,
+    static std::unique_ptr<CameraDeviceHwl> Create(CameraWrapper *pCamWrap,
                                                    uint32_t camera_id, ImxEngine cam_copy_hw,
                                                    ImxEngine cam_csc_hw, const char *hw_jpeg,
                                                    int use_cpu_encoder,
@@ -83,7 +78,7 @@ public:
             CameraBufferAllocatorHwl *camera_allocator_hwl,
             std::unique_ptr<CameraDeviceSessionHwl> *session) override;
 
-    std::shared_ptr<libcamera::Camera> &GetCamera() { return camera_; };
+    CameraWrapper* GetCameraWrapper() { return mCamWrap; };
 
     bool IsStreamCombinationSupported(const StreamConfiguration &stream_config, const bool check_settings) const override;
 
@@ -117,7 +112,7 @@ protected:
     bool PickResByMetaData(int width, int height);
 
 private:
-    virtual status_t Initialize(std::shared_ptr<libcamera::Camera> &camera);
+    virtual status_t Initialize(CameraWrapper *pLibCamWrap);
     virtual status_t initSensorStaticData();
     static bool FoundResoulution(int width, int height, int *resArray, int size);
 
@@ -131,7 +126,7 @@ private:
     HwlCameraProviderCallback mCallback;
 
     // libcamera::Mutex stateMutex_;
-    std::shared_ptr<libcamera::Camera> camera_;
+    CameraWrapper *mCamWrap = NULL;
 
 public:
     CameraMetadata *m_meta = nullptr;
@@ -147,7 +142,6 @@ public:
     int mTargetFpsRange[MAX_FPS_RANGE];
     int mMaxWidth = 0;
     int mMaxHeight = 0;
-    libcamera::StreamFormats mSupportedFormats;
 
     // vpu and capture limitation.
     int mVpuSupportFmt[MAX_VPU_SUPPORT_FORMAT];

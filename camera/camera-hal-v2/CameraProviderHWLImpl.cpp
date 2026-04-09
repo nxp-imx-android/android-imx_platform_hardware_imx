@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2025 NXP.
+ *  Copyright 2020-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@
 #include "ImageProcess.h"
 #include "VendorTags.h"
 #include "vendor_tag_defs.h"
+#include "CameraWrapper.h"
 
 namespace android {
 std::unique_ptr<CameraProviderHwlImpl> CameraProviderHwlImpl::Create() {
@@ -216,7 +217,7 @@ status_t CameraProviderHwlImpl::GetVisibleCameraIds(std::vector<std::uint32_t>* 
 
 status_t CameraProviderHwlImpl::CreateCameraDeviceHwl(
         uint32_t camera_id, std::unique_ptr<CameraDeviceHwl>* camera_device_hwl) {
-    std::shared_ptr<libcamera::Camera> camera = nullptr;
+    CameraWrapper *pCamWrap = NULL;
 
     if (camera_device_hwl == nullptr) {
         ALOGE("%s: camera_device_hwl is nullptr.", __func__);
@@ -229,8 +230,8 @@ status_t CameraProviderHwlImpl::CreateCameraDeviceHwl(
         return BAD_VALUE;
     }
 
-    camera = cameraIdMap_[camera_id];
-    if (camera == NULL) {
+    pCamWrap = cameraIdMap_[camera_id];
+    if (pCamWrap->camera_ == NULL) {
         ALOGE("%s: unexpected, cameraIdMap_[%u] is NULL", __func__, camera_id);
         return BAD_VALUE;
     }
@@ -272,7 +273,7 @@ status_t CameraProviderHwlImpl::CreateCameraDeviceHwl(
     }
 
     *camera_device_hwl =
-            CameraDeviceHwlImpl::Create(camera, camera_id, mCameraDef.cam_blit_copy_hw,
+            CameraDeviceHwlImpl::Create(pCamWrap, camera_id, mCameraDef.cam_blit_copy_hw,
                                         mCameraDef.cam_blit_csc_hw, mCameraDef.jpeg_hw.c_str(),
                                         mCameraDef.mUseCpuEncoder, &cam_metadata,
                                         std::move(target_physical_devices), mCallback);
@@ -423,7 +424,8 @@ void CameraProviderHwlImpl::cameraAdded(std::shared_ptr<libcamera::Camera> camer
         return;
     }
 
-    cameraIdMap_[static_cast<uint32_t>(cameraId)] = camera;
+    CameraWrapper *pCamWrap = new CameraWrapper(camera);
+    cameraIdMap_[static_cast<uint32_t>(cameraId)] = pCamWrap;
 
     ALOGI("%s: add id %d, camera num %lu", __func__, cameraId, cameraIdMap_.size());
 
@@ -434,10 +436,12 @@ void CameraProviderHwlImpl::cameraRemoved(std::shared_ptr<libcamera::Camera> cam
     ALOGI("%s: %s", __func__, camera->id().c_str());
 
     int32_t cameraId = -1;
+    CameraWrapper *pCamWrap = NULL;
 
     for (auto& t : cameraIdMap_) {
-        if (t.second.get() == camera.get()) {
+        if (t.second->camera_.get() == camera.get()) {
             cameraId = t.first;
+            pCamWrap = t.second;
             break;
         }
     }
@@ -447,6 +451,7 @@ void CameraProviderHwlImpl::cameraRemoved(std::shared_ptr<libcamera::Camera> cam
         return;
     }
 
+    delete pCamWrap;
     cameraIdMap_.erase(cameraId);
 
     ALOGI("%s: erase cameraId %u, camera num %lu", __func__, cameraId, cameraIdMap_.size());

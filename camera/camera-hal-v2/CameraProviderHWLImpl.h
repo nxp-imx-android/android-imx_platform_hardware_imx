@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2024 NXP.
+ *  Copyright 2020-2024, 2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -27,11 +27,7 @@
 #include "CameraConfigurationParser.h"
 #include "CameraMetadata.h"
 #include "CameraUtils.h"
-#include "libcamera/camera.h"
-#include "libcamera/camera_manager.h"
-#include "libcamera/framebuffer.h"
-#include "libcamera/pixel_format.h"
-#include "libcamera/request.h"
+#include "CameraWrapper.h"
 
 namespace android {
 
@@ -130,7 +126,7 @@ private:
     std::map<uint32_t, CameraDeviceHwl*> device_map;
 
     std::unique_ptr<libcamera::CameraManager> cameraManager_;
-    std::map<uint32_t, std::shared_ptr<libcamera::Camera>> cameraIdMap_;
+    std::map<uint32_t, CameraWrapper *> cameraIdMap_;
 };
 
 extern "C" CameraProviderHwl* CreateCameraProviderHwl() {

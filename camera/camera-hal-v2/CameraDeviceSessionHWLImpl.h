@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2025 NXP.
+ *  Copyright 2020-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -236,6 +236,8 @@ private:
     void ReturnFrameBufferLocked();
     status_t queueRequestToLibcameraLocked(HalCameraMetadata *cameraMeta);
     void ISPProcess(HalCameraMetadata *cameraMeta, libcamera::Request *request);
+    status_t PrepareLibcamera();
+    status_t AllocLibcameraBuffer();
 
 public:
     CameraSensorMetadata *getSensorData() { return &mSensorData; }
@@ -308,22 +310,11 @@ private:
     uint64_t mDeQueRequestIdx = 0;
     std::unique_ptr<ISPWrapper> m_IspWrapper;
 
-    enum CameraState {
-        Stopped,
-        Flushing,
-        Running,
-    };
-    CameraState state_;
-    std::shared_ptr<libcamera::Camera> camera_;
-    libcamera::StreamFormats mSupportedFormats;
-    libcamera::Stream *mLibCameraStream = NULL;
+    CameraWrapper *mCamWrap = NULL;
     std::list<std::unique_ptr<libcamera::FrameBuffer>> mFrameBuffersFree;
     std::list<std::unique_ptr<libcamera::FrameBuffer>> mFrameBuffersBusy;
     std::list<std::unique_ptr<libcamera::Request>> requestList;
     std::map<libcamera::FrameBuffer *, ImxImageBuffer> mFrameBufferHandleMap;
-    android_pixel_format_t m_libcamera_stream_format = HAL_PIXEL_FORMAT_YCBCR_422_I;
-    uint32_t m_libcamera_stream_width = 0;
-    uint32_t m_libcamera_stream_height = 0;
 
     uint8_t mCaptureIntent = -1;
     bool m_bConfigLibcameraByIntent = false;

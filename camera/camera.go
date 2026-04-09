@@ -1,5 +1,5 @@
 /*
- *  Copyright 2023-2024 NXP.
+ *  Copyright 2023-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -77,6 +77,7 @@ func cameraDefaults(ctx android.LoadHookContext) {
 		p.Target.Android.Srcs = append(p.Target.Android.Srcs, "./camera-hal-v2/CameraDeviceHWLImpl.cpp")
 		p.Target.Android.Srcs = append(p.Target.Android.Srcs, "./camera-hal-v2/CameraDeviceSessionHWLImpl.cpp")
 		p.Target.Android.Srcs = append(p.Target.Android.Srcs, "./camera-hal-v2/ISPWrapper.cpp")
+		p.Target.Android.Srcs = append(p.Target.Android.Srcs, "./camera-hal-v2/CameraWrapper.cpp")
 		p.Target.Android.Include_dirs = append(p.Target.Android.Include_dirs, "vendor/nxp-opensource/imx/camera/camera-hal-v2")
 		p.Target.Android.Include_dirs = append(p.Target.Android.Include_dirs, "vendor/nxp-opensource/libcamera/prebuilt-android/include")
 		p.Target.Android.Shared_libs = append(p.Target.Android.Shared_libs, "libcamera")

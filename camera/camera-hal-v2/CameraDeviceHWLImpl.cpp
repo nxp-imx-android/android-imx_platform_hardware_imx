@@ -29,12 +29,12 @@
 namespace android {
 
 std::unique_ptr<CameraDeviceHwl> CameraDeviceHwlImpl::Create(
-        std::shared_ptr<libcamera::Camera> &camera, uint32_t camera_id, ImxEngine cam_copy_hw,
+        CameraWrapper *pCamWrap, uint32_t camera_id, ImxEngine cam_copy_hw,
         ImxEngine cam_csc_hw, const char *hw_jpeg, int use_cpu_encoder,
         CameraSensorMetadata *cam_metadata, PhysicalDeviceMapPtr physical_devices,
         HwlCameraProviderCallback &callback) {
-    ALOGI("%s: id %d, hw_jpeg %s, camera %p, %s", __func__, camera_id, hw_jpeg, camera.get(),
-          camera->id().c_str());
+    ALOGI("%s: id %d, hw_jpeg %s, camera %p, %s", __func__, camera_id, hw_jpeg, pCamWrap->camera_.get(),
+          pCamWrap->camera_->id().c_str());
 
     CameraDeviceHwlImpl *device = NULL;
 
@@ -46,7 +46,7 @@ std::unique_ptr<CameraDeviceHwl> CameraDeviceHwlImpl::Create(
         return nullptr;
     }
 
-    status_t res = device->Initialize(camera);
+    status_t res = device->Initialize(pCamWrap);
     if (res != OK) {
         ALOGE("%s: Initializing CameraDeviceHwlImpl failed: %s (%d).", __func__, strerror(-res),
               res);
@@ -90,17 +90,13 @@ CameraDeviceHwlImpl::~CameraDeviceHwlImpl() {
         delete m_meta;
         m_meta = NULL;
     }
-
-    if (camera_) {
-        camera_.reset();
-    }
 }
 
-status_t CameraDeviceHwlImpl::Initialize(std::shared_ptr<libcamera::Camera> &camera) {
+status_t CameraDeviceHwlImpl::Initialize(CameraWrapper *pCamWrap) {
     ALOGI("enter %s, this %p", __func__, this);
 
-    camera_ = camera;
-    if (camera_ == nullptr) {
+    mCamWrap = pCamWrap;
+    if ((mCamWrap == nullptr) || (mCamWrap->camera_ == nullptr)){
         ALOGE("%s:  camera null", __func__);
         return BAD_VALUE;
     }
@@ -286,15 +282,15 @@ status_t CameraDeviceHwlImpl::initSensorStaticData() {
 
     // store supported formats
     std::unique_ptr<libcamera::CameraConfiguration> config;
-    config = camera_->generateConfiguration({libcamera::StreamRole::Viewfinder});
+    config = mCamWrap->camera_->generateConfiguration({libcamera::StreamRole::Viewfinder});
     if (config == NULL) {
         ALOGE("%s: generateConfiguration for Viewfinder failed", __func__);
         return BAD_VALUE;
     }
 
-    mSupportedFormats = config->at(0).formats();
+    mCamWrap->mSupportedFormats = config->at(0).formats();
 
-    std::vector<libcamera::Size> yuyv_sizes = mSupportedFormats.sizes(libcamera::formats::YUYV);
+    std::vector<libcamera::Size> yuyv_sizes = mCamWrap->mSupportedFormats.sizes(libcamera::formats::YUYV);
     for (auto size : yuyv_sizes) ALOGI("%s: yuyv size %s", __func__, size.toString().c_str());
 
     return NO_ERROR;
@@ -417,6 +413,7 @@ status_t CameraDeviceHwlImpl::DumpState(int /*fd*/) {
 status_t CameraDeviceHwlImpl::CreateCameraDeviceSessionHwl(
         CameraBufferAllocatorHwl * /*camera_allocator_hwl*/,
         std::unique_ptr<CameraDeviceSessionHwl> *session) {
+    ALOGI("CreateCameraDeviceSessionHwl, this %p", this);
     if (session == nullptr) {
         ALOGE("%s: session is nullptr.", __func__);
         return BAD_VALUE;
