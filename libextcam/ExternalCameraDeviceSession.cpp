@@ -504,9 +504,9 @@ ScopedAStatus ExternalCameraDeviceSession::configureStreams(
         flagBufferUsage = ((int64_t)in_requestedConfiguration.streams[i].usage) |
                 ((int64_t)BufferUsage::CPU_WRITE_OFTEN) | ((int64_t)BufferUsage::CAMERA_OUTPUT);
 
-        if (strcmp(socType, "imx95") == 0) {
-            flagBufferUsage |= GRALLOC_USAGE_PRIVATE_3;
-        }
+        // Currently, ensure the memory that allocated on Mali is contiguous.
+        flagBufferUsage |= GRALLOC_USAGE_PRIVATE_3;
+
         mStreamMap[in_requestedConfiguration.streams[i].id].usage = out[i].producerUsage =
                 static_cast<BufferUsage>(flagBufferUsage);
         out[i].consumerUsage = static_cast<BufferUsage>(0);
