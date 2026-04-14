@@ -457,6 +457,19 @@ bool CameraDeviceHwlImpl::IsStreamCombinationSupported(const StreamConfiguration
 }
 
 void CameraDeviceHwlImpl::WarmUp() {
+    ALOGI("CameraDeviceHwlImpl::WarmUp() called, this %p", this);
+
+    // ap1302 can capture only 1280x800 from libcamera, so do warmup for it.
+    if (strstr(mSensorData.camera_name, "ap1302") == NULL)
+        return;
+
+    mCamWrap->camera_->acquire();
+    int ret = mCamWrap->ConfigAndStart(mSensorData.mLibcameraBuffers, mMaxWidth, mMaxHeight);
+    if (ret) {
+        ALOGW("%s: ConfigAndStart failed, ret %d", __func__, ret);
+    }
+
+    return;
 }
 
 bool CameraDeviceHwlImpl::StreamCombJudge(const StreamConfiguration &stream_config,
