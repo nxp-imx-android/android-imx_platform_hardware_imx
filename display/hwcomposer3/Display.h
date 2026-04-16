@@ -162,7 +162,9 @@ public:
     common::PixelFormat getFormat() { return mFbFormat; }
     FencedBuffer& getClientTarget() { return mClientTarget; }
     FencedBuffer& getOutputBuffer() { return mOutputBuffer; }
-    buffer_handle_t waitAndGetClientTargetBuffer();
+    buffer_handle_t waitAndGetReadbackBuffer() { return waitAndGetFencedBuffer(mReadbackBuffer); }
+    buffer_handle_t waitAndGetClientTargetBuffer() { return waitAndGetFencedBuffer(mClientTarget); }
+    void setReadbackFence(int fd) { mReadbackFence = ::android::base::unique_fd(fd); }
     ClientTargetProperty& getClientTargetProperty();
 
     const std::vector<Layer*>& getOrderedLayers() { return mOrderedLayers; }
@@ -180,6 +182,7 @@ private:
     DisplayConfig* getConfig(int32_t configId);
 
     std::optional<int32_t> getBootConfigId();
+    buffer_handle_t waitAndGetFencedBuffer(FencedBuffer& fencedBuffer);
 
     void setLegacyEdid();
     bool mIsLegacyEdid = false;
@@ -202,6 +205,7 @@ private:
     FencedBuffer mClientTarget;
     FencedBuffer mOutputBuffer;
     FencedBuffer mReadbackBuffer;
+    ::android::base::unique_fd mReadbackFence;
     // Will only be non-null after the Display has been validated and
     // before it has been accepted.
     enum class PresentFlowState {

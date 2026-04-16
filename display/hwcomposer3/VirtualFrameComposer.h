@@ -50,8 +50,10 @@ public:
 
     HWC3::Error onDisplayClientTargetSet(Display* display) override;
     HWC3::Error onDisplayOutputBufferSet(Display* display) override;
+    HWC3::Error onDisplayReadbackBufferSet(Display* display) override;
     HWC3::Error onActiveConfigChange(Display* display, int32_t configId) override;
 
+    bool isG2dComposerValid() override { return mG2dComposer->isValid(); }
     // Determines if this composer can compose the given layers on the given
     // display and requests changes for layers that can't not be composed.
     HWC3::Error validateDisplay(Display* display, DisplayChanges* outChanges) override;
@@ -104,6 +106,7 @@ private:
         bool forceHwcCopy;
         buffer_handle_t clientBuffer; // GPU composition result
         HandleInfo clientInfo;
+        bool readback;
     };
     struct ValidatedLayers {
         std::vector<Layer*> layersForComposition;

@@ -48,19 +48,18 @@ public:
     HWC3::Error init(std::shared_ptr<DeviceComposer>& g2d) override;
 
     HWC3::Error registerOnHotplugCallback(const HotplugCallback& cb) override;
-
     HWC3::Error unregisterOnHotplugCallback() override;
 
     HWC3::Error onDisplayCreate(Display* display) override;
-
     HWC3::Error onDisplayDestroy(Display* display) override;
-
     HWC3::Error onDisplayLayerDestroy(Display* display, Layer* layer) override;
 
     HWC3::Error onDisplayClientTargetSet(Display* display) override;
     HWC3::Error onDisplayOutputBufferSet(Display* display) override { return HWC3::Error::None; }
+    HWC3::Error onDisplayReadbackBufferSet(Display* display) override;
     HWC3::Error onActiveConfigChange(Display* display, int32_t configId) override;
 
+    bool isG2dComposerValid() override { return mG2dComposer->isValid(); }
     // Determines if this composer can compose the given layers on the given
     // display and requests changes for layers that can't not be composed.
     HWC3::Error validateDisplay(Display* display, DisplayChanges* outChanges) override;
@@ -103,6 +102,7 @@ private:
         // will try to present this lucky layer when no client target set in 3D composition
         // VTS case use such method to present, add it to avoid VTS case fail.
         Layer* luckyLayer;
+        bool readback; // indicate if readback buffer set
     };
     std::unordered_map<int64_t, DisplayBuffer> mDisplayBuffers;
     std::unordered_map<int64_t, ValidatedLayers> mDisplayLayers;

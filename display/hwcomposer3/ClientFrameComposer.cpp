@@ -376,6 +376,20 @@ HWC3::Error ClientFrameComposer::onDisplayClientTargetSet(Display* display) {
     return HWC3::Error::None;
 }
 
+HWC3::Error ClientFrameComposer::onDisplayReadbackBufferSet(Display* display) {
+    const auto displayId = display->getId();
+    DEBUG_LOG("%s display:%d", __FUNCTION__, displayId);
+
+    auto it = mDisplayBuffers.find(displayId);
+    if (it == mDisplayBuffers.end()) {
+        ALOGE("%s: display:%d missing display buffers?", __FUNCTION__, displayId);
+        return HWC3::Error::BadDisplay;
+    }
+    mDisplayLayers[displayId].readback = true;
+
+    return HWC3::Error::None;
+}
+
 HWC3::Error ClientFrameComposer::onActiveConfigChange(Display* display, int32_t configId) {
     const auto displayId = display->getId();
     DEBUG_LOG("%s display:%d", __FUNCTION__, displayId);
@@ -571,9 +585,10 @@ HWC3::Error ClientFrameComposer::presentDisplay(
     auto& layersForPrivate = mDisplayLayers[displayId].layersForNxpPrivate;
     auto& compositionResultPlaneId = mDisplayLayers[displayId].compositionPlaneId;
     auto& luckyLayer = mDisplayLayers[displayId].luckyLayer;
+    auto& readback = mDisplayLayers[displayId].readback;
 
+    buffer_handle_t framebuffer = NULL; // the buffer handle that will be readback
 #ifdef DEBUG_DUMP_FRAME
-    buffer_handle_t dumpBuffer = NULL;
     prepare_dump_buffer(); // check property if need to dump or not
 #endif
     ::android::base::unique_fd fbInFence; // in fence of framebuffer that pass to DRM
@@ -686,14 +701,10 @@ HWC3::Error ClientFrameComposer::presentDisplay(
             return HWC3::Error::NoResources;
         }
         displayBuffer.clientTargetDrmBuffer = std::move(drmBuffer);
-#ifdef DEBUG_DUMP_FRAME
-        dumpBuffer = renderTarget;
-#endif
+        framebuffer = renderTarget;
     } else if (displayBuffer.clientTargetDrmBuffer) {
         fbInFence = std::move(display->getClientTarget().getFence());
-#ifdef DEBUG_DUMP_FRAME
-        dumpBuffer = display->getClientTarget().getBuffer();
-#endif
+        framebuffer = display->getClientTarget().getBuffer();
     } else if (luckyLayer != nullptr) {
         common::Rect rectFrame = luckyLayer->getDisplayFrame();
         common::Rect rectSource = luckyLayer->getSourceCropInt();
@@ -707,9 +718,7 @@ HWC3::Error ClientFrameComposer::presentDisplay(
         }
         displayBuffer.clientTargetDrmBuffer = drmBuffer;
         fbInFence = ::android::base::unique_fd(); // not need in fence
-#ifdef DEBUG_DUMP_FRAME
-        dumpBuffer = buffer;
-#endif
+        framebuffer = buffer;
     } else {
         fbInFence = ::android::base::unique_fd(); // not need in fence
     }
@@ -789,6 +798,20 @@ HWC3::Error ClientFrameComposer::presentDisplay(
     }
     *outDisplayFence = std::move(flushCompleteFence);
 
+    if (readback) {
+        buffer_handle_t cvtSrc = framebuffer;
+        buffer_handle_t cvtDst = display->waitAndGetReadbackBuffer();
+        HandleInfo cvtSrcInfo, cvtDstInfo;
+        if ((getInfoFromHandle(cvtSrc, &cvtSrcInfo) != 0) ||
+            (getInfoFromHandle(cvtDst, &cvtDstInfo) != 0))
+            return HWC3::Error::BadParameter;
+
+        mG2dComposer->convertBuffer(cvtSrc, &cvtSrcInfo, cvtDst, &cvtDstInfo, false);
+
+        display->setReadbackFence(dup(fbInFence.get()));
+        DEBUG_LOG("%s: display:%d process readback buffer", __FUNCTION__, displayId);
+    }
+
 #ifdef DEBUG_DUMP_FRAME
 #ifdef DEBUG_DUMP_LAYER_BUFFER
     const std::vector<Layer*>& layers = display->getOrderedLayers();
@@ -804,7 +827,7 @@ HWC3::Error ClientFrameComposer::presentDisplay(
             ALOGE("%s waited on g2d fence %" PRId32 " for 3000 ms", __FUNCTION__, fbInFence.get());
         }
     }
-    debug_dump_framebuffer(dumpBuffer);
+    debug_dump_framebuffer(framebuffer);
 #endif
 
     displayBuffer.clientTargetDrmBuffer = nullptr;
@@ -815,6 +838,7 @@ HWC3::Error ClientFrameComposer::presentDisplay(
     layersForPrivate.clear();
     compositionResultPlaneId = std::nullopt;
     luckyLayer = nullptr;
+    readback = false;
 
     return flushError;
 }

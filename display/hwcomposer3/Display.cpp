@@ -406,14 +406,32 @@ HWC3::Error Display::getPerFrameMetadataKeys(std::vector<PerFrameMetadataKey>* o
 HWC3::Error Display::getReadbackBufferAttributes(ReadbackBufferAttributes* outAttributes) {
     DEBUG_LOG("%s: hwc display:%" PRId64, __FUNCTION__, mId);
 
-    outAttributes->format = common::PixelFormat::RGBA_8888;
-    outAttributes->dataspace = common::Dataspace::UNKNOWN;
+    ClientTargetProperty targetProperty;
+    if ((mComposer == nullptr) || !mComposer->isG2dComposerValid() ||
+        (mComposer->getClientTargetProperty(this, &targetProperty) != HWC3::Error::None)) {
+        ALOGE("%s: hwc display:%" PRId64 " get client target property failed", __FUNCTION__, mId);
 
-    return HWC3::Error::Unsupported;
+        outAttributes->format = common::PixelFormat::RGBA_8888;
+        outAttributes->dataspace = common::Dataspace::UNKNOWN;
+        return HWC3::Error::Unsupported;
+    }
+
+    outAttributes->format = targetProperty.pixelFormat;
+    outAttributes->dataspace = targetProperty.dataspace;
+
+    DEBUG_LOG("%s: readback buffer attribute:%s", __FUNCTION__, outAttributes->toString().c_str());
+    return HWC3::Error::None;
 }
 
-HWC3::Error Display::getReadbackBufferFence(ndk::ScopedFileDescriptor* /*outAcquireFence*/) {
+HWC3::Error Display::getReadbackBufferFence(ndk::ScopedFileDescriptor* outAcquireFence) {
     DEBUG_LOG("%s: hwc display:%" PRId64, __FUNCTION__, mId);
+
+    if (mReadbackFence.ok()) {
+        int fd = mReadbackFence.release();
+        *outAcquireFence = ndk::ScopedFileDescriptor(fd);
+        DEBUG_LOG("%s: readback fence:%d", __FUNCTION__, fd);
+        return HWC3::Error::None;
+    }
 
     return HWC3::Error::Unsupported;
 }
@@ -721,10 +739,17 @@ HWC3::Error Display::setPowerMode(PowerMode mode) {
 HWC3::Error Display::setReadbackBuffer(const buffer_handle_t buffer,
                                        const ndk::ScopedFileDescriptor& fence) {
     DEBUG_LOG("%s: hwc display:%" PRId64, __FUNCTION__, mId);
+    std::unique_lock<std::recursive_mutex> lock(mStateMutex);
 
     mReadbackBuffer.set(buffer, fence);
+    HWC3::Error error = mComposer->onDisplayReadbackBufferSet(this);
+    if (error != HWC3::Error::None) {
+        ALOGE("%s: hwc display:%" PRId64 " composer failed to set readback buffer", __FUNCTION__,
+              mId);
+        return error;
+    }
 
-    return HWC3::Error::Unsupported;
+    return HWC3::Error::None;
 }
 
 HWC3::Error Display::setVsyncEnabled(bool enabled) {
@@ -1022,10 +1047,10 @@ Layer* Display::getLayer(int64_t layerId) {
     return it->second.get();
 }
 
-buffer_handle_t Display::waitAndGetClientTargetBuffer() {
+buffer_handle_t Display::waitAndGetFencedBuffer(FencedBuffer& fencedBuffer) {
     DEBUG_LOG("%s: hwc display:%" PRId64, __FUNCTION__, mId);
 
-    ::android::base::unique_fd fence = mClientTarget.getFence();
+    ::android::base::unique_fd fence = fencedBuffer.getFence();
     if (fence.ok()) {
         int err = sync_wait(fence.get(), 3000);
         if (err < 0 && errno == ETIME) {
@@ -1033,7 +1058,7 @@ buffer_handle_t Display::waitAndGetClientTargetBuffer() {
         }
     }
 
-    return mClientTarget.getBuffer();
+    return fencedBuffer.getBuffer();
 }
 
 ClientTargetProperty& Display::getClientTargetProperty() {

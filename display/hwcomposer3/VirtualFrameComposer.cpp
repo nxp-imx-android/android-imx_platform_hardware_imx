@@ -149,6 +149,22 @@ HWC3::Error VirtualFrameComposer::onDisplayClientTargetSet(Display* display) {
     return HWC3::Error::None;
 }
 
+HWC3::Error VirtualFrameComposer::onDisplayReadbackBufferSet(Display* display) {
+    const auto displayId = display->getId();
+    DEBUG_LOG("%s display:%d", __FUNCTION__, displayId);
+
+    auto it = mDisplays.find(displayId);
+    if (it == mDisplays.end()) {
+        ALOGE("%s: Not find display %d", __FUNCTION__, displayId);
+        return HWC3::Error::BadDisplay;
+    }
+
+    auto& displayBuffer = mDisplays[displayId];
+    displayBuffer.readback = true;
+
+    return HWC3::Error::None;
+}
+
 HWC3::Error VirtualFrameComposer::onActiveConfigChange(Display* display, int32_t configId) {
     DEBUG_LOG("%s display:%d", __FUNCTION__, display->getId());
 

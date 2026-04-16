@@ -52,7 +52,9 @@ public:
 
     virtual HWC3::Error onDisplayClientTargetSet(Display* display) = 0;
     virtual HWC3::Error onDisplayOutputBufferSet(Display* display) = 0;
+    virtual HWC3::Error onDisplayReadbackBufferSet(Display* display) = 0;
 
+    virtual bool isG2dComposerValid() = 0;
     // Determines if this composer can compose the given layers and requests
     // changes for layers that can't not be composed.
     virtual HWC3::Error validateDisplay(Display* display, DisplayChanges* outChanges) = 0;
