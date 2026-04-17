@@ -37,6 +37,7 @@ cc_library {
         "primary/PrimaryMixer.cpp",
         "primary/StreamPrimary.cpp",
         "imx/StreamPrimaryImx.cpp",
+        "imx/ModulePrimaryImx.cpp",
         "r_submix/ModuleRemoteSubmix.cpp",
         "r_submix/SubmixRoute.cpp",
         "r_submix/StreamRemoteSubmix.cpp",
