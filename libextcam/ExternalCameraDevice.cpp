@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2022 The Android Open Source Project
- * Copyright 2023, 2025 NXP
+ * Copyright 2023, 2025-2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -370,6 +370,9 @@ status_t ExternalCameraDevice::initDefaultCharsKeys(
         ::android::hardware::camera::common::V1_0::helper::CameraMetadata* metadata) {
     const uint8_t hardware_level = ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL_EXTERNAL;
     UPDATE(ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL, &hardware_level, 1);
+
+    const uint8_t deviceType = ANDROID_INFO_DEVICE_TYPE_EXTERNAL;
+    UPDATE(ANDROID_INFO_DEVICE_TYPE, &deviceType, 1);
 
     // android.colorCorrection
     const uint8_t availableAberrationModes[] = {ANDROID_COLOR_CORRECTION_ABERRATION_MODE_OFF};
