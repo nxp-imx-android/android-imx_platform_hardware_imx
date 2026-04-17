@@ -28,6 +28,7 @@
 #include "core-impl/StreamPrimary.h"
 #include "core-impl/StreamStub.h"
 #include "core-impl/Telephony.h"
+#include "imx/StreamPrimaryImx.h"
 
 #include <media/stagefright/foundation/MediaDefs.h>
 #include "core-impl/AudioCardManager.h"
@@ -104,8 +105,8 @@ ndk::ScopedAStatus ModulePrimary::createInputStream(StreamContext&& context,
         return createStreamInstance<StreamInMmap>(result, std::move(context), sinkMetadata,
                                                       microphones);
     }
-    return createStreamInstance<StreamInPrimary>(result, std::move(context), sinkMetadata,
-                                                 microphones);
+    return createStreamInstance<StreamInPrimaryImx>(result, std::move(context), sinkMetadata,
+                                                    microphones);
 }
 
 ndk::ScopedAStatus ModulePrimary::createOutputStream(
@@ -150,8 +151,8 @@ ndk::ScopedAStatus ModulePrimary::createOutputStream(
         }
     }
 
-    return createStreamInstance<StreamOutPrimary>(result, std::move(context), sourceMetadata,
-                                                  offloadInfo);
+    return createStreamInstance<StreamOutPrimaryImx>(result, std::move(context), sourceMetadata,
+                                                      offloadInfo);
 }
 
 ndk::ScopedAStatus ModulePrimary::createMmapBuffer(const AudioPortConfig& portConfig,
