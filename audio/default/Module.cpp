@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2022 The Android Open Source Project
- * Copyright 2025 NXP
+ * Copyright 2025-2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@
 #include "core-impl/Module.h"
 #include "core-impl/ModuleBluetooth.h"
 #include "core-impl/ModulePrimary.h"
+#include "imx/ModulePrimaryImx.h"
 #include "core-impl/ModuleRemoteSubmix.h"
 #include "core-impl/ModuleStub.h"
 #include "core-impl/ModuleUsb.h"
@@ -114,7 +115,7 @@ bool findAudioProfile(const AudioPort& port, const AudioFormatDescription& forma
 std::shared_ptr<Module> Module::createInstance(Type type, std::unique_ptr<Configuration>&& config) {
     switch (type) {
         case Type::DEFAULT:
-            return ndk::SharedRefBase::make<ModulePrimary>(std::move(config));
+            return ndk::SharedRefBase::make<ModulePrimaryImx>(std::move(config));
         case Type::R_SUBMIX:
             return ndk::SharedRefBase::make<ModuleRemoteSubmix>(std::move(config));
         case Type::STUB:
