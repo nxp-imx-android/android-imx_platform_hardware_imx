@@ -62,6 +62,7 @@ namespace aidl::android::hardware::audio::core {
 StreamPrimaryImx::StreamPrimaryImx(StreamContext* context, const Metadata& metadata)
     : StreamPrimary(context, metadata) {
     mSavedConfig = mConfig;
+    property_get("ro.boot.soc_type", soc_name, NULL);
     auto flags = getContext().getFlags();
     if (flags.getTag() == AudioIoFlags::Tag::output) {
         if (isBitPositionFlagSet(flags.template get<AudioIoFlags::Tag::output>(),
@@ -427,6 +428,30 @@ void StreamPrimaryImx::shutdown() {
     StreamPrimary::shutdown();
 }
 
+ndk::ScopedAStatus StreamPrimaryImx::setConnectedDevices(const ConnectedDevices& devices) {
+    auto status = StreamPrimary::setConnectedDevices(devices);
+
+    static bool kSimulateInput = false;
+    if (0 == strcmp(soc_name, "imx8mq")) {
+        kSimulateInput = GetBoolProperty("ro.boot.audio.tinyalsa.simulate_input", true);
+    } else {
+        kSimulateInput = GetBoolProperty("ro.boot.audio.tinyalsa.simulate_input", false);
+    }
+
+    if (!devices.empty() && devices[0].type.type == AudioDeviceType::IN_HEADSET &&
+            devices[0].type.connection == AudioDeviceDescription::CONNECTION_BT_SCO)
+        kSimulateInput = false;
+
+    if (devices.empty())
+        kSimulateInput = true;
+
+    if (kSimulateInput) {
+        std::lock_guard l(mLock);
+        mAlsaDeviceId = kStubDeviceId;
+    }
+    return status;
+}
+
 std::vector<alsa::DeviceProfile> StreamPrimaryImx::getDeviceProfiles() {
     std::vector<alsa::DeviceProfile> deviceProfile{
         alsa::DeviceProfile{.card = 0,
@@ -462,8 +487,6 @@ std::vector<alsa::DeviceProfile> StreamPrimaryImx::getDeviceProfiles() {
             LOG(INFO) << __func__ << ": Convert channels.";
         }
 
-        char soc_name[PROPERTY_VALUE_MAX];
-        property_get("ro.boot.soc_type", soc_name, NULL);
         if ((property_get_int32("vendor.persist.audio.pass.through", 0) == 2000) &&
                 ((0 == strcmp(soc_name, "imx8mp")) || (0 == strcmp(soc_name, "imx8ulp")))) {
             mIsS16ToS24 = true;

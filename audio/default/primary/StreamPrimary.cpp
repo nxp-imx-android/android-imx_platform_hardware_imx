@@ -24,7 +24,6 @@
 #include <audio_utils/clock.h>
 #include <error/Result.h>
 #include <error/expected_utils.h>
-#include <cutils/properties.h>
 
 #include "core-impl/StreamPrimary.h"
 
@@ -195,21 +194,10 @@ StreamPrimary::AlsaDeviceId StreamPrimary::getCardAndDeviceId(
 // static
 bool StreamPrimary::useStubStream(
         bool isInput, const ::aidl::android::media::audio::common::AudioDevice& device) {
-    static bool kSimulateInput = false;
-    char soc_name[PROPERTY_VALUE_MAX];
-    property_get("ro.boot.soc_type", soc_name, NULL);
-    if (0 == strcmp(soc_name, "imx8mq")) {
-        kSimulateInput = GetBoolProperty("ro.boot.audio.tinyalsa.simulate_input", true);
-    } else {
-        kSimulateInput = GetBoolProperty("ro.boot.audio.tinyalsa.simulate_input", false);
-    }
-
+    static const bool kSimulateInput =
+            GetBoolProperty("ro.boot.audio.tinyalsa.simulate_input", false);
     static const bool kSimulateOutput =
             GetBoolProperty("ro.boot.audio.tinyalsa.ignore_output", false);
-    if (device.type.type == AudioDeviceType::IN_HEADSET &&
-            device.type.connection == AudioDeviceDescription::CONNECTION_BT_SCO)
-        return false;
-
     if (isInput) {
         return kSimulateInput || device.type.type == AudioDeviceType::IN_TELEPHONY_RX ||
                device.type.type == AudioDeviceType::IN_FM_TUNER ||

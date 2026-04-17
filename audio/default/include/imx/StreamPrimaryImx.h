@@ -24,6 +24,7 @@
 #include "core-impl/StreamPrimary.h"
 #include "core-impl/AudioCardManager.h"
 #include <audio_utils/resampler.h>
+#include <cutils/properties.h>
 
 namespace aidl::android::hardware::audio::core {
 
@@ -42,12 +43,16 @@ class StreamPrimaryImx : public StreamPrimary {
     ::android::status_t refinePosition(StreamDescriptor::Position* position) override;
     void shutdown() override;
 
+    // Overridden methods of 'StreamCommonImpl', called on a Binder thread.
+    ndk::ScopedAStatus setConnectedDevices(const ConnectedDevices& devices) override;
+
   protected:
     std::vector<alsa::DeviceProfile> getDeviceProfiles() override;
 
     void tryStart();
     void stop();
 
+    char soc_name[PROPERTY_VALUE_MAX];
     int16_t mStartRetryCount = 0;
     const int16_t kMaxStartRetryCount = 8;
     bool mIsStereoToMono = false;
