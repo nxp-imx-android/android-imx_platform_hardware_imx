@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020, 2025 NXP.
+ *  Copyright 2020, 2025-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -366,6 +366,9 @@ status_t CameraMetadata::createMetadata(CameraDeviceHwlImpl *pDev,
         lensFacing = ANDROID_LENS_FACING_FRONT;
 
     m_static_meta->Set(ANDROID_LENS_FACING, &lensFacing, 1);
+
+    uint8_t deviceType = ANDROID_INFO_DEVICE_TYPE_BUILT_IN;
+    m_static_meta->Set(ANDROID_INFO_DEVICE_TYPE, &deviceType, 1);
 
     int ResIdx = 0;
     int ResCount = 0;
