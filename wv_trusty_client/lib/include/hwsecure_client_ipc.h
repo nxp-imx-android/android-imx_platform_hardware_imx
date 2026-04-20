@@ -39,7 +39,7 @@ struct hwsecure_client_req {
 
 struct hwsecure_client_resp {
     uint32_t cmd;
-    uint32_t result;
+    int32_t result;
     union secure_mode {
         uint32_t g2d_secure_mode;
         uint32_t secureime_secure_mode;
