@@ -568,11 +568,6 @@ status_t CameraMetadata::createMetadata(CameraDeviceHwlImpl *pDev,
                                                      ANDROID_HOT_PIXEL_MODE_HIGH_QUALITY};
     m_static_meta->Set(ANDROID_HOT_PIXEL_AVAILABLE_HOT_PIXEL_MODES, availableHotPixelModes,
                        ARRAY_SIZE(availableHotPixelModes));
-
-    static const int32_t session_keys[] = {ANDROID_CONTROL_VIDEO_STABILIZATION_MODE,
-                                           ANDROID_CONTROL_AE_TARGET_FPS_RANGE};
-    m_static_meta->Set(ANDROID_REQUEST_AVAILABLE_SESSION_KEYS, session_keys,
-                       ARRAY_SIZE(session_keys));
 #endif
 
     int32_t availableResultKeys[] = {ANDROID_SENSOR_TIMESTAMP, ANDROID_FLASH_STATE,
