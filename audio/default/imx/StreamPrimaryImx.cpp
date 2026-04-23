@@ -445,7 +445,7 @@ ndk::ScopedAStatus StreamPrimaryImx::setConnectedDevices(const ConnectedDevices&
     if (devices.empty())
         kSimulateInput = true;
 
-    if (kSimulateInput) {
+    if (kSimulateInput && mIsInput) {
         std::lock_guard l(mLock);
         mAlsaDeviceId = kStubDeviceId;
     }
