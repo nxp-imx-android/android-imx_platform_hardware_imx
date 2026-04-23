@@ -41,6 +41,11 @@ static int hwsecure_client_smc_call(uint32_t cmd, void* rsp, uint32_t rsp_len) {
 
     struct hwsecure_client_req* req =
             (struct hwsecure_client_req*)malloc(sizeof(struct hwsecure_client_req));
+    if (!req) {
+        ALOGE("Failed to allocate memory for hwsecure_client_req");
+        return -ENOMEM;
+    }
+
     req->cmd = cmd;
 
     struct iovec in_iov[1] = {
