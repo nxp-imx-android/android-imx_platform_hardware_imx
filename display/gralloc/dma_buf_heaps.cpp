@@ -30,6 +30,7 @@
 #include <sys/mman.h>
 
 #include <algorithm>
+#include <atomic>
 #include <vector>
 
 #include "driver_utils.h"
@@ -252,8 +253,38 @@ bool allocator_supports_protected_memory(uint64_t usage) {
     return protected_heap_supported;
 }
 
+class DmabufImxDevice {
+private:
+    static std::atomic<int> cached_fd_;
+    static std::once_flag init_flag_;
+
+    static void initialize_device() {
+        int fd = open("/dev/dmabuf_imx", O_RDONLY | O_CLOEXEC);
+        if (fd < 0) {
+            ALOGE("Failed to open /dev/dmabuf_imx: %s", strerror(errno));
+        }
+        cached_fd_.store(fd, std::memory_order_release);
+    }
+
+public:
+    static int get_fd() {
+        std::call_once(init_flag_, initialize_device);
+        return cached_fd_.load(std::memory_order_acquire);
+    }
+
+    static void cleanup() {
+        int fd = cached_fd_.exchange(-1, std::memory_order_acq_rel);
+        if (fd >= 0) {
+            close(fd);
+        }
+    }
+};
+
+std::atomic<int> DmabufImxDevice::cached_fd_{-1};
+std::once_flag DmabufImxDevice::init_flag_;
+
 void allocator_close() {
-    /* nop */
+    DmabufImxDevice::cleanup();
 }
 
 int allocator_get_physical_address(gralloc_handle_t handle, uint64_t *addr) {
@@ -262,30 +293,25 @@ int allocator_get_physical_address(gralloc_handle_t handle, uint64_t *addr) {
         return -EINVAL;
     }
 
-    int fd = handle->fds[0];
-    if (fd < 0) {
+    int buffer_fd = handle->fds[0];
+    if (buffer_fd < 0) {
         ALOGE("%s: invalid fd", __func__);
         return -EINVAL;
     }
 
-    uint64_t phy_addr;
-    struct dmabuf_imx_phys_data data;
-    int fd_;
-    fd_ = open("/dev/dmabuf_imx", O_RDONLY | O_CLOEXEC);
-    if (fd_ < 0) {
-        ALOGE("%s: open /dev/dmabuf_imx failed: %s", __func__, strerror(errno));
+    int device_fd = DmabufImxDevice::get_fd();
+    if (device_fd < 0) {
+        ALOGE("%s: /dev/dmabuf_imx not available", __func__);
         return -EINVAL;
     }
-    data.dmafd = static_cast<uint32_t>(fd);
-    if (ioctl(fd_, DMABUF_GET_PHYS, &data) < 0) {
-        ALOGE("%s ioctl DMABUF_GET_PHYS failed", __func__);
-        close(fd_);
-        return -EINVAL;
-    } else {
-        phy_addr = data.phys;
-    }
-    close(fd_);
 
-    *addr = phy_addr;
+    struct dmabuf_imx_phys_data data;
+    data.dmafd = static_cast<uint32_t>(buffer_fd);
+    if (ioctl(device_fd, DMABUF_GET_PHYS, &data) < 0) {
+        ALOGE("%s: ioctl DMABUF_GET_PHYS failed: %s", __func__, strerror(errno));
+        return -EINVAL;
+    }
+
+    *addr = data.phys;
     return 0;
 }
