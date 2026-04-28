@@ -77,6 +77,10 @@ static bool IsCscSupportByCPU(int srcFormat, int dstFormat) {
         (srcFormat == HAL_PIXEL_FORMAT_YCbCr_420_888)) && (dstFormat == HAL_PIXEL_FORMAT_YV12))
         return true;
 
+    // bggr -> rgb888 -> nv12
+    if ((srcFormat == HAL_PIXEL_FORMAT_RAW16) && (dstFormat == HAL_PIXEL_FORMAT_YCBCR_420_888))
+        return true;
+
     return false;
 }
 
@@ -415,6 +419,12 @@ int ImageProcess::ConvertImage(ImxImageBuffer &dstBuf, ImxImageBuffer &srcBuf, I
             if (strstr(mSocType, "imx8mp")) {
                 engine = ENG_OCLCVT;
             }
+        }
+    }
+    if (srcBuf.mFormat == HAL_PIXEL_FORMAT_RAW16 &&
+        dstBuf.mFormat == HAL_PIXEL_FORMAT_YCBCR_420_888) {
+        if (strstr(mSocType, "imx8mp")) {
+            engine = ENG_CPU;
         }
     }
 
@@ -938,6 +948,22 @@ void ImageProcess::convertNV12toYV12(uint8_t *inputBuffer, uint8_t *outputBuffer
     }
 }
 
+void ImageProcess::convertBGGRtoNV12(uint8_t *inputBuffer, uint8_t *outputBuffer, int width,
+                                     int height) {
+    // Allocate temporary buffer for RGB888 intermediate format
+    int size = width * height * 3;
+    uint8_t *rgb888 = (uint8_t *)malloc(size);
+    if (rgb888 == NULL) {
+        ALOGE("%s:%d, Failed to allocate RGB888 buffer, size %d", __func__, __LINE__, size);
+        return;
+    }
+
+    SbggrToRgb888((const uint16_t *)inputBuffer, rgb888, width, height);
+    Rgb888ToNv12((const uint8_t *)rgb888, outputBuffer, width, height);
+
+    free(rgb888);
+}
+
 int ImageProcess::ConvertImageByGPU_3D(ImxImageBuffer &dstBuf, ImxImageBuffer &srcBuf) {
     // opencl g2d exists.
     if (mCLHandle == NULL) {
@@ -1142,6 +1168,10 @@ int ImageProcess::ConvertImageByCPU(ImxImageBuffer &dstBuf, ImxImageBuffer &srcB
                 (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888)) &&
                (dstBuf.mFormat == HAL_PIXEL_FORMAT_YV12)) {
         convertNV12toYV12((uint8_t *)srcBuf.mVirtAddr, (uint8_t *)dstBuf.mVirtAddr, dstBuf.mWidth,
+                          dstBuf.mHeight);
+    } else if ((srcBuf.mFormat == HAL_PIXEL_FORMAT_RAW16) &&
+               (dstBuf.mFormat == HAL_PIXEL_FORMAT_YCBCR_420_888)) {
+        convertBGGRtoNV12((uint8_t *)srcBuf.mVirtAddr, (uint8_t *)dstBuf.mVirtAddr, dstBuf.mWidth,
                           dstBuf.mHeight);
     } else {
         ALOGE("%s:%d should not enter here", __func__, __LINE__);
