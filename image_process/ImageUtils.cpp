@@ -713,6 +713,47 @@ void Rgb888ToYuv422i(const uint8_t *rgb, uint8_t *yuv422i, int width, int height
     return;
 }
 
+void Rgb888ToNv12(const uint8_t *rgb, uint8_t *nv12, int width, int height) {
+    if (rgb == NULL) {
+        ALOGE("%s: Error! rgb == NULL", __func__);
+        return;
+    }
+    if (nv12 == NULL) {
+        ALOGE("%s: Error! nv12 == NULL", __func__);
+        return;
+    }
+
+    if (((width & 0x1) != 0) || ((height & 0x1) != 0)) {
+        ALOGE("%s: width and height must be multiple of 2", __func__);
+        return;
+    }
+
+    uint8_t *y_plane = nv12;
+    uint8_t *uv_plane = nv12 + width * height;
+
+    int y, u, v;
+
+    for (int i = 0; i < height; i++) {
+        for (int j = 0; j < width; j++) {
+            uint8_t b = *rgb++;
+            uint8_t g = *rgb++;
+            uint8_t r = *rgb++;
+
+            RGB2YUV(r, g, b, y, u, v);
+
+            /* Y */
+            y_plane[i * width + j] = (uint8_t)y;
+
+            /* UV */
+            if ((i % 2 == 0) && (j % 2 == 0)) {
+                int uv_index = (i / 2) * width + j;
+                uv_plane[uv_index + 0] = (uint8_t)u;
+                uv_plane[uv_index + 1] = (uint8_t)v;
+            }
+        }
+    }
+}
+
 int convertPixelFormatToCLFormat(int format) {
     int clFormat = CL_G2D_NV12;
 
@@ -776,6 +817,9 @@ int convertPixelFormatToV4L2Format(int format, bool invert) {
             break;
         case HAL_PIXEL_FORMAT_RGB_888:
             nFormat = v4l2_fourcc('R', 'G', 'B', '3');
+            break;
+        case HAL_PIXEL_FORMAT_RAW16:
+            nFormat = v4l2_fourcc('B', 'G', '1', '0');
             break;
 
         default:

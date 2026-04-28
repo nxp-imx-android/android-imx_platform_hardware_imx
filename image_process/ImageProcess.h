@@ -81,6 +81,7 @@ private:
     void convertYUYVtoNV12SP(uint8_t* inputBuffer, uint8_t* outputBuffer, int width, int height,
                              int srcStride, int dstStride);
     void convertNV12toYV12(uint8_t* inputBuffer, uint8_t* outputBuffer, int width, int height);
+    void convertBGGRtoNV12(uint8_t* inputBuffer, uint8_t* outputBuffer, int width, int height);
     int resizeWrapper(ImxImageBuffer& src, ImxImageBuffer& dst, ImxEngine engine);
 
     void cl_Copy(void* g2dHandle, uint8_t* output, uint8_t* input, uint32_t size, bool bInputCached,
