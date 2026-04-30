@@ -27,7 +27,7 @@ soong_config_module_type {
 
 soong_config_string_variable {
     name: "BOARD_SOC_TYPE",
-    values: ["IMX95", "IMX8Q"],
+    values: ["IMX95", "IMX952", "IMX8Q"],
 }
 
 soong_config_string_variable {
@@ -39,7 +39,16 @@ IMXPLUGIN_cc_conditionals {
     name: "cc_conditionals_imx8_imx9",
     soong_config_variables: {
         BOARD_SOC_TYPE: {
-            IMX95: {
+            IMX8Q: {
+                srcs: [
+                    "src/v4l2/*.cpp",
+                    "//vendor/nxp-opensource/imx/camera:RouteMediactl_src"
+                ],
+                include_dirs: [
+                    "vendor/nxp-opensource/imx/camera/camera/include",
+                ],
+            },
+            conditions_default: {
                 cflags: ["-DUSE_LIBCAMERA"],
                 srcs: [
                     "src/libcamera/*.cpp"
@@ -52,15 +61,6 @@ IMXPLUGIN_cc_conditionals {
                     "vendor/nxp-opensource/libcamera/include",
                     "vendor/nxp-opensource/libcamera/prebuilt-android/include",
                     "vendor/nxp-opensource/libcamera/src/android",
-                ],
-            },
-            conditions_default: {
-                srcs: [
-                    "src/v4l2/*.cpp",
-                    "//vendor/nxp-opensource/imx/camera:RouteMediactl_src"
-                ],
-                include_dirs: [
-                    "vendor/nxp-opensource/imx/camera/camera/include",
                 ],
             },
         }
@@ -141,4 +141,4 @@ prebuilt_etc {
     sub_dir: "automotive/evs",
 }
 
-// The prebuilt_etc imx_evs_configuration.xml has been moved to device/nxp mek_8q and evk_95.
+// The prebuilt_etc imx_evs_configuration.xml has been moved to device/nxp mek_8q, evk_95 and evk_952.
