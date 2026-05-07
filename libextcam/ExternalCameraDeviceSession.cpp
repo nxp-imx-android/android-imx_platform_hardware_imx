@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2022 The Android Open Source Project
- * Copyright 2023-2025 NXP
+ * Copyright 2023-2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -3393,13 +3393,14 @@ int ExternalCameraDeviceSession::OutputThread::handleFrame(
     }
 
     // imx95 mxc-jpec-dec: 32bit aligned for width, 16-bit aligned for height.
-    if (srcWidth == 448) {
+    if (srcWidth == 192 && dstWidth == 176) {
+        srcValidWidth = 176;
+    } else if (srcWidth == 448) {
         if (dstWidth == 424)
             srcValidWidth = 424;
         else if (dstWidth == 432)
             srcValidWidth = 432;
-    }
-    if (srcWidth == 864 && dstWidth == 848) {
+    } else if (srcWidth == 864 && dstWidth == 848) {
         srcValidWidth = 848;
     }
 
