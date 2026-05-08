@@ -866,6 +866,12 @@ int DeviceComposer::setG2dSurface(struct g2d_surfaceEx& surfaceX, G2dBuffer& buf
             surface.planes[1] = surface.planes[0] + buff.infoPtr->offsets[1];
             break;
 
+        case G2D_NV12_P010:
+            // convert to pixel stride
+            surface.stride = static_cast<int>(buff.infoPtr->strides[0] / 2);
+            surface.planes[1] = surface.planes[0] + buff.infoPtr->offsets[1];
+            break;
+
         case G2D_I420:
         case G2D_YV12: {
             surface.stride = static_cast<int>(buff.infoPtr->strides[0]);
@@ -959,6 +965,9 @@ enum g2d_format DeviceComposer::convertFormat(uint32_t format, G2dBuffer& buff) 
 #endif
         case DRM_FORMAT_R8:
             halFormat = G2D_GRAY8;
+            break;
+        case DRM_FORMAT_P010:
+            halFormat = G2D_NV12_P010;
             break;
         default:
             ALOGE("%s: unsupported format:0x%x", __FUNCTION__, format);
@@ -1289,7 +1298,7 @@ bool DeviceComposer::checkDeviceComposition(Layer* layer) {
     }
 #endif
 #ifdef G2D_LIMITATION_DPU
-    if ((infoPtr->drm_format == DRM_FORMAT_P010) || (infoPtr->drm_format == DRM_FORMAT_P210)) {
+    if (infoPtr->drm_format == DRM_FORMAT_P210) {
         DEBUG_LOG("%s: g2d can't support 0x%x format", __FUNCTION__, infoPtr->drm_format);
         return false;
     }
