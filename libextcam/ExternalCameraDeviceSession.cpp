@@ -2433,7 +2433,9 @@ Status ExternalCameraDeviceSession::OutputThread::allocateIntermediateBuffers(
     for (const auto& stream : streams) {
         Size sz = {stream.width, stream.height};
         Size alignedV4lSize = {ALIGN_PIXEL_16(v4lSize.width), ALIGN_PIXEL_16(v4lSize.height)};
-
+        if (mUseHardwareDecoder && strstr(socType, "imx95")) {
+            alignedV4lSize = {ALIGN_PIXEL_32(v4lSize.width), ALIGN_PIXEL_16(v4lSize.height)};
+        }
         if (sz == alignedV4lSize) {
             continue; // Don't need an intermediate buffer same size as v4lBuffer
         }
@@ -2768,9 +2770,10 @@ int ExternalCameraDeviceSession::OutputThread::cropAndScaleLocked(
         return ret;
     }
 
-    if ((mCroppingType == VERTICAL && inSz.width == outSz.width) ||
-        (mCroppingType == HORIZONTAL && inSz.height == outSz.height)) {
-        // No scale is needed
+    if (inputCrop.width == static_cast<int32_t>(outSz.width) &&
+        inputCrop.height == static_cast<int32_t>(outSz.height) && inputCrop.left == 0 &&
+        inputCrop.top == 0) {
+        // No scale is needed when the inputCrop size equals the output size and starts from (0,0)
         *out = croppedLayout;
         return 0;
     }
