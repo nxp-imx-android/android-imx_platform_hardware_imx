@@ -872,6 +872,7 @@ int ImageProcess::ConvertImageByG2D(ImxImageBuffer &dstBuf, ImxImageBuffer &srcB
 
     if ((srcBuf.mFormat == dstBuf.mFormat) && (srcBuf.mWidth == dstBuf.mWidth) &&
         (srcBuf.mHeight == dstBuf.mHeight) && (srcBuf.mZoomRatio <= 1.0) &&
+        (srcBuf.mStride == dstBuf.mStride) && (srcBuf.mHeightSpan == dstBuf.mHeightSpan) &&
         (srcBuf.mDewarp == false)) {
         ret = ConvertImageByG2DCopy(dstBuf, srcBuf);
     } else {
