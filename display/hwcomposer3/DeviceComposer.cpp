@@ -142,9 +142,16 @@ DeviceComposer::DeviceComposer() {
     mSolidColorBuffer.hnd = NULL;
     memset(&mSolidColorBuffer.info, 0, sizeof(mSolidColorBuffer.info));
     mSolidColorBuffer.infoPtr = &mSolidColorBuffer.info;
-    mOclCvt = std::make_unique<OclConverter>();
-    if (mOclCvt->isValid())
-        ALOGI("%s: OpenCL lib load successfully", __FUNCTION__);
+
+    mInitThread = std::thread([&](){
+        auto cvt = std::make_unique<OclConverter>();
+        if (cvt->isValid()) {
+            ALOGI("%s: OpenCL lib load and open successfully", __FUNCTION__);
+            mOclCvt = std::move(cvt);
+        } else {
+            ALOGW("%s: OpenCL lib load or open failed", __FUNCTION__);
+        }
+    });
 
     mInterCount = getMaxG2dInterCompositionResult();
 }
@@ -156,6 +163,7 @@ DeviceComposer::~DeviceComposer() {
 
     for (auto& [displayId, _] : mCachedDisplays) onDisplayDestroy(displayId);
 
+    mInitThread.join();
     if (mG2dHandle != NULL) {
         dlclose(mG2dHandle);
     }
@@ -463,7 +471,7 @@ int DeviceComposer::convertBuffer(buffer_handle_t inBuf, HandleInfo* inInfoPtr,
     G2dBuffer dstBuff{outBuf, outInfoPtr};
     common::Rect rect{0, 0, static_cast<int32_t>(inInfoPtr->width),
                       static_cast<int32_t>(inInfoPtr->height)};
-    if (useOcl && mOclCvt->isValid()) {
+    if (useOcl && mOclCvt && mOclCvt->isValid()) {
         auto ret = mOclCvt->openclConvert(srcBuff, dstBuff);
         if (ret) {
             ALOGE("%s: OpenCL CSC convert fail", __FUNCTION__);
