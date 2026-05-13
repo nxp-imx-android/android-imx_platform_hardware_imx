@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2022 The Android Open Source Project
- * Copyright 2023-2025 NXP
+ * Copyright 2023-2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -2433,7 +2433,9 @@ Status ExternalCameraDeviceSession::OutputThread::allocateIntermediateBuffers(
     for (const auto& stream : streams) {
         Size sz = {stream.width, stream.height};
         Size alignedV4lSize = {ALIGN_PIXEL_16(v4lSize.width), ALIGN_PIXEL_16(v4lSize.height)};
-
+        if (mUseHardwareDecoder && strstr(socType, "imx95")) {
+            alignedV4lSize = {ALIGN_PIXEL_32(v4lSize.width), ALIGN_PIXEL_16(v4lSize.height)};
+        }
         if (sz == alignedV4lSize) {
             continue; // Don't need an intermediate buffer same size as v4lBuffer
         }
@@ -2768,9 +2770,10 @@ int ExternalCameraDeviceSession::OutputThread::cropAndScaleLocked(
         return ret;
     }
 
-    if ((mCroppingType == VERTICAL && inSz.width == outSz.width) ||
-        (mCroppingType == HORIZONTAL && inSz.height == outSz.height)) {
-        // No scale is needed
+    if (inputCrop.width == static_cast<int32_t>(outSz.width) &&
+        inputCrop.height == static_cast<int32_t>(outSz.height) && inputCrop.left == 0 &&
+        inputCrop.top == 0) {
+        // No scale is needed when the inputCrop size equals the output size and starts from (0,0)
         *out = croppedLayout;
         return 0;
     }
@@ -3393,13 +3396,14 @@ int ExternalCameraDeviceSession::OutputThread::handleFrame(
     }
 
     // imx95 mxc-jpec-dec: 32bit aligned for width, 16-bit aligned for height.
-    if (srcWidth == 448) {
+    if (srcWidth == 192 && dstWidth == 176) {
+        srcValidWidth = 176;
+    } else if (srcWidth == 448) {
         if (dstWidth == 424)
             srcValidWidth = 424;
         else if (dstWidth == 432)
             srcValidWidth = 432;
-    }
-    if (srcWidth == 864 && dstWidth == 848) {
+    } else if (srcWidth == 864 && dstWidth == 848) {
         srcValidWidth = 848;
     }
 

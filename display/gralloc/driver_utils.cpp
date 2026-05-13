@@ -1,6 +1,6 @@
 /*
  * Copyright 2020 The Chromium OS Authors. All rights reserved.
- * Copyright 2024-2025 NXP
+ * Copyright 2024-2026 NXP
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
@@ -375,9 +375,17 @@ std::string getUsageString(uint64_t usage) {
 }
 
 const struct format_info_t* getPixleFormatInfo(int32_t pixel_format) {
-    for (const auto& format : formats) {
-        if (format.id == pixel_format)
-            return &format;
+    static const auto format_map = []() {
+        std::unordered_map<int32_t, const format_info_t*> map;
+        for (const auto& format : formats) {
+            map[format.id] = &format;
+        }
+        return map;
+    }();
+
+    auto it = format_map.find(pixel_format);
+    if (it != format_map.end()) {
+        return it->second;
     }
 
     ALOGE("%s: Cannot support pixel format:0x%" PRIx32, __func__, pixel_format);

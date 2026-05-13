@@ -1,6 +1,6 @@
 /*
  * Copyright 2017 The Chromium OS Authors. All rights reserved.
- * Copyright 2024 NXP.
+ * Copyright 2024, 2026 NXP.
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
@@ -55,6 +55,8 @@ gralloc_driver::~gralloc_driver() {
     if (mGPUAlloc != nullptr) {
         mGPUAlloc->common.close((struct hw_device_t *)mGPUAlloc);
     }
+
+    allocator_close();
 }
 
 bool gralloc_driver::is_initialized() {

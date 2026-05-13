@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2022 The Android Open Source Project
- * Copyright 2023, 2025 NXP.
+ * Copyright 2023, 2025-2026 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -52,6 +52,7 @@ using ::android::hardware::graphics::mapper::V2_0::IMapper;
 using ::android::hardware::graphics::mapper::V2_0::YCbCrLayout;
 
 #define ALIGN_PIXEL_16(x) ((x + 15) & ~15)
+#define ALIGN_PIXEL_32(x) ((x + 31) & ~31)
 
 namespace android {
 namespace hardware {

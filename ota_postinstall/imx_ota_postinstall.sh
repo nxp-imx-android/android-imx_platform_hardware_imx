@@ -7,29 +7,25 @@
 # bootloader0 partition offset of various SoC based on boot device
 imx8mm_emmc_bootloader0_offset=33
 imx8mm_sd_bootloader0_offset=33
-imx8mn_emmc_bootloader0_offset=0
-imx8mn_sd_bootloader0_offset=32
-imx8mp_emmc_bootloader0_offset=0
-imx8mp_sd_bootloader0_offset=32
 imx8mq_emmc_bootloader0_offset=33
 imx8mq_sd_bootloader0_offset=33
 
-imx8ulp_emmc_bootloader0_offset=0
-
 imx8qm_reva_emmc_bootloader0_offset=33
 imx8qm_reva_sd_bootloader0_offset=33
-imx8qm_revb_emmc_bootloader0_offset=0
-imx8qm_revb_sd_bootloader0_offset=32
 
 imx8qxp_reva_emmc_bootloader0_offset=33
 imx8qxp_reva_sd_bootloader0_offset=33
 imx8qxp_revb_emmc_bootloader0_offset=32
 imx8qxp_revb_sd_bootloader0_offset=32
-imx8qxp_revc_emmc_bootloader0_offset=0
-imx8qxp_revc_sd_bootloader0_offset=32
 
-imx95_emmc_bootloader0_offset=0
-imx95_sd_bootloader0_offset=32
+# fallback
+bootloader0_offset_fallback() {
+	if [ ${boot_device_type} = "emmc" ]; then
+		target_device_offset=0
+	else
+		target_device_offset=32
+	fi
+}
 
 bootloader0_img=/postinstall/etc/bootloader0.img
 bootloader0_img_size=`wc -c $bootloader0_img | cut -d ' ' -f1`
@@ -94,6 +90,10 @@ if [ -z $soc_rev ]; then
 	target_device_offset=(`eval echo \$\{${soc_type}_${boot_device_type}_bootloader0_offset\}`)
 else
 	target_device_offset=(`eval echo \$\{${soc_type}_${soc_rev}_${boot_device_type}_bootloader0_offset\}`)
+fi
+
+if [ -z $target_device_offset ]; then
+	bootloader0_offset_fallback
 fi
 
 if [ ${boot_device_type} = "emmc" ]; then

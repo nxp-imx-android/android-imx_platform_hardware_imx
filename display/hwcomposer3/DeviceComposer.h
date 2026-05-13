@@ -18,6 +18,7 @@
 #define _DEVICE_COMPOSER_H_
 
 #include <g2dExt.h>
+#include <thread>
 #include <utils/threads.h>
 
 #include "BufferInfo.h"
@@ -219,6 +220,7 @@ private:
     void* mHelperHandle = NULL;
     void* mG2dHandle = NULL;
     std::unique_ptr<OclConverter> mOclCvt;
+    std::thread mInitThread;
 };
 
 } // namespace aidl::android::hardware::graphics::composer3::impl
