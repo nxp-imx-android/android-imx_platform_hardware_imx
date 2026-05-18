@@ -62,23 +62,22 @@ Mutex ImageProcess::sLock(Mutex::PRIVATE);
 
 static bool IsCscSupportByCPU(int srcFormat, int dstFormat) {
     // yuyv -> nv12
-    if (((dstFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) ||
-         (dstFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP)) &&
+    if ((dstFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) &&
         (srcFormat == HAL_PIXEL_FORMAT_YCbCr_422_I))
         return true;
 
     // nv12 -> nv21
-    if ((srcFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP) &&
+    if ((srcFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) &&
         (dstFormat == HAL_PIXEL_FORMAT_YCrCb_420_SP))
         return true;
 
     // nv12 -> yv12
-    if (((srcFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP) ||
-        (srcFormat == HAL_PIXEL_FORMAT_YCbCr_420_888)) && (dstFormat == HAL_PIXEL_FORMAT_YV12))
+    if ((srcFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) &&
+        (dstFormat == HAL_PIXEL_FORMAT_YV12))
         return true;
 
     // bggr -> rgb888 -> nv12
-    if ((srcFormat == HAL_PIXEL_FORMAT_RAW16) && (dstFormat == HAL_PIXEL_FORMAT_YCBCR_420_888))
+    if ((srcFormat == HAL_PIXEL_FORMAT_RAW16) && (dstFormat == HAL_PIXEL_FORMAT_YCbCr_420_888))
         return true;
 
     return false;
@@ -86,8 +85,7 @@ static bool IsCscSupportByCPU(int srcFormat, int dstFormat) {
 
 static bool IsCscSupportByG3D(int srcFomat, int dstFormat) {
     // yuyv -> nv12, nv16 -> nv12
-    if (((dstFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) ||
-         (dstFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP)) &&
+    if ((dstFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) &&
         ((srcFomat == HAL_PIXEL_FORMAT_YCbCr_422_I) ||
          (srcFomat == HAL_PIXEL_FORMAT_YCbCr_422_SP)))
         return true;
@@ -401,19 +399,19 @@ int ImageProcess::ConvertImage(ImxImageBuffer &dstBuf, ImxImageBuffer &srcBuf, I
               dstBuf.mWidth, dstBuf.mHeight, dstBuf.mFormat, engine, srcBuf.mZoomRatio,
               (int)srcBuf.mDewarp);
 
-    // unify HAL_PIXEL_FORMAT_YCbCr_420_SP to HAL_PIXEL_FORMAT_YCBCR_420_888
+    // unify HAL_PIXEL_FORMAT_YCbCr_420_SP to HAL_PIXEL_FORMAT_YCbCr_420_888
     if (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP) {
-        srcBuf.mFormat = HAL_PIXEL_FORMAT_YCBCR_420_888;
+        srcBuf.mFormat = HAL_PIXEL_FORMAT_YCbCr_420_888;
     }
 
     if (dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP) {
-        dstBuf.mFormat = HAL_PIXEL_FORMAT_YCBCR_420_888;
+        dstBuf.mFormat = HAL_PIXEL_FORMAT_YCbCr_420_888;
     }
 
     // for 8mp, g2d not support nv12 scale, use OCLCVT to scale, or will cause
     // testAllOutputYUVResolutions failed.
     // zoom in also need handled by OCLCVT
-    if (srcBuf.mFormat == dstBuf.mFormat && dstBuf.mFormat == HAL_PIXEL_FORMAT_YCBCR_420_888) {
+    if (srcBuf.mFormat == dstBuf.mFormat && dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) {
         if ((srcBuf.mZoomRatio <= 1.0 && (srcBuf.mWidth != dstBuf.mWidth || srcBuf.mHeight != dstBuf.mHeight)) ||
             (srcBuf.mZoomRatio > 1.0 && srcBuf.mWidth == dstBuf.mWidth && srcBuf.mHeight == dstBuf.mHeight)) {
             if (strstr(mSocType, "imx8mp")) {
@@ -422,7 +420,7 @@ int ImageProcess::ConvertImage(ImxImageBuffer &dstBuf, ImxImageBuffer &srcBuf, I
         }
     }
     if (srcBuf.mFormat == HAL_PIXEL_FORMAT_RAW16 &&
-        dstBuf.mFormat == HAL_PIXEL_FORMAT_YCBCR_420_888) {
+        dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) {
         if (strstr(mSocType, "imx8mp")) {
             engine = ENG_CPU;
         }
@@ -455,7 +453,6 @@ int convertPixelFormatToG2DFormat(int format) {
 
     switch (format) {
         case HAL_PIXEL_FORMAT_YCbCr_420_888:
-        case HAL_PIXEL_FORMAT_YCbCr_420_SP:
             nFormat = G2D_NV12;
             break;
         case HAL_PIXEL_FORMAT_YCbCr_422_I:
@@ -669,7 +666,6 @@ int ImageProcess::ConvertImageByG2DBlit(ImxImageBuffer &dstBuf, ImxImageBuffer &
 
     // can't do csc for some formats.
     if (!((dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) ||
-           (dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP) ||
            ((dstBuf.mFormat == HAL_PIXEL_FORMAT_YCrCb_420_SP) &&
             (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_422_I)) ||
            ((srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_422_I) &&
@@ -1088,7 +1084,7 @@ int ImageProcess::ConvertImageByCPU(ImxImageBuffer &dstBuf, ImxImageBuffer &srcB
         if (srcBuf.mZoomRatio <= 1.0) {
             memcpy((uint8_t *)dstBuf.mVirtAddr, (uint8_t *)srcBuf.mVirtAddr,
                     dstBuf.mFormatSize);
-        } else if (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCBCR_420_888) {
+        } else if (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) {
             // Handle zoom in for nv12
             int crop_width = srcBuf.mWidth / srcBuf.mZoomRatio;
             int crop_height = srcBuf.mHeight / srcBuf.mZoomRatio;
@@ -1157,21 +1153,19 @@ int ImageProcess::ConvertImageByCPU(ImxImageBuffer &dstBuf, ImxImageBuffer &srcB
     }
 
     // case 4: diffrent format, same resolution
-    if (((dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) ||
-         (dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP)) &&
+    if ((dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) &&
         (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_422_I)) {
         convertYUYVtoNV12SP((uint8_t *)srcBuf.mVirtAddr, (uint8_t *)dstBuf.mVirtAddr, dstBuf.mWidth,
                             dstBuf.mHeight, srcBuf.mStride, dstBuf.mStride);
-    } else if ((srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP) &&
+    } else if ((srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) &&
                (dstBuf.mFormat == HAL_PIXEL_FORMAT_YCrCb_420_SP)) {
         convertNV12toNV21(dstBuf, srcBuf);
-    } else if ((srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP ||
-                (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888)) &&
+    } else if ((srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) &&
                (dstBuf.mFormat == HAL_PIXEL_FORMAT_YV12)) {
         convertNV12toYV12((uint8_t *)srcBuf.mVirtAddr, (uint8_t *)dstBuf.mVirtAddr, dstBuf.mWidth,
                           dstBuf.mHeight);
     } else if ((srcBuf.mFormat == HAL_PIXEL_FORMAT_RAW16) &&
-               (dstBuf.mFormat == HAL_PIXEL_FORMAT_YCBCR_420_888)) {
+               (dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888)) {
         convertBGGRtoNV12((uint8_t *)srcBuf.mVirtAddr, (uint8_t *)dstBuf.mVirtAddr, dstBuf.mWidth,
                           dstBuf.mHeight);
     } else {
@@ -1317,7 +1311,6 @@ static void HalPixelFormatToOclPixelFormat(uint32_t &halPixelFormat,
                                            OCL_PIXEL_FORMAT &oclPixelFormat) {
     switch (halPixelFormat) {
         case HAL_PIXEL_FORMAT_YCbCr_420_888:
-        case HAL_PIXEL_FORMAT_YCbCr_420_SP:
             oclPixelFormat = OCL_FORMAT_NV12;
             break;
         case HAL_PIXEL_FORMAT_YCbCr_422_I:
@@ -1595,15 +1588,14 @@ cpu_resize:
     if ((srcBuf.mVirtAddr == NULL) || (dstBuf.mVirtAddr == NULL))
         return BAD_VALUE;
 
-    if (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCBCR_422_I)
+    if (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_422_I)
         ret = yuv422iResize((uint8_t *)srcBuf.mVirtAddr, srcBuf.mWidth, srcBuf.mHeight,
                             (uint8_t *)dstBuf.mVirtAddr, dstBuf.mWidth, dstBuf.mHeight);
-    else if (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCBCR_422_SP)
+    else if (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_422_SP)
         ret = yuv422spResize((uint8_t *)srcBuf.mVirtAddr, srcBuf.mWidth, srcBuf.mHeight,
                              (uint8_t *)dstBuf.mVirtAddr, dstBuf.mWidth, dstBuf.mHeight,
                              dstBuf.mStride, srcBuf.mHeightSpan);
-    else if ((srcBuf.mFormat == HAL_PIXEL_FORMAT_YCBCR_420_888) ||
-             (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP)) {
+    else if (srcBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) {
         ret = yuv420spResize((uint8_t *)srcBuf.mVirtAddr, srcBuf.mWidth, srcBuf.mHeight,
                              (uint8_t *)dstBuf.mVirtAddr, dstBuf.mWidth, dstBuf.mHeight);
     } else
