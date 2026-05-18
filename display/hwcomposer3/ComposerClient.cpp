@@ -792,9 +792,23 @@ ndk::ScopedAStatus ComposerClient::startHdcpNegotiation(int64_t hwcId,
                                                         const drm::HdcpLevels& levels) {
     DEBUG_LOG("%s", __FUNCTION__);
 
-    GET_DISPLAY_OR_RETURN_ERROR();
+    HWC3::Error ret = HWC3::Error::None;
+    std::shared_ptr<Display> display = getDisplay(hwcId);
+    if (display == nullptr) {
+        ALOGE("%s failed to get hwc display:%" PRIu64, __FUNCTION__, hwcId);
+        ret = HWC3::Error::BadDisplay;
+    } else {
+        ret = display->startHdcpNegotiation(levels);
+    }
 
-    return ToBinderStatus(display->startHdcpNegotiation(levels));
+    if (ret != HWC3::Error::None) {
+        // async call must report error via callback
+        constexpr drm::HdcpLevels kErrorHdcp = {.connectedLevel = drm::HdcpLevel::HDCP_UNKNOWN,
+                                                .maxLevel = drm::HdcpLevel::HDCP_UNKNOWN};
+        mCallbacks->onHdcpLevelsChanged(hwcId, kErrorHdcp);
+    }
+
+    return ToBinderStatus(ret);
 }
 
 ndk::ScopedAStatus ComposerClient::getLuts(int64_t hwcId, const std::vector<Buffer>&,
