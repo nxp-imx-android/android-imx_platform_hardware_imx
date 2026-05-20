@@ -429,10 +429,6 @@ int CameraDeviceSessionHwlImpl::StartStreamOnMaxConfiguredResolution(HwlPipeline
     if ((hwReq->settings == NULL) && pVideoStreams[0]->isStart())
         return 0;
 
-    uint32_t format = HAL_PIXEL_FORMAT_YCbCr_422_I;
-    if (strcmp(mSensorData.v4l2_format, "nv12") == 0)
-        format = HAL_PIXEL_FORMAT_YCbCr_420_SP;
-
     int sceneMode = pVideoStreams[0]->mSceneMode;
     if (hwReq->settings != NULL) {
         ret = hwReq->settings->Get(ANDROID_CONTROL_SCENE_MODE, &entry);
@@ -454,17 +450,44 @@ int CameraDeviceSessionHwlImpl::StartStreamOnMaxConfiguredResolution(HwlPipeline
         }
     }
 
-    uint8_t captureIntent = pVideoStreams[0]->mCaptureIntent;
-    pVideoStreams[0]->SetBufferNumber(NUM_PREVIEW_BUFFER + 1);
 
-    // If already start, but sceneMode/fps changed, need also restart stream
-    if ((!pVideoStreams[0]->isStart()) || (fps != pVideoStreams[0]->mFps) ||
-        (sceneMode != pVideoStreams[0]->mSceneMode))
+    // If already start and sceneMode/fps no change, do nothing.
+    if ((pVideoStreams[0]->isStart()) && (fps == pVideoStreams[0]->mFps) &&
+        (sceneMode == pVideoStreams[0]->mSceneMode))
+        return 0;
+
+    uint8_t captureIntent = pVideoStreams[0]->mCaptureIntent;
+
+    uint32_t format = HAL_PIXEL_FORMAT_YCbCr_422_I;
+    if (strcmp(mSensorData.v4l2_format, "nv12") == 0)
+        format = HAL_PIXEL_FORMAT_YCbCr_420_SP;
+
+    if (is_logical_request_) {
+        auto stat = hwReq->settings->Get(ANDROID_LENS_FOCAL_LENGTH, &entry);
+        if ((stat == OK) && (entry.count == 1)) {
+            current_focal_length_ = entry.data.f[0];
+            ALOGI("%s: requests' focal length set: %5.2f", __FUNCTION__, entry.data.f[0]);
+        } else {
+            ALOGW("%s: Focal length absent from request!", __FUNCTION__);
+        }
+
+        for (size_t index = 0; index < pVideoStreams.size(); index++) {
+            pVideoStreams[index]->SetBufferNumber(NUM_PREVIEW_BUFFER + 1);
+            ret = pVideoStreams[index]->ConfigAndStart(format, maxStreamWidth, maxStreamHeight, fps,
+                                                       captureIntent, sceneMode);
+            if (ret) {
+                ALOGE("%s: pVideoStreams[%zu]->ConfigAndStart failed, ret %d", __func__, index, ret);
+                return ret;
+            }
+        }
+    } else {
+        pVideoStreams[0]->SetBufferNumber(NUM_PREVIEW_BUFFER + 1);
         ret = pVideoStreams[0]->ConfigAndStart(format, maxStreamWidth, maxStreamHeight, fps,
                                                captureIntent, sceneMode);
-    if (ret) {
-        ALOGE("%s: ConfigAndStart failed, ret %d", __func__, ret);
-        return ret;
+        if (ret) {
+            ALOGE("%s: ConfigAndStart failed, ret %d", __func__, ret);
+            return ret;
+        }
     }
 
     return OK;
