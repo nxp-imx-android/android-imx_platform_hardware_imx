@@ -423,6 +423,10 @@ int convertToHalDescriptor(const BufferDescriptorInfoV4& descriptor,
         ALOGE("%s layerCount=%d > 1 is unsupported", __func__, descriptor.layerCount);
         return -1;
     }
+    if (descriptor.layerCount == 0) {
+        ALOGE("%s need to reject the input that layerCount=0", __func__);
+        return -1;
+    }
 
     std::string pixelFormatString = getPixelFormatString(outDescriptor->pixel_format);
     std::string usageString = getUsageString(descriptor.usage);
