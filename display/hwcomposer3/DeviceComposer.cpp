@@ -373,7 +373,7 @@ int DeviceComposer::clearWormHole(uint32_t displayId, std::vector<int64_t>& laye
         }
 #ifdef DEBUG_NXP_HWC_G2D
         sprintf(tempStr, "[%d,%d,%d,%d]%s", head->left, head->top, head->right, head->bottom,
-                small ? "(rm)" : "");
+                small ? "(rm)," : ",");
         opaque_str += tempStr;
 #endif
         head++;
@@ -392,6 +392,30 @@ int DeviceComposer::clearWormHole(uint32_t displayId, std::vector<int64_t>& laye
     }
     size_t numRect = 0;
     const ::android::Rect* holes = screen.getArray(&numRect);
+
+#ifdef WORKAROUND_FOR_TRANSPARENT_TASKBAR
+    /* The UI mess in MA-24877 is because the transparent part of taskbar is blended on uncleard
+     * framebuffer. So clear taskbar rectangle area when there are some holes need to clear.
+     */
+    if (numRect > 0 && !holes[0].isEmpty()) {
+        for (auto id : layerIds) {
+            G2dInterLayer* layer;
+            if (id > 0)
+                layer = &cachedLayers[id];
+            else
+                continue;
+
+            auto name = layer->priv->getBufferInfo()->name;
+            if (name && (strncmp(name, "VRI[Taskbar]", 12) == 0)) {
+                for (auto& rect : *layer->visible) {
+                    screen.orSelf(::android::Rect(rect.left, rect.top, rect.right, rect.bottom));
+                }
+                break;
+            }
+        }
+        holes = screen.getArray(&numRect);
+    }
+#endif
 #ifdef DEBUG_NXP_HWC_G2D
     ALOGI("%s: clear %zu worm holes(opaque=%s)", __FUNCTION__, numRect, opaque_str.c_str());
 #endif
