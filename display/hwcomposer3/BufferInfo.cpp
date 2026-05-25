@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2025 NXP
+ * Copyright 2024-2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -48,7 +48,7 @@ int getInfoFromHandle(buffer_handle_t handle, HandleInfo *info) {
         info->phys = memHandle->phys;
         info->base = reinterpret_cast<uint64_t>(memHandle->base);
         info->buffer_id = memHandle->backing_store_id;
-#if defined(DEBUG_NXP_HWC) || defined(DEBUG_NXP_HWC_G2D)
+#if defined(DEBUG_NXP_HWC) || defined(DEBUG_NXP_HWC_G2D) || defined(WORKAROUND_FOR_TRANSPARENT_TASKBAR)
         if (memHandle->attr_base != MAP_FAILED) {
             ::android::GraphicBufferMapper::get().getName(handle, &info->sname);
             info->name = const_cast<char *>(info->sname.c_str());
