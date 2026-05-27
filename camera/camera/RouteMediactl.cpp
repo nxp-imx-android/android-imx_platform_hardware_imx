@@ -9,6 +9,7 @@
 
 #include <string>
 #include <vector>
+#include <regex>
 
 #include <fcntl.h>
 #include <linux/media.h>
@@ -43,16 +44,15 @@ struct MediaCfg {
     };
 
     struct Link {
-        std::string name;
+        std::string reName;
         short pads[2];
         bool active;
 
-        int configure (std::string srcName, bool matchSubstr) const;
+        int configure (std::string srcName) const;
     };
 
     // Members
-    const std::string name;
-    const bool match_substr;
+    const std::string reName;
     const std::vector<v4l2_subdev_route> routes;
     const std::vector<Format> formats;
     const std::vector<Crop> crops;
@@ -146,10 +146,12 @@ int MediaCfg::Crop::configure (int fd) const {
     return 0;
 }
 
-int MediaCfg::Link::configure (std::string srcName, bool matchSubstr) const {
+int MediaCfg::Link::configure (std::string srcName) const {
     media_link_desc link;
     for (unsigned i = 0; ; ++i) {
-        unsigned toFind = 2;
+        /* Keep track of what has been found */
+        bool searchSrc = 1;
+        bool searchSink = 1;
 
         std::string mediaDevnode = "/dev/media";
 
@@ -162,7 +164,7 @@ int MediaCfg::Link::configure (std::string srcName, bool matchSubstr) const {
         }
         memset(&link, 0, sizeof(link));
 
-        for (int id = 0; ; /* id++*/ ) {
+        for (int id = 0; ; /* id = entity.id; */) {
             media_entity_desc entity;
             memset(&entity, 0, sizeof(entity));
             entity.id = id | MEDIA_ENT_ID_FLAG_NEXT;
@@ -172,50 +174,50 @@ int MediaCfg::Link::configure (std::string srcName, bool matchSubstr) const {
             LOG(WARNING) << "Got entity[" << entity.id << "] " << entity.name;
 
             /* source pad */
-            if (name == entity.name) {
+            if (searchSrc && std::regex_match(entity.name, std::regex(reName))) {
                 link.source.entity = entity.id;
                 link.source.index = pads[0];
                 link.source.flags = MEDIA_PAD_FL_SOURCE;
-                --toFind;
+                searchSrc = 0;
             }
             /* sink pad */
-            if (matchSubstr ?
-                NULL != strstr(srcName.c_str(), entity.name)
-                : (srcName == entity.name))
-            {
+            if (searchSink && std::regex_match(entity.name, std::regex(srcName))) {
                 link.sink.entity = entity.id;
                 link.sink.index = pads[1];
                 link.sink.flags = MEDIA_PAD_FL_SINK;
-                --toFind;
+                searchSink = 0;
             }
             id = entity.id;
-        }
-        if (toFind > 0) // Continue before we find two id's. First for source and second for sink.
-            continue;
 
-        int ret = ioctl(fd, MEDIA_IOC_SETUP_LINK, &link);
-        if ((ret < 0) && (errno == EBUSY)) {
-            usleep(100000);
-            ret = ioctl(fd, MEDIA_IOC_SETUP_LINK, &link);
+            /* If found both sink an source finish configuration. */
+            if ((searchSrc == 0) && (searchSink == 0)) {
+                int ret = ioctl(fd, MEDIA_IOC_SETUP_LINK, &link);
+                if ((ret < 0) && (errno == EBUSY)) {
+                    usleep(100000);
+                    ret = ioctl(fd, MEDIA_IOC_SETUP_LINK, &link);
+                }
+                if (ret == -1) {
+                    ret = -errno;
+                    LOG(ERROR) << "Failed to MEDIA_IOC_SETUP_LINK " << mediaDevnode;
+                }
+                close(fd);
+                return ret;
+            }
         }
-        if (ret == -1) {
-            ret = -errno;
-            LOG(ERROR) << "Failed to MEDIA_IOC_SETUP_LINK";
-        }
-        close(fd);
-        return ret;
     }
     return 1;
 }
 
 bool MediaCfg::configure() {
-    LOG(DEBUG) << "MediaCfg device " << name << " has devnode " << devNode;
-    if (devNode.size() == 0)
+    LOG(DEBUG) << "MediaCfg device " << reName << " has devnode " << devNode;
+    if (devNode.size() == 0) {
+        LOG(ERROR) << "Failed to configure device " << reName << " has no devnode \"" << devNode << "\"";
         return -1;
+    }
 
     int ret;
     if (devNode.length() == 0) {
-        LOG(ERROR) << "Failed to open devnode of " << name << " because its devNode had not been registered.";
+        LOG(ERROR) << "Failed to open devnode of " << reName << " because its devNode had not been registered.";
         return -1;
     }
 
@@ -225,23 +227,23 @@ bool MediaCfg::configure() {
         return -1;
     }
     for (auto &link: links) {
-        ret = link.configure(name, match_substr);
+        ret = link.configure(reName);
         if (ret != 0)
-            LOG(ERROR) << "Failed to link.configure for " << name << " error: " << ret;
+            LOG(ERROR) << "Failed to link.configure for " << reName << " error: " << ret;
     }
     ret = SetRoutes(fd, routes);
     if (ret != 0)
-        LOG(ERROR) << "Failed to SetRoutes for " << name << " error: " << ret;
+        LOG(ERROR) << "Failed to SetRoutes for " << reName << " error: " << ret;
 
     for (auto &format: formats) {
         ret = format.configure(fd);
         if (ret != 0)
-            LOG(ERROR) << "Failed to format.configure for " << name << " error: " << ret;
+            LOG(ERROR) << "Failed to format.configure for " << reName << " error: " << ret;
     }
     for (auto &crop: crops) {
         ret = crop.configure(fd);
         if (ret != 0)
-            LOG(ERROR) << "Failed to crop.configure for " << name << " error: " << ret;
+            LOG(ERROR) << "Failed to crop.configure for " << reName << " error: " << ret;
     }
     close(fd);
     return 0;
@@ -255,8 +257,7 @@ std::vector<MediaCfg> cfgGroups[1] = {
        * That group will then be adressed as cfgGroups[1].
        */
         MediaCfg{
-            "max9286",
-            true,
+            "max9286.*",
             { /* routes: max9286 routes each input pad to different stream on output pad 4. */
                 // sink pad, sink stream, source pad, source stream, "ACTIVE"
                 {   0,          0,          4,          0,              V4L2_SUBDEV_ROUTE_FL_ACTIVE},
@@ -264,29 +265,32 @@ std::vector<MediaCfg> cfgGroups[1] = {
                 {   2,          0,          4,          2,              V4L2_SUBDEV_ROUTE_FL_ACTIVE},
                 {   3,          0,          4,          3,              V4L2_SUBDEV_ROUTE_FL_ACTIVE}
             },
-            { // formats
+            { /* formats */
                 // pad, stream, color,          width,  height, field
                 {   0,  0,      UYVY8_1X16,     1280,   800,    V4L2_FIELD_NONE},
                 {   1,  0,      UYVY8_1X16,     1280,   800,    V4L2_FIELD_NONE},
                 {   2,  0,      UYVY8_1X16,     1280,   800,    V4L2_FIELD_NONE},
                 {   3,  0,      UYVY8_1X16,     1280,   800,    V4L2_FIELD_NONE}
             },
-            {}, // crop
-            { // links
-                // other side,          our pad, their pad, active
-                {   "imx8mq-mipi-csi2 58227000.csi", {4,       0},       true }
+            { /* crop */ },
+            { /* links */
+                /* Don't modify links, since those are fixed */
+
+                /* Example link:
+                 * other side,          our pad, their pad, active
+                 * {   "imx8mq-mipi-csi2 58227000.csi", {4,       0},       true }
+                 */
             }
         },
         MediaCfg{
             "imx8mq-mipi-csi2 58227000.csi",
-            false,
             {
                 {0, 0,      1, 0,   true},
                 {0, 1,      1, 1,   true},
                 {0, 2,      1, 2,   true},
                 {0, 3,      1, 3,   true}
             },
-            { // pad, stream, color,    resolution, field
+            { /* pad, stream, color,    resolution, field */
                 {0, 0,  UYVY8_1X16,     1280, 800,  V4L2_FIELD_NONE},
                 {0, 1,  UYVY8_1X16,     1280, 800,  V4L2_FIELD_NONE},
                 {0, 2,  UYVY8_1X16,     1280, 800,  V4L2_FIELD_NONE},
@@ -298,29 +302,26 @@ std::vector<MediaCfg> cfgGroups[1] = {
 
         MediaCfg{
             "crossbar",
-            false,
             {
-                {2, 0,  7, 0,   true}, // Stream[0] to pad[7] that is isi.1.
+                {2, 0,  7, 0,   true}, /* Stream[0] to pad[7] that is isi.1. */
                 {2, 1,  8, 0,   true},
                 {2, 2,  9, 0,   true},
                 {2, 3,  10, 0,  true}
             },
-            { // pad, stream, color,    resolution, field
+            { /* pad, stream, color,    resolution, field */
                 {2, 0,  UYVY8_1X16,     1280, 800,  V4L2_FIELD_NONE},
                 {2, 1,  UYVY8_1X16,     1280, 800,  V4L2_FIELD_NONE},
                 {2, 2,  UYVY8_1X16,     1280, 800,  V4L2_FIELD_NONE},
                 {2, 3,  UYVY8_1X16,     1280, 800,  V4L2_FIELD_NONE}
             },
             {}, // crop
-            { // links
-                {"imx8mq-mipi-csi2 58227000.csi", {4, 0}, true }
-            }
+            { /* crop */ },
+            { /* links */}
         },
 
         // You have to name each these isi, since I had put device nodes in them, not vice versa - ie. 1 node to 1 here.
         MediaCfg{
             "mxc_isi.4",
-            false,
             {},
             { // pad, stream, color,    resolution, field
                 {0, 0,  UYVY8_1X16,     1280, 800,  V4L2_FIELD_NONE},
@@ -336,7 +337,6 @@ std::vector<MediaCfg> cfgGroups[1] = {
 
         MediaCfg{
             "mxc_isi.1",
-            false,
             {},
             { // pad, stream, color,    resolution, field
                 {0, 0,  UYVY8_1X16,     1280, 800,  V4L2_FIELD_NONE},
@@ -352,7 +352,6 @@ std::vector<MediaCfg> cfgGroups[1] = {
 
         MediaCfg{
             "mxc_isi.2",
-            false,
             {},
             { // pad, stream, color,    resolution, field
                 {0, 0,  UYVY8_1X16,     1280, 800,  V4L2_FIELD_NONE},
@@ -368,7 +367,6 @@ std::vector<MediaCfg> cfgGroups[1] = {
 
         MediaCfg{
             "mxc_isi.3",
-            false,
             {},
             { // pad, stream, color,    resolution, field
                 {0, 0,  UYVY8_1X16,     1280, 800,  V4L2_FIELD_NONE},
@@ -395,16 +393,16 @@ bool configure(bool onlyIsiConfig) {
 
         if (onlyIsiConfig) {
             std::vector<std::string> names = {"mxc_isi.1", "mxc_isi.2", "mxc_isi.3", "mxc_isi.4"};
-
-            if (std::find(names.begin(), names.end(), group.name) == names.end()) {
+            // TODO: Keep ISI naming simple as is or use regex at this place too.
+            if (std::find(names.begin(), names.end(), group.reName) == names.end()) {
                 continue;
             }
-            LOG(WARNING) << "conf " << group.name;
+            LOG(WARNING) << "conf " << group.reName;
         }
         int ret = group.configure();
 
         if (ret != 0) {
-            LOG(ERROR) << "Routing failed";
+            LOG(ERROR) << "Routing failed " << group.reName;
             retval = false;
         }
     }
@@ -416,12 +414,7 @@ bool registerDevnode(std::string name, std::string devNode) {
     for (auto &group : cfgGroup) {
         int found = 0;
 
-        if (group.match_substr) {
-            found = NULL != strstr(name.c_str(), group.name.c_str());
-        } else
-            found = NULL != strstr(group.name.c_str(), name.c_str());
-
-        if (found) {
+        if (std::regex_match(name, std::regex(group.reName))) {
             LOG(WARNING) << "registerDevnode " << name;
             group.devNode = devNode;
             return true;
