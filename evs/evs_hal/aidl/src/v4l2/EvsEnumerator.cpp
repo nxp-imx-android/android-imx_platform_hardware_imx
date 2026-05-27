@@ -133,6 +133,7 @@ void EvsEnumerator::EvsHotplugThread(std::shared_ptr<EvsEnumerator> service,
 
     int numEpollEvent;
     epoll_event epollItems[EPOLL_MAX_EVENTS];
+    bool foundMediaDevice = false;
 
     while (running) {
         numEpollEvent = epoll_wait(mEpollFd, epollItems, EPOLL_MAX_EVENTS, -1);
@@ -155,7 +156,11 @@ void EvsEnumerator::EvsHotplugThread(std::shared_ptr<EvsEnumerator> service,
                     //The length of each inotify_event structure is sizeof(struct inotify_event)+len.
                     for (char *inotifyItemBuf = buf; inotifyItemBuf < buf+numINotifyItem;) {
                         struct inotify_event *inotifyItem = (struct inotify_event *)inotifyItemBuf;
-                        if (strstr(inotifyItem->name,"media")) {
+                        if (strstr(inotifyItem->name,"media") ||
+                             ((foundMediaDevice == 1) && strstr(inotifyItem->name,"v4l")) ||
+                             ((foundMediaDevice == 1) && strstr(inotifyItem->name,"video"))
+                        ) {
+                                foundMediaDevice = 1;
                             //detect /dev/media* has been created
                             if(enumerateCameras()) {
                                 inotify_rm_watch(mINotifyFd,mINotifyWd);
@@ -220,7 +225,6 @@ bool EvsEnumerator::enumerateCameras() {
     }
 
     auto videoCount = 0;
-    auto captureCount = 0;
     bool videoReady = false;
 
     int enableFake = property_get_int32(EVS_FAKE_PROP, 0);
@@ -232,7 +236,6 @@ bool EvsEnumerator::enumerateCameras() {
         if ((property_get(EVS_VIDEO_DEV, camera, NULL) > 0) && (property_get(EVS_ISI_NAME, isi, NULL) > 0)) {
             ALOGI("Using camera provided by prop: name:%s path:%s", isi, camera);
             sCameraList.emplace_back(isi, camera, hwCam);
-            captureCount++;
             videoCount++;
         } else {
             // For every video* entry in the dev folder, see if it reports suitable capabilities
@@ -280,26 +283,38 @@ bool EvsEnumerator::enumerateCameras() {
 
                 registerDevnode(value, devNode);
                 ALOGE("Dev %s : %s", value, devNode.c_str());
-                    if (!filterVideoFromConfigure(value)) {
-                        continue;
+                if (!filterVideoFromConfigure(value)) {
+                    continue;
+                }
+                // Skip already enumerated cameras from previous call of `enumerateCameras()`
+                bool enumerated = false;
+                for (const EvsEnumerator::CameraRecord& item : sCameraList) {
+                    if (item.name == value) {
+                        enumerated = true;
+                        break;
                     }
-                sCameraList.emplace_back(value, devNode.c_str(), hwCam);
-                if (qualifyCaptureDevice(devNode.c_str())) {
-                    captureCount++;
+                }
+                if (!enumerated) {
+                    if (qualifyCaptureDevice(devNode.c_str())) {
+                        sCameraList.emplace_back(value, devNode.c_str(), hwCam);
+                    }
                 }
             }
             closedir(dir);
         }
     }
     found:
-    if (captureCount != 0) {
-        videoReady = true;
-        configure();
-        if (property_set(EVS_VIDEO_READY, "1") < 0)
-            ALOGE("Can not set property %s", EVS_VIDEO_READY);
+    size_t captureCount = sCameraList.size();
+
+    if (captureCount > 0) {
+        if (configure()) {
+            videoReady = true;
+            if (property_set(EVS_VIDEO_READY, "1") < 0)
+                ALOGE("Can not set property %s", EVS_VIDEO_READY);
+        }
     }
     LOG(INFO) << "Found " << captureCount << " qualified video capture devices "
-              << "of " << videoCount << " checked.";
+              << "of " << videoCount << " checked. Video ready: " << videoReady;
     return videoReady;
 }
 
