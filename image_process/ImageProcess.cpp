@@ -448,6 +448,31 @@ int ImageProcess::ConvertImage(ImxImageBuffer &dstBuf, ImxImageBuffer &srcBuf, I
     return ret;
 }
 
+int ImageProcess::ConvertImageMultiSrc(ImxImageBuffer& dstBuf, ImxImageBuffer& srcBufA, ImxImageBuffer& srcBufB, ImxEngine engine,
+                     bool debug) {
+    if (engine != ENG_CPU) {
+        ALOGE("%s: only support ENG_CPU, engine %d", __func__, engine);
+        return BAD_VALUE;
+    }
+
+
+    // unify HAL_PIXEL_FORMAT_YCbCr_420_SP to HAL_PIXEL_FORMAT_YCbCr_420_888
+    if (srcBufA.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP) {
+        srcBufA.mFormat = HAL_PIXEL_FORMAT_YCbCr_420_888;
+    }
+
+    if (srcBufB.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP) {
+        srcBufB.mFormat = HAL_PIXEL_FORMAT_YCbCr_420_888;
+    }
+
+    if (dstBuf.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_SP) {
+        dstBuf.mFormat = HAL_PIXEL_FORMAT_YCbCr_420_888;
+    }
+
+    return ConvertImageMultiSrcByCPU(dstBuf, srcBufA, srcBufB);
+}
+
+
 int convertPixelFormatToG2DFormat(int format) {
     int nFormat = 0;
 
@@ -1178,6 +1203,96 @@ int ImageProcess::ConvertImageByCPU(ImxImageBuffer &dstBuf, ImxImageBuffer &srcB
     }
 
     return 0;
+}
+
+int ImageProcess::ConvertImageMultiSrcByCPU(ImxImageBuffer &dstBuf, ImxImageBuffer &srcBufA, ImxImageBuffer &srcBufB) {
+    if (!((srcBufA.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) &&
+          (srcBufA.mFormat == srcBufB.mFormat) &&
+          (srcBufA.mFormat == dstBuf.mFormat))) {
+        ALOGE("%s: only support NV12, srcA 0x%x, srcB 0x%x, dst 0x%x", __func__, srcBufA.mFormat, srcBufB.mFormat, dstBuf.mFormat);
+        return BAD_VALUE;
+    }
+
+    if (!((srcBufA.mWidth == srcBufB.mWidth) && (srcBufA.mHeight == srcBufB.mHeight) &&
+       (srcBufA.mWidth == dstBuf.mWidth) && (srcBufA.mHeight == dstBuf.mHeight))) {
+        ALOGE("%s: only support same resolution, srcA %ux%u, srcB %ux%u, dst %ux%u", __func__,
+            srcBufA.mWidth, srcBufA.mHeight, srcBufB.mWidth, srcBufB.mHeight, dstBuf.mWidth, dstBuf.mHeight);
+        return BAD_VALUE;
+    }
+
+    if (srcBufA.mVirtAddr == NULL)
+        GetBufferInfoFromHandle(srcBufA.buffer, srcBufA, false, true);
+
+    if (srcBufB.mVirtAddr == NULL)
+        GetBufferInfoFromHandle(srcBufB.buffer, srcBufB, false, true);
+
+    if (dstBuf.mVirtAddr == NULL)
+        GetBufferInfoFromHandle(dstBuf.buffer, dstBuf, false, true);
+
+    if ((srcBufA.mVirtAddr == NULL) || (srcBufB.mVirtAddr == NULL) || (dstBuf.mVirtAddr == NULL))
+        return BAD_VALUE;
+
+    MergeImageNV12(srcBufA.mVirtAddr, srcBufB.mVirtAddr, dstBuf.mVirtAddr, dstBuf.mWidth, dstBuf.mHeight);
+
+    return 0;
+}
+
+// Merge 2 src to 1 dst, keep height as same.
+void ImageProcess::MergeImageNV12(void *srcA, void *srcB, void *dst, uint32_t width, uint32_t height) {
+    uint32_t size = width*height*3/2;
+    uint32_t ySize = width*height;
+
+    uint32_t yStride = width;
+    uint8_t *ySrcA = (uint8_t *)srcA;
+    uint8_t *ySrcB = (uint8_t *)srcB;
+    uint8_t *yDst = (uint8_t *)dst;
+
+    uint32_t cWidth = width;
+    uint32_t cStride = width;
+    uint32_t cHeight = height/2;
+    uint16_t *cSrcA = (uint16_t *)(ySrcA + ySize);
+    uint16_t *cSrcB = (uint16_t *)(ySrcB + ySize);
+    uint16_t *cDst = (uint16_t *)(yDst + ySize);
+
+    // Merge y.
+    uint32_t yOffset = 0;
+    for (uint32_t row = 0; row < height; row++) {
+        uint8_t *yRowSrcA = ySrcA + yOffset;
+        uint8_t *yRowSrcB = ySrcB + yOffset;
+        uint8_t *yRowDst = yDst + yOffset;
+
+        // copy srcA
+        for (uint32_t col = 0; col < width/2; col++) {
+            yRowDst[col] = yRowSrcA[col*2];
+        }
+
+        // copy srcB
+        for (uint32_t col = width/2; col < width; col++) {
+            yRowDst[col] = yRowSrcB[(col - width/2)*2];
+        }
+
+        yOffset += yStride;
+    }
+
+    // Merge color.
+    uint32_t cOffset = 0;
+    for (uint32_t row = 0; row < cHeight; row++) {
+         uint16_t *cRowSrcA = cSrcA + cOffset;
+         uint16_t *cRowSrcB = cSrcB + cOffset;
+         uint16_t *cRowDst = cDst + cOffset;
+
+        // copy srcA, since use (uint16_t *), so total is cWidth/2/2.
+        for (uint32_t col = 0; col < cWidth/4; col++) {
+            cRowDst[col] = cRowSrcA[col*2];
+        }
+
+        // copy srcB
+        for (uint32_t col = cWidth/4; col < cWidth/2; col++) {
+            cRowDst[col] = cRowSrcB[(col - cWidth/4)*2];
+        }
+
+        cOffset += cStride/2; // unit is uint16
+    }
 }
 
 void ImageProcess::cl_Copy(void *g2dHandle, uint8_t *output, uint8_t *input, uint32_t size,

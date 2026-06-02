@@ -62,6 +62,8 @@ public:
 
     int ConvertImage(ImxImageBuffer& dst, ImxImageBuffer& src, ImxEngine engine,
                      bool debug = false);
+    int ConvertImageMultiSrc(ImxImageBuffer& dst, ImxImageBuffer& srcA, ImxImageBuffer& srcB, ImxEngine engine,
+                     bool debug = false);
     void SetMiddleBuffers(std::vector<ImxImageBuffer *> &MiddleBuffers);
 
     buffer_handle_t createBufferHandle(ImxImageBuffer& imxBuf);
@@ -75,6 +77,7 @@ private:
     int ConvertImageByG2DBlit(ImxImageBuffer& dst, ImxImageBuffer& src);
     int ConvertImageByGPU_3D(ImxImageBuffer& dst, ImxImageBuffer& src);
     int ConvertImageByCPU(ImxImageBuffer& dst, ImxImageBuffer& src);
+    int ConvertImageMultiSrcByCPU(ImxImageBuffer &dstBuf, ImxImageBuffer &srcBufA, ImxImageBuffer &srcBufB);
     int ConvertImageByDPU(ImxImageBuffer& dstBuf, ImxImageBuffer& srcBuf);
     int ConvertImageByGPU_2D(ImxImageBuffer& dstBuf, ImxImageBuffer& srcBuf);
     int ConvertImageByG2D(ImxImageBuffer& dstBuf, ImxImageBuffer& srcBuf, ImxEngine engine);
@@ -89,6 +92,7 @@ private:
     void cl_Csc(void* g2dHandle, uint8_t* inputBuffer, uint8_t* outputBuffer, int width, int height,
                 int srcStride, int dstStride, int srcHeightSpan, bool bInputCached,
                 bool bOutputCached, uint32_t inFmt, uint32_t outFmt, bool bUsePhyAddr = true);
+    void MergeImageNV12(void *srcA, void *srcB, void *dst, uint32_t width, uint32_t height);
 
     void* getHandle();
     int openEngine(void** handle);
