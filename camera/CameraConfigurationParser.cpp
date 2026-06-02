@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2023 NXP
+ * Copyright 2019-2023, 2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -249,6 +249,7 @@ bool ConfigureCameras(const Json::Value& value, CameraDefinition* camera) {
             ((*device_iter)[kPhysicalNames].size()) >= 2) {
             // This is an logical camera definition, update it's physical camera
             camera->camera_id_map_[camera_index].reserve((*device_iter)[kPhysicalNames].size());
+            camera->camera_metadata_vec[camera_index].mIsLogical = true;
 
             // For each defined physical camera name, check for match camera id and map the physical
             // camera id

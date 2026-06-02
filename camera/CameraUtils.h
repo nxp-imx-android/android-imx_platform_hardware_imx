@@ -192,6 +192,8 @@ cameraconfigparser::PhysicalMetaMapPtr ClonePhysicalDeviceMap(
 
 int32_t handleFrame(ImxStreamBuffer &dstBuf, ImxStreamBuffer &srcBuf, ImxEngine engine,
                     bool debug = false);
+int32_t handleFrameMultiSrc(ImxStreamBuffer &dstBuf, ImxStreamBuffer &srcBufA, ImxStreamBuffer &srcBufB, ImxEngine engine,
+                    bool debug = false);
 int32_t ImageBufferToStreamBuffer(ImxImageBuffer &imageBuffer, ImxStreamBuffer &streamBuffer);
 ImxStreamBuffer *CreateImxStreamBufferFromBufferHandle(buffer_handle_t buffer, Stream *stream);
 void ReleaseImxStreamBuffer(ImxStreamBuffer *imxBuf);

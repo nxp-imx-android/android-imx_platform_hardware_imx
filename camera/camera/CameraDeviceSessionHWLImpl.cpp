@@ -31,6 +31,8 @@
 #include "ISPCameraDeviceHWLImpl.h"
 #include "ImageProcess.h"
 
+#define DEBUG_FRAME_NUM 10
+
 // using namespace fsl;
 using namespace cameraconfigparser;
 namespace android {
@@ -340,7 +342,7 @@ int CameraDeviceSessionHwlImpl::HandleIntent(HwlPipelineRequest *hwReq) {
     }
 
     // TODO need to refine for logical's configIdx ?
-    if (is_logical_request_) {
+    if (is_logical_device_) {
         auto stat = hwReq->settings->Get(ANDROID_LENS_FOCAL_LENGTH, &entry);
         if ((stat == OK) && (entry.count == 1)) {
             current_focal_length_ = entry.data.f[0];
@@ -462,7 +464,7 @@ int CameraDeviceSessionHwlImpl::StartStreamOnMaxConfiguredResolution(HwlPipeline
     if (strcmp(mSensorData.v4l2_format, "nv12") == 0)
         format = HAL_PIXEL_FORMAT_YCbCr_420_SP;
 
-    if (is_logical_request_) {
+    if (is_logical_device_) {
         auto stat = hwReq->settings->Get(ANDROID_LENS_FOCAL_LENGTH, &entry);
         if ((stat == OK) && (entry.count == 1)) {
             current_focal_length_ = entry.data.f[0];
@@ -496,7 +498,7 @@ int CameraDeviceSessionHwlImpl::StartStreamOnMaxConfiguredResolution(HwlPipeline
 int CameraDeviceSessionHwlImpl::HandleRequest() {
     mLock.lock();
 
-    if (mDebug)
+    if (mDebug || (mDeQueRequestIdx < DEBUG_FRAME_NUM))
         DumpRequest();
 
     while (map_frame_request.empty()) {
@@ -558,7 +560,7 @@ int CameraDeviceSessionHwlImpl::HandleRequest() {
     mLock.lock();
     mDeQueRequestIdx++;
 
-    if (mDebug)
+    if (mDebug || (mDeQueRequestIdx <= DEBUG_FRAME_NUM))
         ALOGI("%s: mDeQueRequestIdx %lu", __func__, mDeQueRequestIdx);
     mLock.unlock();
 
@@ -587,7 +589,7 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
     if (frameRequest == NULL)
         return BAD_VALUE;
 
-    if (is_logical_request_) {
+    if (is_logical_device_) {
         std::vector<StreamBuffer> &output_buffers = frameRequest->hwlReq.output_buffers;
         int outbufNum = (int)output_buffers.size();
 
@@ -602,8 +604,11 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
             uint32_t physical_id = pStream->physical_camera_id;
             bool bCaptured = false;
 
-            ALOGV("%s: outBufIdx %d, physical_id %d", __func__, outBufIdx, physical_id);
+            if (mDebug || (frame < DEBUG_FRAME_NUM))
+                ALOGI("%s: outBufIdx %d, physical_id %d", __func__, outBufIdx, physical_id);
 
+            // TODO: If just request logical camera stream, no physical camera streams, also need
+            // capture all physical camera streams.
             for (auto it = v4l2BufferList.begin(); it != v4l2BufferList.end(); it++) {
                 pImxStreamBuffer = *it;
                 if (pImxStreamBuffer->mStream->mPhysicalId == physical_id) {
@@ -621,9 +626,9 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
             VideoStream *pVideoStream = GetVideoStreamByPhysicalId(physical_id);
 
             if (pVideoStream == NULL) {
-                ALOGW("%s: pVideoStream is NULL for physical_camera_id %u, outBufIdx %d", __func__,
+                ALOGV("%s: pVideoStream is NULL for physical_camera_id %u, outBufIdx %d, it's a stream from logical camera", __func__,
                       physical_id, outBufIdx);
-                goto fail;
+                continue;
             }
 
             pImxStreamBuffer = pVideoStream->onFrameAcquire();
@@ -681,7 +686,7 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
     }
     memset(imgFeed, 0, sizeof(ImageFeed));
 
-    if (is_logical_request_)
+    if (is_logical_device_)
         imgFeed->v4l2BufferList.assign(v4l2BufferList.begin(), v4l2BufferList.end());
     else
         imgFeed->v4l2Buffer = pImxStreamBuffer;
@@ -754,8 +759,6 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
 
     mImgProcThread->mImageListLock.lock();
 
-    if (mDebug)
-        mImgProcThread->DumpImage();
 
     while (mImgProcThread->mImageList.empty()) {
         ALOGV("mImageList empty, wait");
@@ -780,6 +783,9 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
     FrameRequest *frameRequest = imgFeed->frameRequest;
     HwlPipelineRequest &hwReq = frameRequest->hwlReq;
 
+    if (mDebug || (frame < DEBUG_FRAME_NUM))
+        mImgProcThread->DumpImage();
+
     uint32_t pipeline_id = hwReq.pipeline_id;
     PipelineInfo *pInfo = GetPipelineInfo(pipeline_id);
     if (pInfo == NULL) {
@@ -788,7 +794,7 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
     }
 
     // If capture NULL buffer, notify error and return
-    if ((imgFeed->v4l2Buffer == NULL) && (is_logical_request_ == false)) {
+    if ((imgFeed->v4l2Buffer == NULL) && (is_logical_device_ == false)) {
         ALOGE("%s: v4l2Buffer NULL, notify error to framework", __func__);
 
         mImgProcThread->mImageListLock.lock();
@@ -849,7 +855,7 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
 
     // Image process
     int outBufNum = (int)hwReq.output_buffers.size();
-    if (is_logical_request_) {
+    if (is_logical_device_) {
         for (int outBufIdx = 0; outBufIdx < outBufNum; outBufIdx++) {
             Stream *pStream = GetStreamFromStreamBuffer(&hwReq.output_buffers[outBufIdx]);
             if (pStream == NULL) {
@@ -857,16 +863,27 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
                 continue;
             }
 
-            uint32_t physical_id = pStream->physical_camera_id;
+            uint32_t camera_id = pStream->physical_camera_id;
+            if (mDebug || (frame <= DEBUG_FRAME_NUM))
+                ALOGI("%s: outBufIdx %d, camera_id %u", __func__, outBufIdx, camera_id);
 
-            // Find a v4l2 buffer bind to physical_id, then process to the output buffer.
+            // Process physical camrea. Find a v4l2 buffer bind to camera_id, then process to the output buffer.
             for (int j = 0; j < (int)imgFeed->v4l2BufferList.size(); j++) {
-                if (imgFeed->v4l2BufferList[j]->mStream->mPhysicalId == physical_id) {
+                if (imgFeed->v4l2BufferList[j]->mStream->mPhysicalId == camera_id) {
                     ProcessCapbuf2Outbuf(imgFeed->v4l2BufferList[j],
                                          hwReq.output_buffers[outBufIdx],
                                          frameRequest->outBufferFences[outBufIdx], requestMeta);
                     break;
                 }
+            }
+
+            // Process logical camera.
+            // TODO: Currently only 1 logical camera, so camera_id is fixed as 0.
+            // If more logical cameras, need refine.
+            if (camera_id == 0) {
+                  ProcessMultiCapbuf2Outbuf(imgFeed->v4l2BufferList,
+                                         hwReq.output_buffers[outBufIdx],
+                                         frameRequest->outBufferFences[outBufIdx], requestMeta);
             }
         }
     } else {
@@ -875,7 +892,7 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
     }
 
     // return v4l2 buffer
-    if (is_logical_request_) {
+    if (is_logical_device_) {
         for (int i = 0; i < (int)imgFeed->v4l2BufferList.size(); i++) {
             VideoStream *pVideoStream = (VideoStream *)imgFeed->v4l2BufferList[i]->mStream;
             pVideoStream->onFrameReturn(*(imgFeed->v4l2BufferList[i]));
@@ -890,7 +907,7 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
     result->frame_number = frame;
     result->partial_result = 1;
 
-    if (is_logical_request_) {
+    if (is_logical_device_) {
         std::unique_ptr<std::set<uint32_t>> physical_camera_output_ids =
                 std::make_unique<std::set<uint32_t>>();
 
@@ -970,7 +987,7 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
     mImgProcThread->mProcdFrame = frame;
     mImgProcThread->mImageListLock.unlock();
 
-    if (mDebug)
+    if (mDebug || (frame <= DEBUG_FRAME_NUM))
         ItvlStat(mPreHandleImageTime, (char *)"HandleImage(), process_pipeline_result");
 
     // release imgFeed and it's request
@@ -1000,6 +1017,52 @@ Stream *CameraDeviceSessionHwlImpl::GetStreamFromStreamBuffer(StreamBuffer *buf)
     }
 
     return NULL;
+}
+
+status_t CameraDeviceSessionHwlImpl::ProcessMultiCapbuf2Outbuf(std::vector<ImxStreamBuffer *> &v4l2BufferList,
+                                                          StreamBuffer &output_buffer,
+                                                          FenceFdInfo &outFences,
+                                                          CameraMetadata &requestMeta) {
+    int ret = 0;
+    StreamBuffer *it = &output_buffer;
+
+    // If fence is valid, wait.  Ref the usage in EmulatedRequestProcessor.cpp.
+    int acquire_fence_fd = outFences.acquire_fence_fd;
+    if (acquire_fence_fd > -1) {
+        ALOGV("%s, before sync_wait fence fd %d", __func__, acquire_fence_fd);
+        ret = sync_wait(acquire_fence_fd, CAMERA_SYNC_TIMEOUT);
+        ALOGV("%s, after sync_wait fence fd %d", __func__, acquire_fence_fd);
+        closeFence(acquire_fence_fd, mDebug);
+        outFences.acquire_fence_fd = -1;
+        if (ret != OK) {
+            ALOGW("%s: Timeout waiting on acquire fence %d, on stream %d, buffer %lu", __func__,
+                  acquire_fence_fd, it->stream_id, it->buffer_id);
+        }
+    }
+
+    Stream *pStream = GetStreamFromStreamBuffer(it);
+    if (pStream == NULL) {
+        ALOGE("%s, dst buf belong to stream %d, but the stream is not configured", __func__,
+              it->stream_id);
+        return BAD_VALUE;
+    }
+
+    ImxStreamBuffer *dstBuf = CreateImxStreamBufferFromBufferHandle(it->buffer, pStream);
+    if (dstBuf == NULL)
+        return BAD_VALUE;
+
+    if (dstBuf->mStream->format() == HAL_PIXEL_FORMAT_BLOB) {
+        ALOGW("%s: currently not support BLOB format for logical camera stream", __func__);
+        ReleaseImxStreamBuffer(dstBuf);
+        return BAD_VALUE;
+    }
+
+    uint64_t t1 = systemTime();
+    processFrameBufferMultiSrc(v4l2BufferList, dstBuf, &requestMeta);
+    uint64_t t2 = systemTime();
+
+    ReleaseImxStreamBuffer(dstBuf);
+    return 0;
 }
 
 status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2Outbuf(ImxStreamBuffer *srcBuf,
@@ -1119,6 +1182,28 @@ int32_t CameraDeviceSessionHwlImpl::processFrameBuffer(ImxStreamBuffer *srcBuf,
         engine = mCamBlitCscType;
 
     return handleFrame(*dstBuf, *srcBuf, engine, mDebug);
+}
+
+int32_t CameraDeviceSessionHwlImpl::processFrameBufferMultiSrc(std::vector<ImxStreamBuffer *> &v4l2BufferList,
+                                                       ImxStreamBuffer *dstBuf,
+                                                       CameraMetadata *meta) {
+    if (v4l2BufferList.size() < 2) {
+        ALOGE("%s v4l2BufferList.size() %zu", __func__, v4l2BufferList.size());
+        return BAD_VALUE;
+    }
+
+    // TODO: Currently only consider logical camera composed of 2 physical cameras.
+    ImxStreamBuffer *srcBufA = v4l2BufferList[0];
+    ImxStreamBuffer *srcBufB = v4l2BufferList[1];
+
+    if ((srcBufA == NULL) || (srcBufB == NULL) || (dstBuf == NULL) || (meta == NULL)) {
+        ALOGE("%s srcBufA %p, srcBufB %p, dstBuf %p, meta %p", __func__, srcBufA, srcBufB, dstBuf, meta);
+        return BAD_VALUE;
+    }
+
+    ImxEngine engine = ENG_CPU;
+
+    return handleFrameMultiSrc(*dstBuf, *srcBufA, *srcBufB, engine, mDebug);
 }
 
 int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
@@ -1551,7 +1636,6 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
     callbackIdx = -1;
     cameraRWIdx = -1;
     rawIdx = -1;
-    is_logical_request_ = false;
 
     maxStreamWidth = 0;
     maxStreamHeight = 0;
@@ -1644,10 +1728,6 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
         hal_stream.physical_camera_id = stream.physical_camera_id;
 
         pipeline_info->hal_streams->push_back(std::move(hal_stream));
-
-        if (stream.is_physical_camera_stream != 0) {
-            is_logical_request_ = true;
-        }
     }
 
     map_pipeline_info[pipeline_id_] = pipeline_info;
@@ -1844,7 +1924,7 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequest(HwlPipelineRequest request) {
 
     uint32_t pipeline_id = request.pipeline_id;
 
-    if (mDebug)
+    if (mDebug || (request.frame_number < DEBUG_FRAME_NUM))
         ALOGI("%s, frame_number %d, pipeline_id %d, outbuffer num %d", __func__, request.frame_number,
                 (int)pipeline_id, (int)request.output_buffers.size());
 
@@ -1882,7 +1962,7 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequest(HwlPipelineRequest request) {
     mInQueRequestIdx++;
     mCondition.signal();
 
-    if (mDebug) {
+    if (mDebug || (request.frame_number < DEBUG_FRAME_NUM)) {
         ALOGI("%s: mInQueRequestIdx %lu", __func__, mInQueRequestIdx);
         ItvlStat(mPreSubmitRequestTime, (char *)"SubmitRequests");
     }

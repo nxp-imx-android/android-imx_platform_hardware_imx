@@ -198,12 +198,22 @@ private:
                                        std::vector<StreamBuffer> &output_buffers,
                                        std::vector<FenceFdInfo> &outFences,
                                        CameraMetadata &requestMeta);
+
     status_t ProcessCapbuf2Outbuf(ImxStreamBuffer *srcBuf, StreamBuffer &output_buffers,
                                   FenceFdInfo &outFences, CameraMetadata &requestMeta);
 
+    status_t ProcessMultiCapbuf2Outbuf(std::vector<ImxStreamBuffer *> &v4l2BufferList,
+                                                          StreamBuffer &output_buffer,
+                                                          FenceFdInfo &outFences,
+                                                          CameraMetadata &requestMeta);
+
     int32_t processJpegBuffer(ImxStreamBuffer *srcBuf, ImxStreamBuffer *dstBuf,
                               CameraMetadata *meta);
+
     int32_t processFrameBuffer(ImxStreamBuffer *srcBuf, ImxStreamBuffer *dstBuf,
+                               CameraMetadata *meta);
+
+    int32_t processFrameBufferMultiSrc(std::vector<ImxStreamBuffer *> &v4l2BufferList, ImxStreamBuffer *dstBuf,
                                CameraMetadata *meta);
 
     Stream *GetStreamFromStreamBuffer(StreamBuffer *buf);
@@ -337,7 +347,6 @@ private:
     std::vector<uint32_t> mPhysicalIds;
 
     bool is_logical_device_ = false;
-    bool is_logical_request_ = false;
 
     // Maps particular focal length to physical device id
     std::unordered_map<float, uint32_t> physical_focal_length_map_;

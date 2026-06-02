@@ -52,6 +52,9 @@ status_t CameraMetadata::createMetadata(CameraDeviceHwlImpl *pDev,
      * device.
      */
 
+    ALOGI("%s:, name %s, type %s, isLogical %d",
+      __func__, mSensorData.camera_name, mSensorData.camera_type, mSensorData.mIsLogical);
+
     if (pDev == NULL)
         return BAD_VALUE;
 
