@@ -593,6 +593,9 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
         std::vector<StreamBuffer> &output_buffers = frameRequest->hwlReq.output_buffers;
         int outbufNum = (int)output_buffers.size();
 
+
+        // Find if has logical stream
+        bool bHasLogicalStream = false;
         for (int outBufIdx = 0; outBufIdx < outbufNum; outBufIdx++) {
             Stream *pStream = GetStreamFromStreamBuffer(&output_buffers[outBufIdx]);
             if (pStream == NULL) {
@@ -601,40 +604,33 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
                 goto fail;
             }
 
-            uint32_t physical_id = pStream->physical_camera_id;
-            bool bCaptured = false;
-
             if (mDebug || (frame < DEBUG_FRAME_NUM))
-                ALOGI("%s: outBufIdx %d, physical_id %d", __func__, outBufIdx, physical_id);
+                ALOGI("%s: frame %u, outBufIdx %d, is_physical_camera_stream %d, physical_camera_id %d",
+                    __func__, frame, outBufIdx, pStream->is_physical_camera_stream, pStream->physical_camera_id);
 
-            // TODO: If just request logical camera stream, no physical camera streams, also need
-            // capture all physical camera streams.
-            for (auto it = v4l2BufferList.begin(); it != v4l2BufferList.end(); it++) {
-                pImxStreamBuffer = *it;
-                if (pImxStreamBuffer->mStream->mPhysicalId == physical_id) {
-                    bCaptured = true;
-                    break;
-                }
+            if (pStream->is_physical_camera_stream == false) {
+                bHasLogicalStream = true;
+                break;
+            }
+        }
+
+        // Loop video streams, capture if need.
+        for (auto pVideoStream : pVideoStreams) {
+            // TODO: If have more than 1 logical cameras, each logical camera has it's own physical cameras.
+            if (bHasLogicalStream)
+               goto capture;
+
+            for (int outBufIdx = 0; outBufIdx < outbufNum; outBufIdx++) {
+                Stream *pStream = GetStreamFromStreamBuffer(&output_buffers[outBufIdx]);
+                if (pStream->physical_camera_id == pVideoStream->mPhysicalId)
+                    goto capture;
             }
 
-            if (bCaptured) {
-                ALOGV("%s: physical_camera_id %d already captured, outBufIdx %d", __func__,
-                      physical_id, outBufIdx);
-                continue;
-            }
-
-            VideoStream *pVideoStream = GetVideoStreamByPhysicalId(physical_id);
-
-            if (pVideoStream == NULL) {
-                ALOGV("%s: pVideoStream is NULL for physical_camera_id %u, outBufIdx %d, it's a stream from logical camera", __func__,
-                      physical_id, outBufIdx);
-                continue;
-            }
-
+            continue;
+capture:
             pImxStreamBuffer = pVideoStream->onFrameAcquire();
             if (pImxStreamBuffer == NULL) {
-                ALOGW("%s: onFrameAcquire failed, physical_camera_id %u, outBufIdx %d", __func__,
-                      physical_id, outBufIdx);
+                ALOGW("%s: onFrameAcquire failed, mPhysicalId %u", __func__, pVideoStream->mPhysicalId);
                 goto fail;
             }
 
@@ -645,8 +641,8 @@ status_t CameraDeviceSessionHwlImpl::CapAndFeed(uint32_t frame, FrameRequest *fr
             v4l2BufferList.push_back(pImxStreamBuffer);
         }
 
-        ALOGV("%s: v4l2BufferList.size %zu", __func__, v4l2BufferList.size());
-
+        if (mDebug || (frame < DEBUG_FRAME_NUM))
+            ALOGI("%s: v4l2BufferList.size %zu", __func__, v4l2BufferList.size());
     } else {
         pImxStreamBuffer = pVideoStreams[0]->onFrameAcquire();
         // Fix me. Since onFrameAcquire will select by 3s timeout, and has recover
@@ -865,7 +861,7 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
 
             uint32_t camera_id = pStream->physical_camera_id;
             if (mDebug || (frame <= DEBUG_FRAME_NUM))
-                ALOGI("%s: outBufIdx %d, camera_id %u", __func__, outBufIdx, camera_id);
+                ALOGI("%s: frame %u, outBufIdx %d, camera_id %u", __func__, frame, outBufIdx, camera_id);
 
             // Process physical camrea. Find a v4l2 buffer bind to camera_id, then process to the output buffer.
             for (int j = 0; j < (int)imgFeed->v4l2BufferList.size(); j++) {
@@ -912,6 +908,27 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
                 std::make_unique<std::set<uint32_t>>();
 
         int output_buffers_size = (int)hwReq.output_buffers.size();
+
+        // Apply for either logical or physical streams.
+        for (int id = 0; id < output_buffers_size; id++) {
+            auto phy_result = std::make_unique<HwlPipelineResult>();
+            // return physical buffer
+            phy_result->camera_id = camera_ids[id];
+            phy_result->pipeline_id = pipeline_id;
+            phy_result->frame_number = frame;
+            // This value must be set to 0 when a capture result contains buffers only and no
+            // metadata.
+            phy_result->partial_result = 0;
+            phy_result->output_buffers.push_back(hwReq.output_buffers[id]);
+
+            // call back to process physical buffer
+            if (pInfo->pipeline_callback.process_pipeline_result) {
+                pInfo->pipeline_callback.process_pipeline_result(std::move(phy_result));
+            }
+        }
+
+        // Fix me: camera_ids size is the configured streams size, may not same as output_buffers_size.
+        // Even same, the sequence may not same.
         for (int output_buf_id = 0; output_buf_id < output_buffers_size; output_buf_id++) {
             int phyid_cam_id = frameRequest->camera_ids[output_buf_id];
             if (phyid_cam_id != (int)camera_id_) {
@@ -922,23 +939,6 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
         if ((physical_camera_output_ids.get() != nullptr) &&
             (!physical_camera_output_ids->empty())) {
             result->physical_camera_results.reserve(physical_camera_output_ids->size());
-
-            for (int id = 0; id < (int)hwReq.output_buffers.size(); id++) {
-                auto phy_result = std::make_unique<HwlPipelineResult>();
-                // return physical buffer
-                phy_result->camera_id = camera_ids[id];
-                phy_result->pipeline_id = pipeline_id;
-                phy_result->frame_number = frame;
-                // This value must be set to 0 when a capture result contains buffers only and no
-                // metadata.
-                phy_result->partial_result = 0;
-                phy_result->output_buffers.push_back(hwReq.output_buffers[id]);
-
-                // call back to process physical buffer
-                if (pInfo->pipeline_callback.process_pipeline_result) {
-                    pInfo->pipeline_callback.process_pipeline_result(std::move(phy_result));
-                }
-            }
 
             for (const auto &it : *physical_camera_output_ids) {
                 std::unique_ptr<HalCameraMetadata> physical_metadata_ = nullptr;
@@ -1918,6 +1918,7 @@ void CameraDeviceSessionHwlImpl::DestroyPipelines() {
     }
 
     map_pipeline_info.clear();
+    camera_ids.clear();
     pipelines_built_ = false;
 }
 
