@@ -85,7 +85,6 @@ typedef struct tag_fence_fd_info {
 typedef struct tag_request {
     HwlPipelineRequest hwlReq;
     std::vector<FenceFdInfo> outBufferFences;
-    std::vector<uint32_t> camera_ids;
 } FrameRequest;
 
 // Implementation of CameraDeviceSessionHwl interface
@@ -329,8 +328,6 @@ private:
     CameraMetadata *m_meta;
     std::map<uint32_t, PipelineInfo *> map_pipeline_info;
     std::map<uint32_t, FrameRequest *> map_frame_request;
-
-    std::vector<uint32_t> camera_ids;
 
     autoState m3aState;
     std::vector<VideoStream *> pVideoStreams;

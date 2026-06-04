@@ -910,29 +910,31 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
         int output_buffers_size = (int)hwReq.output_buffers.size();
 
         // Apply for either logical or physical streams.
-        for (int id = 0; id < output_buffers_size; id++) {
+        for (int index = 0; index < output_buffers_size; index++) {
+            Stream* pStream = GetStreamFromStreamBuffer(&hwReq.output_buffers[index]);
+            if (pStream == NULL) {
+                  ALOGE("%s: No pStream for output buffer %d", __func__, index);
+                  return BAD_VALUE;
+            }
+
+            uint32_t camera_id = pStream->is_physical_camera_stream ? pStream->physical_camera_id : camera_id_;
+            if (camera_id != camera_id_) {
+                physical_camera_output_ids->emplace(camera_id);
+            }
+
             auto phy_result = std::make_unique<HwlPipelineResult>();
             // return physical buffer
-            phy_result->camera_id = camera_ids[id];
+            phy_result->camera_id = camera_id;
             phy_result->pipeline_id = pipeline_id;
             phy_result->frame_number = frame;
             // This value must be set to 0 when a capture result contains buffers only and no
             // metadata.
             phy_result->partial_result = 0;
-            phy_result->output_buffers.push_back(hwReq.output_buffers[id]);
+            phy_result->output_buffers.push_back(hwReq.output_buffers[index]);
 
             // call back to process physical buffer
             if (pInfo->pipeline_callback.process_pipeline_result) {
                 pInfo->pipeline_callback.process_pipeline_result(std::move(phy_result));
-            }
-        }
-
-        // Fix me: camera_ids size is the configured streams size, may not same as output_buffers_size.
-        // Even same, the sequence may not same.
-        for (int output_buf_id = 0; output_buf_id < output_buffers_size; output_buf_id++) {
-            int phyid_cam_id = frameRequest->camera_ids[output_buf_id];
-            if (phyid_cam_id != (int)camera_id_) {
-                physical_camera_output_ids->emplace(phyid_cam_id);
             }
         }
 
@@ -1653,10 +1655,6 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
             maxStreamHeight = stream.height;
         }
 
-        uint32_t mcamera_id =
-                stream.is_physical_camera_stream ? stream.physical_camera_id : camera_id_;
-        camera_ids.push_back(mcamera_id);
-
         HalStream hal_stream;
         memset(&hal_stream, 0, sizeof(hal_stream));
         int usage = 0;
@@ -1918,7 +1916,6 @@ void CameraDeviceSessionHwlImpl::DestroyPipelines() {
     }
 
     map_pipeline_info.clear();
-    camera_ids.clear();
     pipelines_built_ = false;
 }
 
@@ -1949,9 +1946,6 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequest(HwlPipelineRequest request) {
                                                         request.input_buffers.end());
     frame_request->hwlReq.input_buffer_metadata.reserve(
             request.input_buffer_metadata.size());
-
-    frame_request->camera_ids.reserve(camera_ids.size());
-    frame_request->camera_ids.assign(camera_ids.begin(), camera_ids.end());
 
     // Record fence fd
     uint32_t outBufNum = request.output_buffers.size();
