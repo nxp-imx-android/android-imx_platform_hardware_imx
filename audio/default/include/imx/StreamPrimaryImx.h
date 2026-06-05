@@ -75,6 +75,7 @@ class StreamPrimaryImx : public StreamPrimary {
     bool mIsS16ToS24 = false;
     bool mHardwarePause = false;
     bool mStarted = false;
+    int64_t mLastCapturePosition = 0;
     bool mPrimaryOutput = false;
     bool mDirectOutput = false;
     bool mFirstTransfer = false;

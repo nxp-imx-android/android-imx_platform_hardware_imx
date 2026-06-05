@@ -433,11 +433,27 @@ done:
             (getContext().getFormat().encoding == "audio/vnd.sony.dsd")) {
         return StreamAlsa::refinePosition(position);
     }
-    if (!mIsInput) {
-        int64_t buffer_size = static_cast<int64_t>(mConfig->period_size) * mConfig->period_count;
-        position->frames = position->frames > buffer_size ?
-            (position->frames - buffer_size) : 0;
+    if (mIsInput) {
+        // Use ALSA hw timestamps and clamp to monotonic max to avoid retrograde position.
+        const int64_t savedFrames = position->frames;
+        const int64_t savedTimeNs = position->timeNs;
+        if (StreamAlsa::refinePosition(position) != ::android::OK) {
+            position->frames = savedFrames;
+            position->timeNs = savedTimeNs;
+        }
+        if (position->frames < mLastCapturePosition) {
+            position->frames = mLastCapturePosition;
+        } else {
+            mLastCapturePosition = position->frames;
+        }
+    } else {
+        if (StreamAlsa::refinePosition(position) != ::android::OK) {
+            int64_t buffer_size = static_cast<int64_t>(mConfig->period_size) * mConfig->period_count;
+            position->frames = position->frames > buffer_size ?
+                (position->frames - buffer_size) : 0;
+        }
     }
+
     return ::android::OK;
 }
 
