@@ -53,6 +53,8 @@ class ModuleUsb final : public ModuleAlsa {
     void onExternalDeviceConnectionChanged(
             const ::aidl::android::media::audio::common::AudioPort& audioPort,
             bool connected) override;
+    int32_t getNominalLatencyMs(
+            const ::aidl::android::media::audio::common::AudioPortConfig& portConfig) override;
     ndk::ScopedAStatus onMasterMuteChanged(bool mute) override;
     ndk::ScopedAStatus onMasterVolumeChanged(float volume) override;
 };

@@ -28,6 +28,7 @@
 using aidl::android::hardware::audio::common::SinkMetadata;
 using aidl::android::hardware::audio::common::SourceMetadata;
 using aidl::android::media::audio::common::AudioDeviceDescription;
+using aidl::android::media::audio::common::AudioIoFlags;
 using aidl::android::media::audio::common::AudioOffloadInfo;
 using aidl::android::media::audio::common::AudioPort;
 using aidl::android::media::audio::common::AudioPortConfig;
@@ -122,6 +123,14 @@ void ModuleUsb::onExternalDeviceConnectionChanged(
     }
     usb::UsbAlsaMixerControl::getInstance().setDeviceConnectionState(profile->card, getMasterMute(),
                                                                      getMasterVolume(), connected);
+}
+
+int32_t ModuleUsb::getNominalLatencyMs(const AudioPortConfig& portConfig) {
+    if (portConfig.flags.has_value() &&
+            portConfig.flags->getTag() == AudioIoFlags::Tag::input) {
+        return 16; // 16 ms latency for input to bypass fast input mode
+    }
+    return Module::getNominalLatencyMs(portConfig);
 }
 
 ndk::ScopedAStatus ModuleUsb::onMasterMuteChanged(bool mute) {
