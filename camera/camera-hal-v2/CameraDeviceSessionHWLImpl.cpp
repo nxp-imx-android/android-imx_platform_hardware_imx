@@ -891,6 +891,7 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
     int ret = 0;
     maxStreamWidth = 0;
     maxStreamHeight = 0;
+    bool pipeline_added_to_map = false;
 
     int stream_num = request_config.streams.size();
     if (stream_num == 0) {
@@ -1019,6 +1020,7 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
           pipeline_info, &map_pipeline_info, this);
     map_pipeline_info[pipeline_id_] = pipeline_info;
     pipeline_id_++;
+    pipeline_added_to_map = true;
 
     if (m_bConfigLibcameraByIntent == false) {
         ret = ConfigLibcameraLocked(mSensorData.mLibcameraBuffers, m_libcamera_stream_format,
@@ -1043,15 +1045,17 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
     return OK;
 
 err_out:
-    if (pipeline_info != NULL) {
-        if (pipeline_info->streams != nullptr) {
-            delete pipeline_info->streams;
-        }
-        if (pipeline_info->hal_streams != nullptr) {
-            delete pipeline_info->hal_streams;
-        }
-        free(pipeline_info);
+    if (pipeline_added_to_map) {
+        pipeline_id_--;
+        map_pipeline_info.erase(pipeline_id_);
     }
+    if (pipeline_info->streams != nullptr) {
+        delete pipeline_info->streams;
+    }
+    if (pipeline_info->hal_streams != nullptr) {
+        delete pipeline_info->hal_streams;
+    }
+    free(pipeline_info);
 
     return ret;
 }
