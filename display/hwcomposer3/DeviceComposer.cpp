@@ -346,72 +346,17 @@ int DeviceComposer::clearWormHole(uint32_t displayId, std::vector<int64_t>& laye
         else
             layer = &cachedComposition[id].interlayer;
 
-        for (auto& rect : *layer->visible) {
-            opaque.orSelf(::android::Rect(rect.left, rect.top, rect.right, rect.bottom));
+        if (layer->mode == common::BlendMode::NONE) {
+            for (auto& rect : *layer->visible)
+                opaque.orSelf(::android::Rect(rect.left, rect.top, rect.right, rect.bottom));
         }
     }
-
-#ifdef DEBUG_NXP_HWC_G2D
-    std::string opaque_str;
-    char tempStr[64];
-#endif
-    // clear some areas to avoid UI mess when overlay used
-    common::Rect targetRect(0, 0, static_cast<int>(target.infoPtr->width),
-                            static_cast<int>(target.infoPtr->height));
-    uint64_t targetArea = calculateRect(targetRect);
-
-    bool small = false;
-    ::android::Region smallOpaque;
-    auto head = opaque.begin();
-    auto const tail = opaque.end();
-    while (head != tail) {
-        small = false;
-        common::Rect rect(head->left, head->top, head->right, head->bottom);
-        if (calculateRect(rect) < targetArea / 10) {
-            smallOpaque.orSelf(*head);
-            small = true;
-        }
-#ifdef DEBUG_NXP_HWC_G2D
-        sprintf(tempStr, "[%d,%d,%d,%d]%s", head->left, head->top, head->right, head->bottom,
-                small ? "(rm)," : ",");
-        opaque_str += tempStr;
-#endif
-        head++;
-    }
-    opaque.subtractSelf(smallOpaque); // Remove small opaque region
 
     // calculate worm hole.
     ::android::Region screen(::android::Rect(target.infoPtr->width, target.infoPtr->height));
     screen.subtractSelf(opaque);
     size_t numRect = 0;
     const ::android::Rect* holes = screen.getArray(&numRect);
-
-#ifdef WORKAROUND_FOR_TRANSPARENT_TASKBAR
-    /* The UI mess in MA-24877 is because the transparent part of taskbar is blended on uncleard
-     * framebuffer. So clear taskbar rectangle area when there are some holes need to clear.
-     */
-    if (numRect > 0 && !holes[0].isEmpty()) {
-        for (auto id : layerIds) {
-            G2dInterLayer* layer;
-            if (id > 0)
-                layer = &cachedLayers[id];
-            else
-                continue;
-
-            auto name = layer->priv->getBufferInfo()->name;
-            if (name && (strncmp(name, "VRI[Taskbar]", 12) == 0)) {
-                for (auto& rect : *layer->visible) {
-                    screen.orSelf(::android::Rect(rect.left, rect.top, rect.right, rect.bottom));
-                }
-                break;
-            }
-        }
-        holes = screen.getArray(&numRect);
-    }
-#endif
-#ifdef DEBUG_NXP_HWC_G2D
-    ALOGI("%s: clear %zu worm holes(opaque=%s)", __FUNCTION__, numRect, opaque_str.c_str());
-#endif
 
     // clear worm hole.
     struct g2d_surfaceEx surfaceX;

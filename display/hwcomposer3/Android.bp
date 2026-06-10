@@ -223,7 +223,6 @@ cc_binary {
         "-DLOG_TAG=\"NxpHWC\"",
         "-Wall",
         "-Wthread-safety",
-        "-DWORKAROUND_FOR_TRANSPARENT_TASKBAR",
     ],
 }
 
