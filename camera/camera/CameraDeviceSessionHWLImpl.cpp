@@ -1593,6 +1593,14 @@ void CameraDeviceSessionHwlImpl::DestroyPipelines() {
 
     mImgProcThread->drainImages(WAIT_ITVL_US);
 
+    /* Stop the stream */
+    int stream_size = pVideoStreams.size();
+    for (int i = 0; i < stream_size; ++i) {
+        if (pVideoStreams[i]) {
+            pVideoStreams[i]->Stop();
+        }
+    }
+
     CleanRequestsLocked();
 
     /* clear  map_pipeline_info */
