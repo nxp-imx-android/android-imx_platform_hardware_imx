@@ -18,6 +18,9 @@
 #define LOG_TAG "AHAL_StreamPrimaryImx"
 
 #include <cstdio>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
@@ -62,6 +65,7 @@ namespace aidl::android::hardware::audio::core {
 StreamPrimaryImx::StreamPrimaryImx(StreamContext* context, const Metadata& metadata)
     : StreamPrimary(context, metadata) {
     mSavedConfig = mConfig;
+    mDump = property_get_bool("persist.vendor.audio.dump", false);
     property_get("ro.boot.soc_type", soc_name, NULL);
     auto flags = getContext().getFlags();
     if (flags.getTag() == AudioIoFlags::Tag::output) {
@@ -81,6 +85,20 @@ StreamPrimaryImx::StreamPrimaryImx(StreamContext* context, const Metadata& metad
         std::ofstream ifile(kDumpPrimaryInputFile, std::ios::trunc);
         std::ofstream ofile(kDumpPrimaryOutputFile, std::ios::trunc);
     }
+}
+
+void StreamPrimaryImx::dump(const void* buffer, size_t bytes, const char* name) {
+    if ((buffer == NULL) || (bytes == 0) || (name == NULL))
+        return;
+
+    int fdDump = open(name, O_CREAT | O_APPEND | O_WRONLY, S_IRWXU | S_IRWXG);
+    if (fdDump < 0) {
+        ALOGW("%s: file open error, srcFile: %s, fd %d", __func__, name, fdDump);
+        return;
+    }
+
+    write(fdDump, buffer, bytes);
+    ::close(fdDump);
 }
 
 ::android::status_t StreamPrimaryImx::flush() {

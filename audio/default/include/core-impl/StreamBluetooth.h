@@ -67,9 +67,12 @@ class StreamBluetooth : public StreamCommonImpl {
     void shutdown() override;
 
     // Overridden methods of 'StreamCommonImpl', called on a Binder thread.
-    ndk::ScopedAStatus updateMetadataCommon(const Metadata& metadata) override;
-    ndk::ScopedAStatus prepareToClose() override;
     ndk::ScopedAStatus bluetoothParametersUpdated() override;
+    ndk::ScopedAStatus prepareToClose() override;
+    ndk::ScopedAStatus setConnectedDevices(
+            const std::vector<::aidl::android::media::audio::common::AudioDevice>& devices)
+            override;
+    ndk::ScopedAStatus updateMetadataCommon(const Metadata& metadata) override;
 
   protected:
     ndk::ScopedAStatus getRecommendedLatencyModes(
@@ -84,6 +87,7 @@ class StreamBluetooth : public StreamCommonImpl {
     const bool mIsInput;
     const std::weak_ptr<IBluetoothA2dp> mBluetoothA2dp;
     const std::weak_ptr<IBluetoothLe> mBluetoothLe;
+    const std::weak_ptr<IBluetooth> mBluetoothHfp;
     const size_t mPreferredDataIntervalUs;
     std::shared_ptr<PortCallbacksHandler> mCallbacksHandler;
     std::string mSessionTypeName;

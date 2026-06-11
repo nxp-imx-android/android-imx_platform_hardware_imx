@@ -109,6 +109,17 @@ class BluetoothSession {
                mSessionType == SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH;
     }
 
+    bool isHfp() const {
+        switch (mSessionType) {
+            case SessionType::HFP_SOFTWARE_ENCODING_DATAPATH:
+            case SessionType::HFP_SOFTWARE_DECODING_DATAPATH:
+            case SessionType::HFP_HARDWARE_OFFLOAD_DATAPATH:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     bool isLeAudio() const {
         return mSessionType == SessionType::LE_AUDIO_SOFTWARE_ENCODING_DATAPATH ||
                mSessionType == SessionType::LE_AUDIO_SOFTWARE_DECODING_DATAPATH ||
@@ -126,6 +137,7 @@ namespace {
 
 // The maximum time to wait in std::condition_variable::wait_for()
 constexpr unsigned int kMaxWaitingTimeMs = 4500;
+constexpr unsigned int kScoMixPortFixedSampleRate = 32000;
 
 }  // namespace
 
@@ -184,6 +196,7 @@ bool BluetoothAudioPortAidl::initSession(const AudioDeviceDescription& descripti
                      << ": device=AUDIO_DEVICE_OUT_BLUETOOTH_A2DP (HEADPHONES/SPEAKER) ("
                      << description.toString() << ")";
         sessionType = SessionType::A2DP_SOFTWARE_ENCODING_DATAPATH;
+        fallbackSessionType = SessionType::A2DP_HARDWARE_OFFLOAD_ENCODING_DATAPATH;
     } else if (description.connection == AudioDeviceDescription::CONNECTION_WIRELESS &&
                description.type == AudioDeviceType::OUT_HEARING_AID) {
         LOG(VERBOSE) << __func__ << ": device=AUDIO_DEVICE_OUT_HEARING_AID (MEDIA/VOICE) ("
@@ -211,6 +224,18 @@ bool BluetoothAudioPortAidl::initSession(const AudioDeviceDescription& descripti
         LOG(VERBOSE) << __func__ << ": device=AUDIO_DEVICE_OUT_BLE_BROADCAST (MEDIA) ("
                      << description.toString() << ")";
         sessionType = SessionType::LE_AUDIO_BROADCAST_SOFTWARE_ENCODING_DATAPATH;
+    } else if (description.connection == AudioDeviceDescription::CONNECTION_BT_SCO &&
+               description.type == AudioDeviceType::IN_HEADSET) {
+        LOG(VERBOSE) << __func__ << ": device=AUDIO_DEVICE_IN_SCO_HEADSET (VOICE) ("
+                     << description.toString() << ")";
+        sessionType = SessionType::HFP_SOFTWARE_DECODING_DATAPATH;
+    } else if (description.connection == AudioDeviceDescription::CONNECTION_BT_SCO &&
+               (description.type == AudioDeviceType::OUT_DEVICE ||
+                description.type == AudioDeviceType::OUT_HEADSET ||
+                description.type == AudioDeviceType::OUT_CARKIT)) {
+        LOG(VERBOSE) << __func__ << ": device=AUDIO_DEVICE_OUT_SCO (HEADSET/OUT_CARKIT) ("
+                     << description.toString() << ")";
+        sessionType = SessionType::HFP_SOFTWARE_ENCODING_DATAPATH;
     } else {
         LOG(ERROR) << __func__ << ": unknown device=" << description.toString();
         return false;
@@ -417,6 +442,62 @@ bool BluetoothAudioPortAidl::loadAudioConfig(PcmConfiguration& audio_cfg) {
                    << ": unsupported channel mode: " << toString(audio_cfg.channelMode);
         return false;
     }
+
+    if (mSession->isHfp()) {
+        if (audio_cfg.sampleRateHz == kScoMixPortFixedSampleRate) {
+            mResampler = {nullptr, nullptr};
+            mResampleRatio = 0;
+        } else {
+            uint32_t resampleTargetRate = audio_cfg.sampleRateHz;
+            switch (audio_cfg.sampleRateHz) {
+                case 8000:
+                case 16000:
+                case 32000:
+                    break;
+                default:
+                    LOG(FATAL) << __func__ << debugMessage()
+                               << ": Resample target rate must be a divisor of "
+                               << kScoMixPortFixedSampleRate << ", but is "
+                               << audio_cfg.sampleRateHz;
+            }
+            mResampleRatio = kScoMixPortFixedSampleRate / resampleTargetRate;
+            audio_cfg.sampleRateHz = kScoMixPortFixedSampleRate;
+
+            int in_rate, out_rate;
+            switch (mSession->getSessionType()) {
+                case SessionType::HFP_SOFTWARE_ENCODING_DATAPATH:
+                    in_rate = kScoMixPortFixedSampleRate;
+                    out_rate = resampleTargetRate;
+                    break;
+                case SessionType::HFP_SOFTWARE_DECODING_DATAPATH:
+                    in_rate = resampleTargetRate;
+                    out_rate = kScoMixPortFixedSampleRate;
+                    break;
+                default:
+                    LOG(ERROR) << __func__
+                               << ": cannot create resampler for unsupported session type "
+                               << toString(mSession->getSessionType());
+                    return false;
+            }
+            struct resampler_itfe* resampler = nullptr;
+
+            if (int rc = create_resampler(/* in_sample_rate= */ in_rate,
+                                          /* outSampleRate= */ out_rate,
+                                          /* channelCount= */ 1,
+                                          /* quality= */ RESAMPLER_QUALITY_VOIP,
+                                          /* provider= */ nullptr,
+                                          /* resampler= */ &resampler);
+                rc != 0) {
+                LOG(ERROR) << __func__ << ": failed to create resampler, rc=" << rc;
+                return false;
+            }
+            mResampler = {resampler, release_resampler};
+
+            LOG(DEBUG) << __func__ << ": created resampler with in_rate=" << in_rate
+                       << ", out_rate=" << out_rate << ", for session type "
+                       << toString(mSession->getSessionType());
+        }
+    }
     return true;
 }
 
@@ -428,6 +509,8 @@ bool BluetoothAudioPortAidlOut::loadAudioConfig(PcmConfiguration& audio_cfg) {
         audio_cfg.channelMode = ChannelMode::STEREO;
         LOG(INFO) << __func__ << debugMessage()
                   << ": force channels = to be AUDIO_CHANNEL_OUT_STEREO";
+    } else {
+        mIsStereoToMono = false;
     }
     return true;
 }
@@ -521,6 +604,9 @@ bool BluetoothAudioPortAidl::start() {
         if (retval) {
             LOG(INFO) << __func__ << debugMessage() << ", state=" << mState
                       << ", mono=" << (mIsStereoToMono ? "true" : "false") << " done";
+            // Reload audio config.
+            PcmConfiguration pcm_config;
+            loadAudioConfig(pcm_config);
         } else {
             LOG(ERROR) << __func__ << debugMessage() << ", state=" << mState << " failure";
         }
@@ -604,19 +690,45 @@ size_t BluetoothAudioPortAidlOut::writeData(const void* buffer, size_t bytes) co
         return 0;
     }
 
-    if (!mIsStereoToMono) {
-        return getSession()->outWritePcmData(buffer, bytes);
+    size_t multiplier = 1;
+    std::vector<int16_t> src(static_cast<const int16_t*>(buffer),
+                             static_cast<const int16_t*>(buffer) + bytes / 2);
+
+    if (mIsStereoToMono) {
+        // WAR to mix the stereo into Mono (16 bits per sample)
+        std::vector<int16_t> dst(src.size() / 2);
+        if (dst.empty()) {
+            LOG(ERROR) << __func__ << debugMessage() << ": No frame to write";
+            return 0;
+        }
+        downmix_to_mono_i16_from_stereo_i16(dst.data(), src.data(), dst.size());
+        src = std::move(dst);
+
+        multiplier *= 2;
     }
 
-    // WAR to mix the stereo into Mono (16 bits per sample)
-    const size_t write_frames = bytes >> 2;
-    if (write_frames == 0) return 0;
-    auto src = static_cast<const int16_t*>(buffer);
-    std::unique_ptr<int16_t[]> dst{new int16_t[write_frames]};
-    downmix_to_mono_i16_from_stereo_i16(dst.get(), src, write_frames);
-    // a frame is 16 bits, and the size of a mono frame is equal to half a stereo.
-    auto totalWrite = getSession()->outWritePcmData(dst.get(), write_frames * 2);
-    return totalWrite * 2;
+    if (mResampler) {
+        // WAR to resample audio data from BT HAL to expected rate in mix port
+        size_t in_frames = src.size();
+        if (in_frames == 0) {
+            LOG(ERROR) << __func__ << debugMessage() << ": No frame to write";
+            return 0;
+        }
+        size_t out_frames = in_frames / mResampleRatio;
+        std::vector<int16_t> dst(out_frames);
+        int rc = mResampler->resample_from_input(mResampler.get(), src.data(), &in_frames,
+                                                 dst.data(), &out_frames);
+        if (rc) {
+            LOG(ERROR) << __func__ << ": failed to resample, rc=" << rc;
+        }
+        dst.resize(out_frames);
+        src = std::move(dst);
+
+        multiplier *= mResampleRatio;
+    }
+
+    auto totalWrite = getSession()->outWritePcmData(src.data(), src.size() * 2);
+    return totalWrite * multiplier;
 }
 
 bool BluetoothAudioPortAidlOut::setLatencyMode(
@@ -641,7 +753,24 @@ size_t BluetoothAudioPortAidlIn::readData(void* buffer, size_t bytes) const {
         return 0;
     }
 
-    return getSession()->inReadPcmData(buffer, bytes);
+    if (!mResampler) {
+        return getSession()->inReadPcmData(buffer, bytes);
+    } else {
+        std::vector<int16_t> input(bytes / mResampleRatio / 2);
+        auto totalRead = getSession()->inReadPcmData(input.data(), input.size() * 2);
+
+        size_t in_frames = totalRead / 2;
+        if (in_frames == 0) return 0;
+
+        size_t out_frames = in_frames * mResampleRatio;
+
+        int rc = mResampler->resample_from_input(mResampler.get(), input.data(), &in_frames,
+                                                 static_cast<int16_t*>(buffer), &out_frames);
+        if (rc) {
+            LOG(ERROR) << __func__ << ": failed to resample, rc=" << rc;
+        }
+        return out_frames * 2;
+    }
 }
 
 bool BluetoothAudioPortAidl::getPresentationPosition(
@@ -703,6 +832,10 @@ void BluetoothAudioPortAidl::setCallbacks(
 
 bool BluetoothAudioPortAidl::isA2dp() const {
     return mSession ? mSession->isA2dp() : false;
+}
+
+bool BluetoothAudioPortAidl::isHfp() const {
+    return mSession ? mSession->isHfp() : false;
 }
 
 bool BluetoothAudioPortAidl::isLeAudio() const {

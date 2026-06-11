@@ -82,15 +82,18 @@ struct DspSimulatorState {
     const ::aidl::android::media::audio::common::AudioFormatDescription format;
     const int sampleRate;
     const int64_t earlyNotifyFrames;
+    const int fallbackBitRatePerSecond;           // Fallback from AudioOffloadInfo
     DriverCallbackInterface* callback = nullptr;  // set before starting DSP worker
     std::mutex lock;
     DspClipState clips GUARDED_BY(lock);
+    int bitRatePerSecond GUARDED_BY(lock) = 0;
     int64_t bufferFramesLeft GUARDED_BY(lock) = 0;
     int64_t bufferNotifyFrames GUARDED_BY(lock) = kSkipBufferNotifyFrames;
     StreamDescriptor::DrainMode draining GUARDED_BY(lock) =
             StreamDescriptor::DrainMode::DRAIN_UNSPECIFIED;
     int64_t mTotalFramesPlayed GUARDED_BY(lock) = 0;
     int64_t mLastReportedFrames GUARDED_BY(lock) = 0;
+    bool isDrainCompleteClipStateChangeSent GUARDED_BY(lock) = false;
 };
 
 class DspSimulatorLogic : public ::android::hardware::audio::common::StreamLogic {
@@ -115,11 +118,20 @@ class DspSimulatorWorker
 struct MpegFrameState {
     bool clipEnded = false;
     size_t bytesPending = 0;
+
+    // True if the frame contains actual audio samples.
+    // False if it is a metadata/ID3 tag.
+    bool isAudioFrame = false;
+    int frameSize = 0;
+    size_t totalFrameLengthBytes = 0;
 };
 
 class DriverOffloadStubImpl : public DriverStubImpl {
   public:
-    explicit DriverOffloadStubImpl(const StreamContext& context);
+    explicit DriverOffloadStubImpl(
+            const StreamContext& context,
+            const std::optional<::aidl::android::media::audio::common::AudioOffloadInfo>&
+                    offloadInfo);
     ::android::status_t init(DriverCallbackInterface* callback) override;
     ::android::status_t drain(StreamDescriptor::DrainMode drainMode) override;
     ::android::status_t flush() override;
@@ -146,6 +158,7 @@ class DriverOffloadStubImpl : public DriverStubImpl {
 
     const int64_t mBufferNotifyFrames;
     const int32_t mSafeMarginForFlushFromFrames;
+    const int32_t mSafeMarginForDrainMetadataFrames;
     offload::DspSimulatorState mState;
     offload::DspSimulatorWorker mDspWorker;
     bool mDspWorkerStarted = false;
@@ -156,7 +169,8 @@ class StreamOffloadStub : public StreamCommonImpl, public DriverOffloadStubImpl 
   public:
     static const std::set<std::string>& getSupportedEncodings();
 
-    StreamOffloadStub(StreamContext* context, const Metadata& metadata);
+    StreamOffloadStub(StreamContext* context, const Metadata& metadata,
+                      const ::aidl::android::media::audio::common::AudioOffloadInfo& offloadInfo);
     ~StreamOffloadStub();
 };
 

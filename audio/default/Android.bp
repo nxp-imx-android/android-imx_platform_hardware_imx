@@ -26,6 +26,8 @@ cc_library {
         "alsa/Mixer.cpp",
         "alsa/ModuleAlsa.cpp",
         "alsa/StreamAlsa.cpp",
+        "alsa/StreamAlsaBase.cpp",
+        "alsa/StreamAlsaMonoPipe.cpp",
         "alsa/UtilsAlsa.cpp",
         "bluetooth/DevicePortProxy.cpp",
         "bluetooth/ModuleBluetoothBase.cpp",

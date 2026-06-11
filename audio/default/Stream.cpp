@@ -16,6 +16,7 @@
  */
 
 #include <pthread.h>
+#include <thread>
 
 #define ATRACE_TAG ATRACE_TAG_AUDIO
 #define LOG_TAG "AHAL_Stream"
@@ -203,6 +204,21 @@ void StreamWorkerCommonLogic::populateReplyUnsupportedCommand(
         StreamDescriptor::Reply* reply, const StreamDescriptor::Command& command) const {
     LOG(WARNING) << "command '" << toString(command.getTag()) << "' is not supported by the stream";
     reply->status = STATUS_INVALID_OPERATION;
+}
+
+void StreamWorkerCommonLogic::switchFromTransientState(StreamDescriptor::State state) {
+    if (mTransientStateDelayMs.count() != 0) {
+        if (auto stateDurationMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - mTransientStateStart);
+            stateDurationMs < mTransientStateDelayMs) {
+            const auto delayMs = mTransientStateDelayMs - stateDurationMs;
+            LOG(DEBUG) << __func__ << ": inducing transient state delay when switching from "
+                       << toString(mState) << " to " << toString(state) << " of " << delayMs
+                       << "ms";
+            std::this_thread::sleep_for(delayMs);
+        }
+    }
+    mState = state;
 }
 
 const std::string StreamInWorkerLogic::kThreadName = "reader";
@@ -458,7 +474,7 @@ void StreamOutWorkerLogic::onBufferStateChangeImpl(size_t bufferFramesLeft) {
                << ", bufferFramesLeft: " << bufferFramesLeft;
     if (state == StreamDescriptor::State::TRANSFERRING || drainState == DrainState::EN_SENT) {
         if (state == StreamDescriptor::State::TRANSFERRING) {
-            mState = StreamDescriptor::State::ACTIVE;
+            switchFromTransientState(StreamDescriptor::State::ACTIVE);
         }
         std::shared_ptr<IStreamCallback> asyncCallback = mContext->getAsyncCallback();
         if (asyncCallback != nullptr) {
@@ -491,8 +507,11 @@ void StreamOutWorkerLogic::onClipStateChangeImpl(size_t clipFramesLeft, bool has
                << clipFramesLeft << "; hasNextClip? " << hasNextClip << "; asyncCallback? "
                << (asyncCallback != nullptr);
     if (drainState != DrainState::NONE && clipFramesLeft == 0) {
-        mState =
-                hasNextClip ? StreamDescriptor::State::TRANSFERRING : StreamDescriptor::State::IDLE;
+        if (hasNextClip) {
+            switchToTransientState(StreamDescriptor::State::TRANSFERRING);
+        } else {
+            switchFromTransientState(StreamDescriptor::State::IDLE);
+        }
         mDrainState = DrainState::NONE;
         if ((drainState == DrainState::ALL || drainState == DrainState::EN_SENT) &&
             asyncCallback != nullptr) {
@@ -517,7 +536,7 @@ void StreamOutWorkerLogic::onClipStateChangeImpl(size_t clipFramesLeft, bool has
 }
 
 StreamOutWorkerLogic::Status StreamOutWorkerLogic::cycle() {
-    // Non-blocking mode is handled within 'onClipStateChange'
+    // Non-blocking mode is handled within 'on{Buffer|Clip}StateChange'
     if (std::shared_ptr<IStreamCallback> asyncCallback = mContext->getAsyncCallback();
         mState == StreamDescriptor::State::DRAINING && asyncCallback == nullptr) {
         if (auto stateDurationMs = std::chrono::duration_cast<std::chrono::milliseconds>(

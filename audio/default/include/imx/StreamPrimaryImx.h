@@ -52,6 +52,21 @@ class StreamPrimaryImx : public StreamPrimary {
     void tryStart();
     void stop();
 
+    // Audio dump feature (i.MX specific):
+    //   setprop persist.vendor.audio.dump 1
+    //   touch /data/out_primary.pcm /data/in_primary.pcm
+    //   chmod 777 /data/out_primary.pcm /data/in_primary.pcm
+    // Each boot:
+    //   setenforce 0
+    //   pkill audioserver
+    // then pull the files after testing:
+    //   adb pull /data/out_primary.pcm .
+    //   adb pull /data/in_primary.pcm .
+    void dump(const void* buffer, size_t bytes, const char* name);
+    bool mDump = false;
+    const char* kDumpPrimaryOutputFile = "/data/out_primary.pcm";
+    const char* kDumpPrimaryInputFile = "/data/in_primary.pcm";
+
     char soc_name[PROPERTY_VALUE_MAX];
     int16_t mStartRetryCount = 0;
     const int16_t kMaxStartRetryCount = 8;

@@ -108,6 +108,7 @@ StreamBluetooth::StreamBluetooth(StreamContext* context, const Metadata& metadat
       mIsInput(isInput(metadata)),
       mBluetoothA2dp(std::move(std::get<ModuleBluetooth::BtInterface::BTA2DP>(btHandles))),
       mBluetoothLe(std::move(std::get<ModuleBluetooth::BtInterface::BTLE>(btHandles))),
+      mBluetoothHfp(std::move(std::get<ModuleBluetooth::BtInterface::BTSCO>(btHandles))),
       mPreferredDataIntervalUs(pcmConfig.dataIntervalUs != 0
                                        ? pcmConfig.dataIntervalUs
                                        : (mIsInput ? kBluetoothDefaultInputBufferMs
@@ -231,6 +232,14 @@ ndk::ScopedAStatus StreamBluetooth::prepareToClose() {
     return ndk::ScopedAStatus::ok();
 }
 
+ndk::ScopedAStatus StreamBluetooth::setConnectedDevices(const std::vector<AudioDevice>& devices) {
+    RETURN_STATUS_IF_ERROR(StreamCommonImpl::setConnectedDevices(devices));
+    if (devices.empty()) {
+        return ndk::ScopedAStatus::fromStatus(standby());
+    }
+    return ndk::ScopedAStatus::ok();
+}
+
 ::android::status_t StreamBluetooth::standby() {
     std::lock_guard guard(mLock);
     if (mBtDeviceProxy != nullptr) mBtDeviceProxy->suspend();
@@ -287,15 +296,22 @@ ndk::ScopedAStatus StreamBluetooth::bluetoothParametersUpdated() {
     bool hasLeParam, enableLe;
     auto btLe = mBluetoothLe.lock();
     hasLeParam = btLe != nullptr && btLe->isEnabled(&enableLe).isOk();
+    bool hasScoParam;
+    Bluetooth::ScoConfig scoConfig;
+    auto btHfp = mBluetoothHfp.lock();
+    hasScoParam = btHfp != nullptr && btHfp->setScoConfig({}, &scoConfig).isOk();
     std::lock_guard guard(mLock);
     if (mBtDeviceProxy != nullptr) {
         if ((hasA2dpParam && mBtDeviceProxy->isA2dp() && !applyParam(mBtDeviceProxy, enableA2dp)) ||
-            (hasLeParam && mBtDeviceProxy->isLeAudio() && !applyParam(mBtDeviceProxy, enableLe))) {
+            (hasLeParam && mBtDeviceProxy->isLeAudio() && !applyParam(mBtDeviceProxy, enableLe)) ||
+            (hasScoParam && mBtDeviceProxy->isHfp() &&
+             !applyParam(mBtDeviceProxy, scoConfig.isEnabled.value().value))) {
             LOG(DEBUG) << __func__ << ": applyParam failed";
             return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
         }
         mEnabled = (mBtDeviceProxy->isA2dp() && enableA2dp) ||
-                   (mBtDeviceProxy->isLeAudio() && enableLe);
+                   (mBtDeviceProxy->isLeAudio() && enableLe) ||
+                   (mBtDeviceProxy->isHfp() && scoConfig.isEnabled.value().value);
         LOG(INFO) << __func__ << ": mEnabled: " << mEnabled;
     }
     return ndk::ScopedAStatus::ok();

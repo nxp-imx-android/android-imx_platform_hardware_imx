@@ -273,6 +273,7 @@ class StreamWorkerCommonLogic : public ::android::hardware::audio::common::Strea
                                  const StreamDescriptor::Command& command) const;
     void populateReplyUnsupportedCommand(StreamDescriptor::Reply* reply,
                                          const StreamDescriptor::Command& command) const;
+    void switchFromTransientState(StreamDescriptor::State state);
     void switchToTransientState(StreamDescriptor::State state) {
         mState = state;
         mTransientStateStart = std::chrono::steady_clock::now();

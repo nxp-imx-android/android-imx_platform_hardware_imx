@@ -38,6 +38,7 @@ struct MpegFrame {
     // Last few bytes of an ID3 tag or frame that couldn't be processed in a single chunk
     size_t bytesPending = 0;
     int sampleRate = 0;
+    int bitRate = 0;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const MpegFrame& frame) {

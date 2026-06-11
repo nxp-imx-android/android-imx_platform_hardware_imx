@@ -159,6 +159,8 @@ class BluetoothAudioPort {
 
     virtual bool isLeAudio() const = 0;
 
+    virtual bool isHfp() const = 0;
+
     virtual bool getPreferredDataIntervalUs(size_t&) const = 0;
 
     virtual size_t writeData(const void*, size_t) const { return 0; }

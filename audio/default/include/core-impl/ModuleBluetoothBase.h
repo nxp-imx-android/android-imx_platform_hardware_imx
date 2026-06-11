@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2025 The Android Open Source Project
- * Copyright 2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,9 +35,9 @@ class ModuleBluetoothBase : public Module {
     ModuleBluetoothBase(std::unique_ptr<Configuration>&& config);
 
   protected:
-    ndk::ScopedAStatus getBluetooth(std::shared_ptr<IBluetooth>* _aidl_return) override;
     ndk::ScopedAStatus getBluetoothA2dp(std::shared_ptr<IBluetoothA2dp>* _aidl_return) override;
     ndk::ScopedAStatus getBluetoothLe(std::shared_ptr<IBluetoothLe>* _aidl_return) override;
+    ndk::ScopedAStatus getBluetooth(std::shared_ptr<IBluetooth>* _aidl_return) override;
     ndk::ScopedAStatus getMicMute(bool* _aidl_return) override;
     ndk::ScopedAStatus setMicMute(bool in_mute) override;
 
@@ -92,16 +91,16 @@ class ModuleBluetoothBase : public Module {
     ndk::ScopedAStatus fetchAndCheckProxy(const StreamContext& context, CachedProxy& proxy);
     ndk::ScopedAStatus findOrCreateProxy(
             const ::aidl::android::media::audio::common::AudioPort& audioPort, CachedProxy& proxy);
-    ChildInterface<Bluetooth>& getBt();
     ChildInterface<BluetoothA2dp>& getBtA2dp();
     ChildInterface<BluetoothLe>& getBtLe();
+    ChildInterface<Bluetooth>& getBt();
     BtProfileHandles getBtProfileManagerHandles();
 
     static constexpr int kCreateProxyRetries = 5;
     static constexpr int kCreateProxyRetrySleepMs = 75;
-    ChildInterface<Bluetooth> mBluetooth;
     ChildInterface<BluetoothA2dp> mBluetoothA2dp;
     ChildInterface<BluetoothLe> mBluetoothLe;
+    ChildInterface<Bluetooth> mBluetooth;
     std::map<int32_t /*instantiated device port ID*/, CachedProxy> mProxies;
     std::map<int32_t /*mix port handle*/, int32_t /*instantiated device port ID*/> mConnections;
     std::map<::aidl::android::media::audio::common::AudioDeviceDescription,

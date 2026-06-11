@@ -205,11 +205,12 @@ std::optional<MpegFrame> findMpegFrame(const uint8_t** currBuff, const uint8_t* 
                 const int paddingBit = ((*currBuff)[2] >> kPaddingBitShift) & kPaddingBitMask;
                 const int channelIdx = ((*currBuff)[3] >> kChannelIdxShift) & kChannelIdxMask;
                 frame.sampleRate = sampleRate;
+                frame.bitRate = bitrateInKbps * 1000;
 
-                int channelCount = (channelIdx == kMonoChannelIdx) ? 1 : 2;
+                [[maybe_unused]] int channelCount = (channelIdx == kMonoChannelIdx) ? 1 : 2;
                 // Compute frameSize and frameLength
                 if (layer == Layer::LAYER_1) {
-                    frame.frameSize = kLayer1SamplesPerMpegFrame * channelCount;
+                    frame.frameSize = kLayer1SamplesPerMpegFrame;
                     // For Layer 1, frame length is calculated based on 4-byte "slots"
                     frame.frameLengthBytes = ((kLayer1SamplesPerMpegFrame / sizeof(uint32_t)) *
                                                       (bitrateInKbps * 1000 /* convert to bps */) /
@@ -217,7 +218,7 @@ std::optional<MpegFrame> findMpegFrame(const uint8_t** currBuff, const uint8_t* 
                                               paddingBit) *
                                              sizeof(uint32_t);
                 } else {
-                    frame.frameSize = kLayer2SamplesPerMpegFrame * channelCount;
+                    frame.frameSize = kLayer2SamplesPerMpegFrame;
                     // For Layer 2 & 3, frame length is calculated directly in bytes.
                     frame.frameLengthBytes = (kLayer2SamplesPerMpegFrame *
                                               (bitrateInKbps * 1000 /* convert to bps */) /
