@@ -261,7 +261,7 @@ private:
     bool pipelines_built_ = false;
     CameraMetadata *m_meta;
     std::map<uint32_t, PipelineInfo *> map_pipeline_info;
-    std::map<uint32_t, FrameRequest *> map_frame_request;
+    std::list<FrameRequest *> list_frame_request;
 
     std::vector<uint32_t> camera_ids;
 

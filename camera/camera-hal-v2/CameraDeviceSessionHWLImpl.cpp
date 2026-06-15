@@ -264,12 +264,13 @@ PipelineInfo *CameraDeviceSessionHwlImpl::GetPipelineInfo(uint32_t id) {
 #define WAIT_TIME_OUT 100000000LL // unit ns, wait 100ms
 
 void CameraDeviceSessionHwlImpl::DumpRequest() {
-    ALOGI("%s: map_frame_request size %zu, addr %p", __func__, map_frame_request.size(),
-          &map_frame_request);
+    ALOGI("%s: list_frame_request size %zu, addr %p", __func__, list_frame_request.size(),
+          &list_frame_request);
 
-    for (auto it = map_frame_request.begin(); it != map_frame_request.end(); it++) {
-        uint32_t frame = it->first;
-        ALOGI("%s: frame %u", __func__, frame);
+    for (auto it = list_frame_request.begin(); it != list_frame_request.end(); it++) {
+        FrameRequest *request = *it;
+        if (request)
+            ALOGI("%s: frame %u", __func__, request->frame_number);
     }
 }
 
@@ -606,7 +607,7 @@ void CameraDeviceSessionHwlImpl::WaitRequestsFinishAndCleanResource() {
         return;
     }
 
-    /* If still has on-fly requests from map_frame_request, wait to finish */
+    /* If still have requests hold in libcamera, wait to finish */
     while (mDeQueRequestIdx != mInQueRequestIdx) {
         ALOGW("%s: still has requests to process, wait %d us, DeQueIdx %lu, InQueIdx %lu, session %p",
               __func__, WAIT_ITVL_US, mDeQueRequestIdx, mInQueRequestIdx, this);
@@ -1400,11 +1401,11 @@ queue_request:
         return ret;
     }
 
-    map_frame_request[request.frame_number] = frame_request;
-    // DumpRequest();
+    list_frame_request.push_back(frame_request);
     mInQueRequestIdx++;
 
     if (mDebug || (request.frame_number < DEBUG_FRAME_NUM)) {
+        DumpRequest();
         ALOGI("leave %s: session %p, frame_number %u, mInQueRequestIdx %lu, mDeQueRequestIdx %lu",
               __func__, this, request.frame_number, mInQueRequestIdx, mDeQueRequestIdx);
         ItvlStat(mPreSubmitRequestTime, (char *)"SubmitRequests");
@@ -1418,23 +1419,22 @@ status_t CameraDeviceSessionHwlImpl::SubmitBatchRequest(std::vector<HwlPipelineR
 }
 
 int CameraDeviceSessionHwlImpl::CleanRequestsLocked() {
-    if (map_frame_request.empty())
+    if (list_frame_request.empty())
         return 0;
 
-    for (auto it = map_frame_request.begin(); it != map_frame_request.end(); it++) {
-        uint32_t frame = it->first;
-        FrameRequest *request = it->second;
+    for (auto it = list_frame_request.begin(); it != list_frame_request.end(); it++) {
+        FrameRequest *request = *it;
         if (request == NULL) {
-            ALOGW("%s: frame %d request is null", __func__, frame);
+            ALOGW("%s: request is null", __func__);
             continue;
         }
 
-        ALOGV("%s, map_frame_request, frame %d", __func__, frame);
+        ALOGV("%s, list_frame_request, frame %u", __func__, request->frame_number);
         ReleaseFrameRequest(*request);
         delete request;
     }
 
-    map_frame_request.clear();
+    list_frame_request.clear();
 
     return 0;
 }
@@ -1716,19 +1716,18 @@ void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
         return;
     }
 
-    if (map_frame_request.size() == 0) {
-        ALOGE("%s: unexpect map_frame_request.size() 0", __func__);
+    if (list_frame_request.size() == 0) {
+        ALOGE("%s: unexpect list_frame_request.size() 0", __func__);
         return;
     }
 
-    uint32_t frame = map_frame_request.begin()->first;
-
     // currently 1 frame map 1 request
-    FrameRequest *frameRequest = map_frame_request.begin()->second;
+    FrameRequest *frameRequest = *(list_frame_request.begin());
     if (frameRequest == NULL) {
         ALOGE("%s: frameRequest NULL", __func__);
         return;
     }
+    uint32_t frame = frameRequest->frame_number;
 
     HwlPipelineRequest *hwReq = &frameRequest->hwlReq;
     if (hwReq == NULL) {
@@ -1830,8 +1829,8 @@ void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
     if (mDebug)
         ItvlStat(mPreHandleImageTime, (char *)"requestComplete(), process_pipeline_result");
 
-    // erase the item in map_frame_request.
-    map_frame_request.erase(frame);
+    // erase the item in list_frame_request.
+    list_frame_request.pop_front();
     delete frameRequest;
 
     ReturnFrameBufferLocked();
