@@ -339,11 +339,13 @@ int CameraDeviceSessionHwlImpl::HandleIntent(HwlPipelineRequest *hwReq) {
 #define WAIT_TIME_OUT 100000000LL // unit ns, wait 100ms
 
 void CameraDeviceSessionHwlImpl::DumpRequest() {
-    ALOGI("%s: map_frame_request size %zu", __func__, map_frame_request.size());
+    ALOGI("%s: list_frame_request size %zu, addr %p", __func__, list_frame_request.size(),
+          &list_frame_request);
 
-    for (auto it = map_frame_request.begin(); it != map_frame_request.end(); it++) {
-        uint32_t frame = it->first;
-        ALOGI("%s: frame %u", __func__, frame);
+    for (auto it = list_frame_request.begin(); it != list_frame_request.end(); it++) {
+        std::vector<FrameRequest> *frameRequestVec = *it;
+        if (frameRequestVec && (frameRequestVec->size() > 0))
+            ALOGI("%s: frame %u", __func__, (*frameRequestVec)[0].frame_number);
     }
 }
 
@@ -427,32 +429,30 @@ int CameraDeviceSessionHwlImpl::HandleRequest() {
     if (mDebug)
         DumpRequest();
 
-    while (map_frame_request.empty()) {
-        ALOGV("map_frame_request empty, wait");
+    while (list_frame_request.empty()) {
+        ALOGV("list_frame_request empty, wait");
         mCondition.waitRelative(mLock, WAIT_TIME_OUT);
-        if (map_frame_request.empty()) {
-            ALOGW("map_frame_request still empty after %lld ns", WAIT_TIME_OUT);
+        if (list_frame_request.empty()) {
+            ALOGW("list_frame_request still empty after %lld ns", WAIT_TIME_OUT);
             mLock.unlock();
             return OK;
         }
     }
 
-    auto it = map_frame_request.begin();
-    uint32_t frame = it->first;
-    std::vector<FrameRequest> *request = it->second;
-    map_frame_request.erase(it);
+    auto it = list_frame_request.begin();
+    std::vector<FrameRequest> *request = *it;
+    list_frame_request.pop_front();
 
     mLock.unlock();
 
     if (request == NULL) {
-        ALOGW("%s: !!! unexpected request NULL for frame %u", __func__, frame);
+        ALOGW("%s: !!! unexpected request NULL", __func__);
         return OK;
     }
 
     uint32_t reqNum = request->size();
-    ALOGV("%s: frame %d, request num %d", __func__, frame, reqNum);
-
     for (uint32_t i = 0; i < reqNum; i++) {
+        uint32_t frame = (*request)[i].frame_number;
         FrameRequest *frameRequest = &(request->at(i));
         HwlPipelineRequest *hwReq = &(request->at(i).hwlReq);
         std::vector<FenceFdInfo> outFences = request->at(i).outBufferFences;
@@ -1579,7 +1579,7 @@ void CameraDeviceSessionHwlImpl::DestroyPipelines() {
         return;
     }
 
-    /* If still has on-fly requests from map_frame_request, wait to finish */
+    /* If still has on-fly requests from list_frame_request, wait to finish */
     while (mDeQueRequestIdx != mInQueRequestIdx) {
         ALOGW("%s: still has requests to process, wait %d us, DeQueIdx %lu, InQueIdx %lu", __func__,
               WAIT_ITVL_US, mDeQueRequestIdx, mInQueRequestIdx);
@@ -1649,6 +1649,7 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequests(uint32_t frame_number,
         frame_request->at(i).num = size;
         frame_request->at(i).vector = (void *)frame_request;
 
+        frame_request->at(i).frame_number = frame_number;
         frame_request->at(i).hwlReq.pipeline_id = pipeline_id;
         frame_request->at(i).hwlReq.settings = HalCameraMetadata::Clone(requests[i].settings.get());
         frame_request->at(i).hwlReq.output_buffers.reserve(requests[i].output_buffers.size());
@@ -1679,7 +1680,7 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequests(uint32_t frame_number,
     }
 
     Mutex::Autolock _l(mLock);
-    map_frame_request[frame_number] = frame_request;
+    list_frame_request.push_back(frame_request);
     mInQueRequestIdx++;
     mCondition.signal();
 
@@ -1692,27 +1693,24 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequests(uint32_t frame_number,
 }
 
 int CameraDeviceSessionHwlImpl::CleanRequestsLocked() {
-    if (map_frame_request.empty())
+    if (list_frame_request.empty())
         return 0;
 
-    for (auto it = map_frame_request.begin(); it != map_frame_request.end(); it++) {
-        uint32_t frame = it->first;
-        std::vector<FrameRequest> *request = it->second;
+    for (auto it = list_frame_request.begin(); it != list_frame_request.end(); it++) {
+        std::vector<FrameRequest> *request = *it;
         if (request == NULL) {
-            ALOGW("%s: frame %d request is null", __func__, frame);
+            ALOGW("%s: request is null", __func__);
             continue;
         }
 
         uint32_t reqNum = request->size();
-        ALOGV("%s, map_frame_request, frame %d, reqNum %d", __func__, frame, reqNum);
-
         for (uint32_t i = 0; i < reqNum; i++) ReleaseFrameRequest(request->at(i));
 
         request->clear();
         delete request;
     }
 
-    map_frame_request.clear();
+    list_frame_request.clear();
 
     return 0;
 }
