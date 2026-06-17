@@ -81,19 +81,18 @@ void DrmEventListener::threadLoop() {
             return;
         }
 
-        bool drmEvent = false, hotplugEvent = false;
-        for (int i = 0; i < ret;) {
-            char* event = buffer + i;
-            if (strcmp(event, "DEVTYPE=drm_minor")) {
-                drmEvent = true;
-            } else if (strcmp(event, "HOTPLUG=1")) {
-                hotplugEvent = true;
+        // Replace all but the last `\0` to potentially not affect string
+        // operations which look for `\0`.
+        for (ssize_t i = 0; i < ret - 1; i++) {
+            if (buffer[i] == '\0') {
+                buffer[i] = '\n';
             }
-
-            i += strlen(event) + 1;
         }
+        const std::string events = std::string(buffer, static_cast<size_t>(ret));
 
-        if (drmEvent && hotplugEvent) {
+        const bool hasEventDrm = events.find("DEVTYPE=drm_minor") != std::string::npos;
+        const bool hasEventHotplug = events.find("HOTPLUG=1") != std::string::npos;
+        if (hasEventDrm && hasEventHotplug) {
             DEBUG_LOG("DrmEventListener detected hotplug event .");
             mOnEventCallback();
         }
