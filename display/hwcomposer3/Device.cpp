@@ -135,7 +135,7 @@ HWC3::Error Device::getPersistentKeyValue(const std::string& key, const std::str
         return HWC3::Error::None;
     }
 
-    *outValue = defaultValue;
+    *outValue = dictionary[key].asString();
 
     return HWC3::Error::None;
 }

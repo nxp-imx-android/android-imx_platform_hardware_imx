@@ -950,8 +950,8 @@ HWC3::Error DrmClient::setHdrMetadata(uint32_t displayId, hdr_output_metadata* m
 
     if (mHdrMetadatas.find(displayId) != mHdrMetadatas.end()) {
         if (metadata == NULL) {
-            mHdrMetadatas.erase(displayId);
             drmModeDestroyPropertyBlob(mFd.get(), mHdrMetadatas[displayId].blobId);
+            mHdrMetadatas.erase(displayId);
         } else if (!memcmp(&mHdrMetadatas[displayId].prev, metadata, sizeof(hdr_output_metadata))) {
             DEBUG_LOG("%s: HDR metadata already set, don't need to set again", __FUNCTION__);
             return HWC3::Error::None;
@@ -1038,6 +1038,11 @@ HWC3::Error DrmClient::waitVBlank(uint32_t displayId, int64_t* timestamp) {
 }
 
 bool DrmClient::isSecureDisplay(int64_t displayId) {
+    if (mDisplays.find(displayId) == mDisplays.end()) {
+        DEBUG_LOG("%s: invalid display:%" PRIu32, __FUNCTION__, displayId);
+        return false;
+    }
+
     if (mDisplays[displayId]->isSecureDisplay()) {
         return true;
     } else {

@@ -314,6 +314,7 @@ HWC3::Error ClientFrameComposer::onDisplayDestroy(Display* display) {
     client->resetDisplayConfig(displayId);
 
     mDisplayBuffers.erase(it);
+    mDisplayLayers.erase(displayId);
 
     // Destroy HDCP for this display
     destroyHdcpForDisplay(displayId);

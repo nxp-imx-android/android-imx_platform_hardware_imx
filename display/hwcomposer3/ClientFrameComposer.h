@@ -101,8 +101,8 @@ private:
         std::vector<Layer*> layersForNxpPrivate;
         // will try to present this lucky layer when no client target set in 3D composition
         // VTS case use such method to present, add it to avoid VTS case fail.
-        Layer* luckyLayer;
-        bool readback; // indicate if readback buffer set
+        Layer* luckyLayer = nullptr;
+        bool readback = false; // indicate if readback buffer set
     };
     std::unordered_map<int64_t, DisplayBuffer> mDisplayBuffers;
     std::unordered_map<int64_t, ValidatedLayers> mDisplayLayers;

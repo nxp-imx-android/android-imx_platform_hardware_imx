@@ -108,6 +108,8 @@ HWC3::Error VirtualFrameComposer::onDisplayDestroy(Display* display) {
         mG2dComposer->freeDeviceFrameBuffer(buffers);
     }
     mDisplays.erase(it);
+    mDisplayLayers.erase(displayId);
+
     return HWC3::Error::None;
 }
 
