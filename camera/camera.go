@@ -60,7 +60,8 @@ func cameraDefaults(ctx android.LoadHookContext) {
 		cppflags = append(cppflags, "-DGRALLOC_VERSION=4")
 	}
 
-	if ctx.Config().VendorConfig("IMXPLUGIN").String("BOARD_SOC_TYPE") == "IMX95" {
+	if ctx.Config().VendorConfig("IMXPLUGIN").String("BOARD_SOC_TYPE") == "IMX95" ||
+	   ctx.Config().VendorConfig("IMXPLUGIN").String("BOARD_SOC_TYPE") == "IMX952" {
 		p.Target.Android.Srcs = append(p.Target.Android.Srcs, "./camera-hal-v2/CameraProviderHWLImpl.cpp")
 		p.Target.Android.Srcs = append(p.Target.Android.Srcs, "./camera-hal-v2/CameraDeviceHWLImpl.cpp")
 		p.Target.Android.Srcs = append(p.Target.Android.Srcs, "./camera-hal-v2/CameraDeviceSessionHWLImpl.cpp")
