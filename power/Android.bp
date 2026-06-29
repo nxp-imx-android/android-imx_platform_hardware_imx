@@ -12,8 +12,59 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-soong_namespace {
-    imports: ["hardware/google/pixel",
+
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+// Build powerhal aconfig flags locally (was in hardware/google/pixel)
+aconfig_declarations {
+    name: "powerhal_flags-aconfig",
+    container: "vendor",
+    package: "powerhal.flags",
+    exportable: true,
+    srcs: ["flags.aconfig"],
+}
+
+cc_aconfig_library {
+    name: "powerhal_flags-aconfig-cc",
+    aconfig_declarations: "powerhal_flags-aconfig",
+    vendor: true,
+}
+
+// Build libperfmgr locally (was in hardware/google/pixel/power-libperfmgr/libperfmgr)
+cc_library {
+    name: "libperfmgr",
+    vendor_available: true,
+    local_include_dirs: ["libperfmgr/include"],
+    export_include_dirs: ["libperfmgr/include"],
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "libprocessgroup",
+        "libutils",
+        "liblog",
+    ],
+    static_libs: [
+        "libjsoncpp",
+        "libaconfig_storage_read_api_cc",
+        "powerhal_flags-aconfig-cc",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+    srcs: [
+        "libperfmgr/RequestGroup.cc",
+        "libperfmgr/Node.cc",
+        "libperfmgr/FileNode.cc",
+        "libperfmgr/PropertyNode.cc",
+        "libperfmgr/NodeLooperThread.cc",
+        "libperfmgr/HintManager.cc",
+        "libperfmgr/AdpfConfig.cc",
+        "libperfmgr/EventNode.cc",
+        "libperfmgr/JobQueueManager.cc",
+        "libperfmgr/FlagProvider.cc",
     ],
 }
 
@@ -30,7 +81,7 @@ cc_binary {
     vintf_fragments: ["android.hardware.power-service.imx.xml"],
     vendor: true,
     shared_libs: [
-        "android.hardware.power-V6-ndk",
+        "android.hardware.power-V7-ndk",
         "libbase",
         "libcutils",
         "liblog",

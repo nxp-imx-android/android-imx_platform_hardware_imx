@@ -1,0 +1,30 @@
+package: "powerhal.flags"
+container: "vendor"
+
+flag {
+    namespace: "pixel_perf"
+    name: "test_flag"
+    description: "This flag is a test to make sure this actually works as intended"
+    bug: "414615086"
+}
+
+flag {
+    namespace: "pixel_perf"
+    name: "gpu_load_up_for_blurs"
+    description: "Transition from using hardcoded gpu expensive rendering to load up signal"
+    bug: "417494383"
+}
+
+flag {
+    namespace: "pixel_perf"
+    name: "ramp_down_sf_prefer_high_cap"
+    description: "This flag causes SF to no longer prefer high cap, regardless of what is set in the config"
+    bug: "434909956"
+}
+
+flag {
+    namespace: "pixel_perf"
+    name: "chrome_profile_bypass_hboost_severe_jank_level"
+    description: "This flag causes Chrome to bypass the hboost severe jank level"
+    bug: "439777786"
+}
