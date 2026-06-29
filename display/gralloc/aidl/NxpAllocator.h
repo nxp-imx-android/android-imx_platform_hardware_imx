@@ -35,6 +35,12 @@ public:
 
     ndk::ScopedAStatus getIMapperLibrarySuffix(std::string* outResult) override;
 
+    ndk::ScopedAStatus isMultiViewSupported(const std::vector<BufferDescriptorInfo>& descriptor,
+                                            int32_t baseViewIndex, bool* outResult) override;
+
+    ndk::ScopedAStatus allocateMultiView(const std::vector<BufferDescriptorInfo>& descriptor,
+                                         int32_t baseViewIndex, allocator::AllocationResult* outResult) override;
+
 protected:
     ndk::SpAIBinder createBinder() override;
 
