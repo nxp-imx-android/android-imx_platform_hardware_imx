@@ -1,4 +1,4 @@
-// Copyright 2023, 2025 NXP.
+// Copyright 2023, 2025-2026 NXP.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -54,7 +54,7 @@ func extCamDefaults(ctx android.LoadHookContext) {
 		p.Target.Android.Cppflags = append(p.Target.Android.Cppflags, "-DGRALLOC_VERSION=4")
 	}
 
-	if (strings.Contains(board, "IMX8MQ") || strings.Contains(board, "IMX8Q") || strings.Contains(board, "IMX95")) {
+	if (strings.Contains(board, "IMX8MQ") || strings.Contains(board, "IMX8Q") || strings.Contains(board, "IMX95") || strings.Contains(board, "IMX937")) {
 		p.Target.Android.Cppflags = append(p.Target.Android.Cppflags, "-DIMX_VPU_JPEG_DECODER")
 		p.Target.Android.Shared_libs = append(p.Target.Android.Shared_libs, "lib_imx_c2_videodec_common")
 		p.Target.Android.Shared_libs = append(p.Target.Android.Shared_libs, "lib_imx_c2_v4l2_dec")
