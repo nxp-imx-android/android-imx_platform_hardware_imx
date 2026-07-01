@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2022 The Android Open Source Project
- * Copyright 2023-2025 NXP.
+ * Copyright 2023-2026 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@
 #include <queue>
 
 #include "ExternalISPWrapper.h"
-#include "ImageProcess.h"
+#include "ImageProcessFactory.h"
 #include "YuvToJpegEncoder.h"
 
 #ifdef IMX_VPU_JPEG_DECODER
@@ -229,6 +229,8 @@ public:
         void setMjpegDecoderType(bool type);
         void setMjpegCopy(bool bCopy);
         void setBlitEngine(ImxEngine engine);
+        void setStreamDevices(
+                const std::map<int32_t, std::shared_ptr<fsl::ImageProcessDevice>>& devices);
 
         uint64_t mDecedFrames = 0;
         int initVpuThread();
@@ -317,7 +319,8 @@ public:
         int VpuDecGetBuffer(uint8_t* inData, size_t inDataSize);
         void VpuDecReturnBuffer();
         int CopyFromPrcdBuf(HalStreamBuffer &halBuf, std::vector<HalStreamBuffer *> &prcdBufs);
-        int handleFrame(uint32_t width, uint32_t height, uint32_t dst_fmt, uint32_t src_fmt,
+        int handleFrame(std::shared_ptr<fsl::ImageProcessDevice> device,
+                        uint32_t width, uint32_t height, uint32_t dst_fmt, uint32_t src_fmt,
                         uint64_t dstPhyAddr, uint64_t srcPhyAddr, uint32_t srcWidth = 0,
                         uint32_t srcHeight = 0, uint32_t srcStride = 0, uint32_t dstStride = 0,
                         void* srcVirtAddr = NULL, void* dstVirtAddr = NULL,
@@ -330,6 +333,7 @@ public:
 
         bool mUseHalBufManager = false;
         ImxEngine mEngine = ENG_CPU;
+        std::map<int32_t, std::shared_ptr<fsl::ImageProcessDevice>> mStreamDevices;
 
 #ifdef IMX_VPU_JPEG_DECODER
         sp<VideoDecoderBase> mDecoder;
@@ -498,6 +502,7 @@ private:
     bool mHasHardwareDecoder = false;
     bool mMjpgCopy = true;
     bool mUseHalBufManager = false;
+    std::map<int32_t, std::shared_ptr<fsl::ImageProcessDevice>> mStreamDevices;
 
     /* End of members not changed after initialize() */
 

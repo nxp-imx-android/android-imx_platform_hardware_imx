@@ -46,23 +46,6 @@
 #include <libyuv/convert.h>
 #include <media/stagefright/MediaDefs.h>
 
-class SingletonWrap {
-public:
-    SingletonWrap() {
-        ALOGI("%s", __func__);
-        fsl::ImageProcess::getInstance();
-    }
-
-    ~SingletonWrap() {
-        ALOGI("%s", __func__);
-        fsl::ImageProcess* imageProcess = fsl::ImageProcess::getInstance();
-        if (imageProcess)
-            delete imageProcess;
-    }
-};
-
-static SingletonWrap g_singletonWrapInExtCam;
-
 namespace android {
 namespace hardware {
 namespace camera {
@@ -543,6 +526,32 @@ ScopedAStatus ExternalCameraDeviceSession::configureStreams(
               (long long)in_requestedConfiguration.streams[i].usage);
     }
 
+    // Create per-stream image process devices via factory
+    {
+        auto& factory = fsl::ImageProcessFactory::getInstance();
+        uint32_t srcFmt = convertV4L2FormatToPixelFormat(mInterBufFormat);
+        uint32_t srcW = v4l2Fmt.width;
+        uint32_t srcH = v4l2Fmt.height;
+
+        mStreamDevices.clear();
+        for (size_t i = 0; i < in_requestedConfiguration.streams.size(); i++) {
+            const auto& stream = in_requestedConfiguration.streams[i];
+            uint32_t dstFmt = static_cast<uint32_t>(out[i].overrideFormat);
+            uint32_t dstW = stream.width;
+            uint32_t dstH = stream.height;
+
+            if (dstFmt == HAL_PIXEL_FORMAT_BLOB)
+                dstFmt = srcFmt;
+
+            auto device = factory.createDevice(srcFmt, dstFmt, srcW, srcH, dstW, dstH, mCfg.blitEngine);
+
+            mStreamDevices[stream.id] = device;
+            ALOGI("%s: stream id %d (%dx%d fmt 0x%x -> %dx%d fmt 0x%x), device '%s'", __func__,
+                  stream.id, srcW, srcH, srcFmt, dstW, dstH, dstFmt,
+                  device ? device->getName() : "null");
+        }
+        mOutputThread->setStreamDevices(mStreamDevices);
+    }
     mFirstRequest = true;
     mLastStreamConfigCounter = in_requestedConfiguration.streamConfigCounter;
     return fromStatus(Status::OK);
@@ -942,6 +951,7 @@ Status ExternalCameraDeviceSession::switchToOffline(
         mCirculatingBuffers.clear();
     }
     mStreamMap.clear();
+    mStreamDevices.clear();
 
     // update inflight records
     {
@@ -1646,6 +1656,7 @@ void ExternalCameraDeviceSession::closeImpl() {
                 cleanupBuffersLocked(/*Stream ID*/ pair.first);
             }
         }
+        mStreamDevices.clear();
         v4l2StreamOffLocked();
         ALOGV("%s: closing V4L2 camera FD %d", __FUNCTION__, mV4l2Fd.get());
         mV4l2Fd.reset();
@@ -2557,6 +2568,11 @@ void ExternalCameraDeviceSession::OutputThread::setBlitEngine(ImxEngine engine) 
     mEngine = engine;
 }
 
+void ExternalCameraDeviceSession::OutputThread::setStreamDevices(
+        const std::map<int32_t, std::shared_ptr<fsl::ImageProcessDevice>>& devices) {
+    mStreamDevices = devices;
+}
+
 int ExternalCameraDeviceSession::OutputThread::initVpuThread() {
     auto parent = mParent.lock();
     if (parent == nullptr) {
@@ -2733,7 +2749,9 @@ int ExternalCameraDeviceSession::OutputThread::scaleData(std::shared_ptr<Allocat
               __func__, in->mFourcc, (unsigned long long)outPhy, outVirt, (int)outSize,
               (unsigned long long)inPhy, inVirt, (int)inSize);
 
-        ret = handleFrame(outSz.width, outSz.height, in->mFourcc, in->mFourcc, outPhy, inPhy,
+        // Scaling intermediate buffers, no specific stream device, use engine fallback
+        ret = handleFrame(nullptr,
+                          outSz.width, outSz.height, in->mFourcc, in->mFourcc, outPhy, inPhy,
                           in->mWidth, in->mHeight, in->mWidth, outSz.width, (void*)inVirt,
                           (void*)outVirt);
     } else {
@@ -3366,11 +3384,23 @@ int ExternalCameraDeviceSession::OutputThread::CopyFromPrcdBuf(HalStreamBuffer &
 }
 
 int ExternalCameraDeviceSession::OutputThread::handleFrame(
+        std::shared_ptr<fsl::ImageProcessDevice> device,
         uint32_t dstWidth, uint32_t dstHeight, uint32_t dst_fourcc, uint32_t src_fourcc,
         uint64_t dstPhyAddr, uint64_t srcPhyAddr, uint32_t srcWidth, uint32_t srcHeight,
         uint32_t srcStride, uint32_t dstStride, void* srcVirtAddr, void* dstVirtAddr,
         uint64_t srcBuffUsage, uint64_t dstBuffUsage) {
-    fsl::ImageProcess* imageProcess = fsl::ImageProcess::getInstance();
+    if (!device) {
+        ALOGE("%s: image process device is null, falling back to factory", __func__);
+        auto& factory = fsl::ImageProcessFactory::getInstance();
+        uint32_t srcFmt = convertV4L2FormatToPixelFormat(src_fourcc);
+        uint32_t dstFmt = convertV4L2FormatToPixelFormat(dst_fourcc);
+        device = factory.createDevice(srcFmt, dstFmt, srcWidth, srcHeight, dstWidth, dstHeight, mEngine);
+
+        if (!device) {
+            ALOGE("%s: failed to create image process device", __func__);
+            return -EINVAL;
+        }
+    }
 
     ImxImageBuffer srcBuf;
     ImxImageBuffer dstBuf;
@@ -3449,7 +3479,12 @@ int ExternalCameraDeviceSession::OutputThread::handleFrame(
     dstBuf.mUsage = dstBuffUsage;
     dstBuf.mPrivate = NULL;
 
-    return imageProcess->ConvertImage(dstBuf, srcBuf, mEngine, mDebug);
+    device->setDebug(mDebug);
+    int ret = device->convert(dstBuf, srcBuf);
+    if (ret != 0)
+        ALOGE("%s: device '%s' convert failed, ret=%d", __func__, device->getName(), ret);
+
+    return ret;
 }
 
 int ExternalCameraDeviceSession::OutputThread::directCopy(struct HalStreamBuffer& halBuf, uint8_t* inData, size_t inDataSize) {
@@ -3856,7 +3891,11 @@ bool ExternalCameraDeviceSession::OutputThread::threadLoop() {
 
                     if (mDebug)
                         t1 = systemTime();
-                    ret = handleFrame(halBuf.width, halBuf.height, outputFourcc,
+                    // Use per-stream device for output frame conversion
+                    auto devIt = mStreamDevices.find(halBuf.streamId);
+                    auto streamDevice = (devIt != mStreamDevices.end()) ? devIt->second : nullptr;
+                    ret = handleFrame(streamDevice,
+                                      halBuf.width, halBuf.height, outputFourcc,
                                       mYu12Frame->mFourcc, dstPhyAddr, srcPhyAddr,
                                       mYu12Frame->mWidth, mYu12Frame->mHeight, mYu12Frame->mWidth,
                                       outLayout.yStride, outData, (uint8_t*)outLayout.y, srcUsage,
