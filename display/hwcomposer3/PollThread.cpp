@@ -89,7 +89,9 @@ HWC3::Error PollThread::start(std::string path) {
 
 HWC3::Error PollThread::stop() {
     mShuttingDown.store(true);
-    mThread.join();
+    if (mThread.joinable()) {
+        mThread.join();
+    }
 
     return HWC3::Error::None;
 }
@@ -122,7 +124,8 @@ void PollThread::threadLoop() {
                 char buf[EPOLL_BUFFER_SIZE];
                 auto numItem = read(mINotifyFd, buf, EPOLL_BUFFER_SIZE);
                 if (numItem < 0) {
-                    ALOGE("%s: Fail to read buffer from INotifyFd, error:%s", strerror(errno));
+                    ALOGE("%s: Fail to read buffer from INotifyFd, error:%s", __FUNCTION__,
+                          strerror(errno));
                     continue;
                 }
 

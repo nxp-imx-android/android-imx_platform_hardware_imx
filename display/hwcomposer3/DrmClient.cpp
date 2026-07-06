@@ -179,12 +179,18 @@ bool DrmClient::loadDrmDisplays(uint32_t displayBaseId) {
     drmModeFreePlaneResources(drmPlaneResources);
 
     drmModeRes* drmResources = drmModeGetResources(mFd.get());
+    if (!drmResources) {
+        ALOGE("%s: Failed to get DRM resources.", __FUNCTION__);
+        return false;
+    }
+
     for (int crtcIndex = 0; crtcIndex < drmResources->count_crtcs; crtcIndex++) {
         const uint32_t crtcId = drmResources->crtcs[static_cast<uint32_t>(crtcIndex)];
 
         auto crtc = DrmCrtc::create(mFd, crtcId, static_cast<uint32_t>(crtcIndex));
         if (!crtc) {
             ALOGE("%s: Failed to create DRM CRTC.", __FUNCTION__);
+            drmModeFreeResources(drmResources);
             return false;
         }
 
@@ -196,7 +202,8 @@ bool DrmClient::loadDrmDisplays(uint32_t displayBaseId) {
 
         auto connector = DrmConnector::create(mFd, connectorId);
         if (!connector) {
-            ALOGE("%s: Failed to create DRM CRTC.", __FUNCTION__);
+            ALOGE("%s: Failed to create DRM connector.", __FUNCTION__);
+            drmModeFreeResources(drmResources);
             return false;
         }
 

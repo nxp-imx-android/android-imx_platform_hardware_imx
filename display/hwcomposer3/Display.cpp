@@ -1005,6 +1005,10 @@ HWC3::Error Display::setEdid(std::vector<uint8_t> edid) {
     mEdidParser = std::make_unique<Edid>(mEdid);
     mIsLegacyEdid = false;
 
+    for (auto& [_, layer] : mLayers) {
+        layer->mEdidParser = mEdidParser.get();
+    }
+
     return HWC3::Error::None;
 }
 

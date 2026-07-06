@@ -55,10 +55,10 @@ HWC3::Error VsyncThread::start(int32_t vsyncPeriodNanos) {
     mVsyncPeriod = Nanoseconds(vsyncPeriodNanos);
     mPreviousVsync = std::chrono::steady_clock::now() - mVsyncPeriod;
 
+    mStarted = true;
     mThread = std::thread([this]() { threadLoop(); });
 
     const std::string name = "display_" + std::to_string(mHwcId) + "_vsync";
-
     int ret = pthread_setname_np(mThread.native_handle(), name.c_str());
     if (ret != 0) {
         ALOGE("%s: failed to set Vsync thread name: %s", __FUNCTION__, strerror(ret));
@@ -72,7 +72,6 @@ HWC3::Error VsyncThread::start(int32_t vsyncPeriodNanos) {
         ALOGE("%s: failed to set Vsync thread priority: %s", __FUNCTION__, strerror(ret));
     }
 
-    mStarted = true;
     return HWC3::Error::None;
 }
 

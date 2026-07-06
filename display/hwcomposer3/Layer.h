@@ -135,7 +135,9 @@ private:
     float mBrightness = 1.0f;
     bool mHasLuts = false;
 
-    Edid* mEdidParser = NULL; /* just a pointer here, owned by Display */
+    Edid* mEdidParser = nullptr; /* just a pointer here, owned by Display */
+
+    friend class Display; // allow Display to update mEdidParser on EDID change
     int mHdrMetadataState = LAYER_HDR_METADATA_STATE_NONE;
     hdr_output_metadata mHdrMetadata; /* struct defined in drm_mode.h */
 };
