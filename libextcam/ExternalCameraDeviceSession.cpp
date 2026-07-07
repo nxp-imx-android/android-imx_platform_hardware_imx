@@ -1394,14 +1394,26 @@ std::unique_ptr<V4L2Frame> ExternalCameraDeviceSession::dequeueV4l2FrameLocked(n
         }
 
         if (buffer.flags & V4L2_BUF_FLAG_ERROR) {
-            ALOGE("%s: v4l2 buf error! buf flag 0x%x", __FUNCTION__, buffer.flags);
+            ALOGW("%s: v4l2 buf error! buf flag 0x%x, re-queue and try again",
+                  __FUNCTION__, buffer.flags);
             // TODO: try to dequeue again
+            if (TEMP_FAILURE_RETRY(ioctl(mV4l2Fd.get(), VIDIOC_QBUF, &buffer)) < 0) {
+                ALOGE("%s: QBUF after buf error failed: %s", __FUNCTION__, strerror(errno));
+                return ret;
+            }
+            lagNs = mMaxLagNs + 1;
+            continue;
         }
 
-        if (buffer.bytesused > mMaxV4L2BufferSize) {
-            ALOGE("%s: v4l2 buffer bytes used: %u maximum %u", __FUNCTION__, buffer.bytesused,
-                  mMaxV4L2BufferSize);
-            return ret;
+        if (buffer.bytesused == 0 || buffer.bytesused > mMaxV4L2BufferSize) {
+            ALOGW("%s: v4l2 buffer bytes used %u invalid (max %u), re-queue and try again",
+                  __FUNCTION__, buffer.bytesused, mMaxV4L2BufferSize);
+            if (TEMP_FAILURE_RETRY(ioctl(mV4l2Fd.get(), VIDIOC_QBUF, &buffer)) < 0) {
+                ALOGE("%s: QBUF after invalid bytesused failed: %s", __FUNCTION__, strerror(errno));
+                return ret;
+            }
+            lagNs = mMaxLagNs + 1;
+            continue;
         }
 
         nsecs_t curTimeNs = systemTime(SYSTEM_TIME_MONOTONIC);
@@ -3629,6 +3641,8 @@ bool ExternalCameraDeviceSession::OutputThread::threadLoop() {
                 mYu12Frame->getData(&outData, &dataSize);
                 mYu12Frame->flush();
                 dumpStream(outData, mYu12Frame->getFormatSize(), 2);
+                if (res == 0)
+                    mDecedFrames++;
             }
         }
 
@@ -3671,24 +3685,33 @@ bool ExternalCameraDeviceSession::OutputThread::threadLoop() {
 
     if (res != 0) {
         // For some webcam, the first few V4L2 frames might be malformed...
-        ALOGE("%s: Convert V4L2 frame to YU12 failed! res %d", __FUNCTION__, res);
+        ALOGW("%s: Convert V4L2 frame to YU12 failed! res %d, decoded %lu frames so far",
+              __FUNCTION__, res, mDecedFrames);
 
-        if (mUseHalBufManager) {
-            ATRACE_BEGIN("Wait for BufferRequest done");
-            res = waitForBufferRequestDone(&req->buffers);
-            ATRACE_END();
+        if (mDecedFrames > 0) {
+            // mYu12Frame has not been updated, still the previous valid frame.
+            ALOGW("%s: Reusing previous good frame", __FUNCTION__);
+            res = 0;
+        } else {
+            ALOGE("%s: No previous good frame available, report error", __FUNCTION__);
+
+            if (mUseHalBufManager) {
+                ATRACE_BEGIN("Wait for BufferRequest done");
+                res = waitForBufferRequestDone(&req->buffers);
+                ATRACE_END();
+            }
+
+            if (mUseHardwareDecoder)
+                VpuDecReturnBuffer();
+
+            lk.unlock();
+            Status st = parent->processCaptureRequestError(req);
+            if (st != Status::OK) {
+                return onDeviceError("%s: failed to process capture request error!", __FUNCTION__);
+            }
+            signalRequestDone();
+            return true;
         }
-
-        if (mUseHardwareDecoder)
-            VpuDecReturnBuffer();
-
-        lk.unlock();
-        Status st = parent->processCaptureRequestError(req);
-        if (st != Status::OK) {
-            return onDeviceError("%s: failed to process capture request error!", __FUNCTION__);
-        }
-        signalRequestDone();
-        return true;
     }
 
     if (mUseHalBufManager) {
