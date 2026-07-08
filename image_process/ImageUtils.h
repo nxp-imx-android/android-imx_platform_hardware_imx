@@ -20,6 +20,7 @@
 #include <cutils/native_handle.h>
 #include <graphics_ext.h>
 #include <linux/videodev2.h>
+#include <system/graphics.h>
 
 #include <string>
 
@@ -103,6 +104,12 @@ void decreaseNV12WithCut(uint8_t *srcBuf, int srcWidth, int srcHeight, uint8_t *
 int GetAllocationSize(buffer_handle_t buffer, uint64_t &allocatedSize);
 int GetUsage(buffer_handle_t handle, uint64_t &usage);
 ImxEngine ValueToImxEngine(const std::string &value);
+// Unify NV12 variants: treat _420_SP as _420_888 (the canonical NV12 format).
+static inline uint32_t unifyNV12Format(uint32_t format) {
+    return (format == HAL_PIXEL_FORMAT_YCbCr_420_SP)
+            ? HAL_PIXEL_FORMAT_YCbCr_420_888 : format;
+}
+
 } // namespace android
 
 #endif // IMAGE_UTILS_H

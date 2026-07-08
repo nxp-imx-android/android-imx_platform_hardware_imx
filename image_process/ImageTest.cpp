@@ -22,7 +22,7 @@
 #include <hardware/gralloc.h>
 #include <utils/Log.h>
 
-#include "ImageProcess.h"
+#include "ImageProcessFactory.h"
 #include "ImageUtils.h"
 #include "linux/dma-buf-imx.h"
 
@@ -33,7 +33,7 @@ using namespace fsl;
 #define TEST_HEIGHT 240
 #define TEST_LOOP 100
 
-static fsl::ImageProcess *g_ImgProc = ImageProcess::getInstance();
+// g_ImgProc removed, use local instance instead
 
 // Current, use physical addresss in opencl, so need pass un-cacheable usage for src/dst buffer.
 // This function test INVALIDATE_CACHE (HW write, CPU read).
@@ -41,7 +41,7 @@ static fsl::ImageProcess *g_ImgProc = ImageProcess::getInstance();
 // dstBuf allocate as cacheable, after ConvertImage(), since un-cacheable usage for dst buffer,
 // only memory is changed. So memcmp() may return non-zero. After INVALIDATE_CACHE, memcmp() return
 // ok.
-static int InvalideCacheTest() {
+static int InvalideCacheTest(std::shared_ptr<ImageProcessDevice> device) {
     int ret = 0;
     ImxImageBuffer srcBuf;
     ImxImageBuffer dstBuf;
@@ -78,7 +78,7 @@ static int InvalideCacheTest() {
     for (int loop = 0; loop < TEST_LOOP; loop++) {
         memset(srcBuf.mVirtAddr, loop, srcBuf.mSize);
 
-        ret = g_ImgProc->ConvertImage(dstBuf, srcBuf, ENG_G3D);
+        ret = device->convert(dstBuf, srcBuf);
         if (ret) {
             ALOGE("%s: ConvertImage failed, ret %d", __func__, ret);
             break;
@@ -110,7 +110,7 @@ static int InvalideCacheTest() {
 // Expected: cmpOkCount1 < 100, cmpOkCount2 == 100.
 // srcBuf allocate as cacheable, after memset(), if not flush cache, HW(G3D)
 // will probably not read expected value from memory.
-static int FlushCacheTest() {
+static int FlushCacheTest(std::shared_ptr<ImageProcessDevice> device) {
     int ret = 0;
     ImxImageBuffer srcBuf;
     ImxImageBuffer dstBuf;
@@ -147,7 +147,7 @@ static int FlushCacheTest() {
     for (int loop = 0; loop < TEST_LOOP; loop++) {
         memset(srcBuf.mVirtAddr, loop, srcBuf.mSize);
 
-        ret = g_ImgProc->ConvertImage(dstBuf, srcBuf, ENG_G3D);
+        ret = device->convert(dstBuf, srcBuf);
         if (ret) {
             ALOGE("%s: ConvertImage failed, ret %d", __func__, ret);
             break;
@@ -163,7 +163,7 @@ static int FlushCacheTest() {
         memset(srcBuf.mVirtAddr, loop, srcBuf.mSize);
         SyncBuffer(srcBuf.mFd, FLUSH_CACHE);
 
-        ret = g_ImgProc->ConvertImage(dstBuf, srcBuf, ENG_G3D);
+        ret = device->convert(dstBuf, srcBuf);
         if (ret) {
             ALOGE("%s: ConvertImage failed, ret %d", __func__, ret);
             break;
@@ -184,8 +184,14 @@ static int FlushCacheTest() {
 }
 
 int main(int argc, char **argv) {
-    InvalideCacheTest();
-    FlushCacheTest();
+    auto& factory = ImageProcessFactory::getInstance();
+    auto device = factory.createDeviceByEngine(ENG_OCLCVT);
+    if (device == nullptr) {
+        ALOGE("%s: createDeviceByEngine failed", __func__);
+        return -1;
+    }
+    InvalideCacheTest(device);
+    FlushCacheTest(device);
 
     return 0;
 }
