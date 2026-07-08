@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020 NXP.
+ *  Copyright 2020, 2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@
 #include <hal_types.h>
 #include <inttypes.h>
 
+#include "ImageProcessFactory.h"
 #include "VideoStream.h"
 
 namespace android {
@@ -29,8 +30,8 @@ using google_camera_hal::Stream;
 // stream uses memory map buffers which allcated in kernel space.
 class MMAPStream : public VideoStream {
 public:
-    MMAPStream(CameraDeviceSessionHwlImpl *pSession);
-    MMAPStream(CameraDeviceSessionHwlImpl *pSession, bool mplane);
+    MMAPStream(CameraDeviceSessionHwlImpl *pSession, ImxEngine bufferEngine);
+    MMAPStream(CameraDeviceSessionHwlImpl *pSession, bool mplane, ImxEngine bufferEngine);
     virtual ~MMAPStream();
 
     // configure device.
@@ -50,6 +51,9 @@ public:
     virtual int32_t freeBuffersLocked() { return 0; }
 
     uint32_t PickValidFps(int vformat, uint32_t width, uint32_t height, uint32_t requestFps);
+
+protected:
+    std::shared_ptr<fsl::ImageProcessDevice> mBufferDevice;
 };
 
 } // namespace android

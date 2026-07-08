@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015 Freescale Semiconductor, Inc.
- * Copyright 2020 NXP.
+ * Copyright 2020, 2026 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,8 +26,8 @@ namespace android {
 // that exports DMABUF handle.
 class DMAStream : public MMAPStream {
 public:
-    DMAStream(CameraDeviceSessionHwlImpl *pSession);
-    DMAStream(bool mplane, CameraDeviceSessionHwlImpl *pSession);
+    DMAStream(CameraDeviceSessionHwlImpl *pSession, ImxEngine bufferEngine);
+    DMAStream(bool mplane, CameraDeviceSessionHwlImpl *pSession, ImxEngine bufferEngine);
     virtual ~DMAStream();
 
     // configure device.

@@ -115,7 +115,7 @@ using google_camera_hal::CameraDeviceStatus;
 using google_camera_hal::HalCameraMetadata;
 using google_camera_hal::Stream;
 using namespace cameraconfigparser;
-using namespace fsl;
+
 
 class ImxStream {
 public:
@@ -190,10 +190,7 @@ int32_t changeSensorFormats(int *src, int *dst, int len);
 cameraconfigparser::PhysicalMetaMapPtr ClonePhysicalDeviceMap(
         const cameraconfigparser::PhysicalMetaMapPtr &src);
 
-int32_t handleFrame(ImxStreamBuffer &dstBuf, ImxStreamBuffer &srcBuf, ImxEngine engine,
-                    bool debug = false);
-int32_t handleFrameMultiSrc(ImxStreamBuffer &dstBuf, ImxStreamBuffer &srcBufA, ImxStreamBuffer &srcBufB, ImxEngine engine,
-                    bool debug = false);
+int32_t StreamBufferToImageBuffer(ImxStreamBuffer &streamBuffer, ImxImageBuffer &imageBuffer);
 int32_t ImageBufferToStreamBuffer(ImxImageBuffer &imageBuffer, ImxStreamBuffer &streamBuffer);
 ImxStreamBuffer *CreateImxStreamBufferFromBufferHandle(buffer_handle_t buffer, Stream *stream);
 void ReleaseImxStreamBuffer(ImxStreamBuffer *imxBuf);

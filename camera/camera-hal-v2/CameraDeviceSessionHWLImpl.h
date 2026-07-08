@@ -31,9 +31,11 @@
 #include "CameraDeviceHWLImpl.h"
 #include "CameraMetadata.h"
 #include "ISPWrapper.h"
+#include "ImageProcessFactory.h"
 #include "JpegBuilder.h"
 
 using namespace fsl;
+
 
 namespace android {
 
@@ -205,6 +207,8 @@ private:
                               CameraMetadata *meta);
     int32_t processFrameBuffer(ImxStreamBuffer *srcBuf, ImxStreamBuffer *dstBuf,
                                CameraMetadata *meta);
+    int32_t convertImage(std::shared_ptr<fsl::ImageProcessDevice> &device, ImxStreamBuffer &dstBuf,
+                         ImxStreamBuffer &srcBuf);
 
     Stream *GetStreamFromStreamBuffer(StreamBuffer *buf);
 
@@ -289,8 +293,9 @@ private:
 
     std::unique_ptr<HalCameraMetadata> mSettings;
 
-    ImxEngine mCamBlitCopyType;
-    ImxEngine mCamBlitCscType;
+    std::map<int32_t, std::shared_ptr<fsl::ImageProcessDevice>> mStreamDevices;
+    std::shared_ptr<fsl::ImageProcessDevice> mDewarpDevice;
+    ImxEngine mCamBlitCscType = ENG_NOTCARE;
     char mJpegHw[JPEG_HW_NAME_LEN] = {0};
     CameraSensorMetadata mSensorData;
 

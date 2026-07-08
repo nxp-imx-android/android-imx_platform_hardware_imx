@@ -29,7 +29,6 @@
 
 #include "CameraMetadata.h"
 #include "CameraUtils.h"
-#include "ImageProcess.h"
 
 #define DEBUG_FRAME_NUM 10
 
@@ -145,13 +144,13 @@ status_t CameraDeviceSessionHwlImpl::Initialize(uint32_t camera_id,
     mMaxHeight = pDev->mMaxHeight;
 
     // Device may be destroyed after create session, need copy some members from device.
-    mCamBlitCopyType = pDev->mCamBlitCopyType;
-    mCamBlitCscType = pDev->mCamBlitCscType;
     memcpy(mJpegHw, pDev->mJpegHw, JPEG_HW_NAME_LEN);
     mUseCpuEncoder = pDev->mUseCpuEncoder;
+    mCamBlitCscType = pDev->mCamBlitCscType;
     mSensorData = pDev->mSensorData;
 
     int halFormat = 0;
+    // Per-stream image process devices will be created in ConfigurePipeline()
     if (strcmp(mSensorData.v4l2_format, "nv12") == 0)
         halFormat = HAL_PIXEL_FORMAT_YCBCR_420_888;
     else if (strcmp(mSensorData.v4l2_format, "rgb3") == 0) {
@@ -176,6 +175,9 @@ status_t CameraDeviceSessionHwlImpl::Initialize(uint32_t camera_id,
                   __func__, __LINE__, mMaxWidth, mMaxHeight, mCamWrap->mHalFormat);
             return BAD_VALUE;
         }
+        mDewarpDevice = ImageProcessFactory::getInstance().createDeviceByEngine(mSensorData.mDewarpEng);
+        ALOGI("%s: created dewarp device '%s' (engine %d)", __func__,
+              mDewarpDevice ? mDewarpDevice->getName() : "null", mSensorData.mDewarpEng);
     }
 
     mCamWrap->camera_->acquire();
@@ -328,28 +330,38 @@ int32_t CameraDeviceSessionHwlImpl::processFrameBuffer(ImxStreamBuffer *srcBuf,
         return BAD_VALUE;
     }
 
-    ImxEngine engine;
+    int32_t streamId = dstBuf->mStream->id();
+    auto it = mStreamDevices.find(streamId);
+    if (it == mStreamDevices.end() || !it->second) {
+        ALOGE("%s: no image process device for stream id %d", __func__, streamId);
+        return -EINVAL;
+    }
 
-    ImxStream *srcStream = srcBuf->mStream;
-    ImxStream *dstStream = dstBuf->mStream;
+    return convertImage(it->second, *dstBuf, *srcBuf);
+}
 
-    int32_t srcFmt = srcStream->format();
-    int32_t dstFmt = dstStream->format();
+int32_t CameraDeviceSessionHwlImpl::convertImage(std::shared_ptr<fsl::ImageProcessDevice> &device,
+                                                 ImxStreamBuffer &dstBuf, ImxStreamBuffer &srcBuf) {
+    if (!device) {
+        ALOGE("%s: image process device is null", __func__);
+        return -EINVAL;
+    }
 
-    bool bFormatSame = false;
-    if (srcFmt == dstFmt)
-        bFormatSame = true;
-    else if ( ((srcFmt == HAL_PIXEL_FORMAT_YCbCr_420_SP) || (srcFmt == HAL_PIXEL_FORMAT_YCbCr_420_888)) &&
-              ((dstFmt == HAL_PIXEL_FORMAT_YCbCr_420_SP) || (dstFmt == HAL_PIXEL_FORMAT_YCbCr_420_888)) )
-        bFormatSame = true;
+    ImxImageBuffer srcImg, dstImg;
+    memset(&srcImg, 0, sizeof(srcImg));
+    memset(&dstImg, 0, sizeof(dstImg));
+    StreamBufferToImageBuffer(srcBuf, srcImg);
+    StreamBufferToImageBuffer(dstBuf, dstImg);
 
-    if ((srcStream->mWidth == dstStream->mWidth) && (srcStream->mHeight == dstStream->mHeight) &&
-        bFormatSame && (srcStream->mZoomRatio <= 1.0))
-        engine = mCamBlitCopyType;
-    else
-        engine = mCamBlitCscType;
+    srcImg.mFormat = unifyNV12Format(srcImg.mFormat);
+    dstImg.mFormat = unifyNV12Format(dstImg.mFormat);
 
-    return handleFrame(*dstBuf, *srcBuf, engine, mDebug);
+    device->setDebug(mDebug);
+    int ret = device->convert(dstImg, srcImg);
+    if (ret != 0)
+        ALOGE("%s: device '%s' convert failed, ret=%d", __func__, device->getName(), ret);
+
+    return ret;
 }
 
 int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
@@ -466,7 +478,14 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
         }
 
         resizeBuf.mStream = srcBuf->mStream;
-        handleFrame(resizeBuf, *srcBuf, mCamBlitCscType, mDebug);
+        int32_t streamId = dstBuf->mStream->id();
+        auto devIt = mStreamDevices.find(streamId);
+        if (devIt == mStreamDevices.end() || !devIt->second) {
+            ALOGE("%s: no image process device for stream id %d", __func__, streamId);
+            FreePhyBuffer(resizeBuf.buffer);
+            return BAD_VALUE;
+        }
+        convertImage(devIt->second, resizeBuf, *srcBuf);
 
         SwitchImxBuf(*srcBuf, resizeBuf);
     }
@@ -490,7 +509,13 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
                                thumbWidth, thumbHeight, srcStream->format());
     }
 
-    ret = mJpegBuilder->encodeImage(mainJpeg, thumbJpeg, mJpegHw, (*meta), mDebug);
+    {
+        int32_t streamId = dstBuf->mStream->id();
+        auto devIt = mStreamDevices.find(streamId);
+        auto jpegResizeDevice = (devIt != mStreamDevices.end()) ? devIt->second : nullptr;
+        ret = mJpegBuilder->encodeImage(mainJpeg, thumbJpeg, mJpegHw, (*meta), mDebug,
+                                        jpegResizeDevice);
+    }
     if (ret != NO_ERROR) {
         ALOGE("%s encodeImage failed", __func__);
         goto err_out;
@@ -835,6 +860,44 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
             ALOGE("%s: PrepareLibcamera failed", __func__);
             return ret;
         }
+
+        // Create per-stream image process devices via factory
+        auto &factory = fsl::ImageProcessFactory::getInstance();
+        uint32_t srcW = mCamWrap->mStreamWidth;
+        uint32_t srcH = mCamWrap->mStreamHeight;
+        uint32_t srcFmt = mCamWrap->mHalFormat;
+
+        for (int i = 0; i < stream_num; i++) {
+            Stream &stream = pipeline_info->streams->at(i);
+            HalStream &halStream = pipeline_info->hal_streams->at(i);
+            uint32_t dstFmt = halStream.override_format;
+            uint32_t dstW = stream.width;
+            uint32_t dstH = stream.height;
+
+            if (dstFmt == HAL_PIXEL_FORMAT_BLOB)
+                dstFmt = srcFmt;
+
+            auto device = factory.createDevice(srcFmt, dstFmt, srcW, srcH, dstW, dstH,
+                                            mCamBlitCscType);
+            if (device) {
+                ImxImageBuffer srcImg = {};
+                srcImg.mFormat = srcFmt;
+                srcImg.mWidth = srcW;
+                srcImg.mHeight = srcH;
+                device->setSrcBufferFormat(&srcImg);
+
+                ImxImageBuffer dstImg = {};
+                dstImg.mFormat = dstFmt;
+                dstImg.mWidth = dstW;
+                dstImg.mHeight = dstH;
+                device->setDstBufferFormat(&dstImg);
+            }
+
+            mStreamDevices[stream.id] = device;
+            ALOGI("%s: stream id %d (%dx%d fmt 0x%x -> %dx%d fmt 0x%x), device '%s'", __func__,
+                stream.id, srcW, srcH, srcFmt, dstW, dstH, dstFmt,
+                device ? device->getName() : "null");
+        }
     }
 
     return OK;
@@ -1044,6 +1107,7 @@ void CameraDeviceSessionHwlImpl::DestroyPipelines() {
     }
 
     map_pipeline_info.clear();
+    mStreamDevices.clear();
 
     pipelines_built_ = false;
 }
@@ -1559,12 +1623,11 @@ status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2Outbuf(ImxStreamBuffer *srcBu
 
     if (mDebug) {
         ALOGI("%s: use %lu ms, src: virt %p, phy 0x%lx, size %dx%d, format 0x%x, dst: virt %p, phy "
-              "0x%lx, size %dx%d, format 0x%x, mCamBlitCopyType %d, mCamBlitCscType %d",
+              "0x%lx, size %dx%d, format 0x%x",
               __func__, (t2 - t1) / 1000000, srcBuf->mVirtAddr, srcBuf->mPhyAddr,
               srcBuf->mStream->width(), srcBuf->mStream->height(), srcBuf->mStream->format(),
               dstBuf->mVirtAddr, dstBuf->mPhyAddr, dstBuf->mStream->width(),
-              dstBuf->mStream->height(), dstBuf->mStream->format(), mCamBlitCopyType,
-              mCamBlitCscType);
+              dstBuf->mStream->height(), dstBuf->mStream->format());
     }
 
     DumpStream(srcBuf, dstBuf);
@@ -1810,7 +1873,7 @@ void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
                               mCamWrap->mHalFormat, mDewarpBuf.mUsage, 0, false);
 
         srcBuf.mDewarp = true;
-        handleFrame(dewarpStreamBuf, srcBuf, mSensorData.mDewarpEng, mDebug);
+        convertImage(mDewarpDevice, dewarpStreamBuf, srcBuf);
         ProcessCapbuf2MultiOutbuf(&dewarpStreamBuf, hwReq->output_buffers,
                                   frameRequest->outBufferFences, requestMeta);
 

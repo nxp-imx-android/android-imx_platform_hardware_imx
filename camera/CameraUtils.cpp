@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2025, 2026 NXP.
+ *  Copyright 2020-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -131,7 +131,7 @@ int32_t ImageBufferToStreamBuffer(ImxImageBuffer &imageBuffer, ImxStreamBuffer &
     return 0;
 }
 
-static int32_t StreamBufferToImageBuffer(ImxStreamBuffer &streamBuffer, ImxImageBuffer &imageBuffer) {
+int32_t StreamBufferToImageBuffer(ImxStreamBuffer &streamBuffer, ImxImageBuffer &imageBuffer) {
     ImxStream *stream = streamBuffer.mStream;
     if (stream == NULL) {
         ALOGE("%s: stream is NULL", __func__);
@@ -155,41 +155,6 @@ static int32_t StreamBufferToImageBuffer(ImxStreamBuffer &streamBuffer, ImxImage
     imageBuffer.mPrivate = NULL;
 
     return 0;
-}
-
-int32_t handleFrame(ImxStreamBuffer &dstBuf, ImxStreamBuffer &srcBuf, ImxEngine engine,
-                    bool debug) {
-    fsl::ImageProcess *imageProcess = fsl::ImageProcess::getInstance();
-
-    ImxImageBuffer imageBufferSrc;
-    ImxImageBuffer imageBufferDst;
-
-    memset(&imageBufferSrc, 0, sizeof(imageBufferSrc));
-    memset(&imageBufferDst, 0, sizeof(imageBufferDst));
-
-    StreamBufferToImageBuffer(srcBuf, imageBufferSrc);
-    StreamBufferToImageBuffer(dstBuf, imageBufferDst);
-
-    return imageProcess->ConvertImage(imageBufferDst, imageBufferSrc, engine, debug);
-}
-
-int32_t handleFrameMultiSrc(ImxStreamBuffer &dstBuf, ImxStreamBuffer &srcBufA, ImxStreamBuffer &srcBufB, ImxEngine engine,
-                    bool debug) {
-    fsl::ImageProcess *imageProcess = fsl::ImageProcess::getInstance();
-
-    ImxImageBuffer imageBufferSrcA;
-    ImxImageBuffer imageBufferSrcB;
-    ImxImageBuffer imageBufferDst;
-
-    memset(&imageBufferSrcA, 0, sizeof(imageBufferSrcA));
-    memset(&imageBufferSrcB, 0, sizeof(imageBufferSrcB));
-    memset(&imageBufferDst, 0, sizeof(imageBufferDst));
-
-    StreamBufferToImageBuffer(srcBufA, imageBufferSrcA);
-    StreamBufferToImageBuffer(srcBufB, imageBufferSrcB);
-    StreamBufferToImageBuffer(dstBuf, imageBufferDst);
-
-    return imageProcess->ConvertImageMultiSrc(imageBufferDst, imageBufferSrcA, imageBufferSrcB, engine, debug);
 }
 
 ImxStreamBuffer *CreateImxStreamBufferFromBufferHandle(buffer_handle_t buffer, Stream *stream) {

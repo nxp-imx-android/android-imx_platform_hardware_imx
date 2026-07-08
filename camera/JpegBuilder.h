@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2012-2016 Freescale Semiconductor, Inc.
- * Copyright 2017-2020, 2025 NXP
+ * Copyright 2017-2020, 2025-2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@
 #include "CameraUtils.h"
 #include "ExifUtils.h"
 #include "HwJpegEncoder.h"
+#include "ImageProcessFactory.h"
 #include "YuvToJpegEncoder.h"
 
 namespace android {
@@ -133,7 +134,8 @@ public:
     ~JpegBuilder();
 
     status_t encodeImage(JpegParams *mainJpeg, JpegParams *thumbNail, char *hw_jpeg_enc,
-                         CameraMetadata &meta, bool debug = false);
+                         CameraMetadata &meta, bool debug = false,
+                         std::shared_ptr<fsl::ImageProcessDevice> resizeDevice = nullptr);
     size_t getImageSize() { return mRequestSize; }
     status_t buildImage(ImxStreamBuffer *streamBuf, char *hw_jpeg_enc);
     void reset();
@@ -141,7 +143,8 @@ public:
 
 private:
     status_t encodeJpeg(JpegParams *input, char *hw_jpeg_enc, const void *app1Buffer,
-                        size_t app1Size);
+                        size_t app1Size,
+                        std::shared_ptr<fsl::ImageProcessDevice> resizeDevice = nullptr);
     const char *degreesToExifOrientation(const char *);
     void stringToRational(const char *, unsigned int *, unsigned int *);
     bool isAsciiTag(const char *tag);

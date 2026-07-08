@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015 Freescale Semiconductor, Inc.
- * Copyright 2020 NXP.
+ * Copyright 2020, 2026 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,13 +25,14 @@ namespace android {
 
 static const size_t kPageSize = getpagesize();
 
-DMAStream::DMAStream(CameraDeviceSessionHwlImpl *pSession) : MMAPStream(pSession), mStreamSize(0) {
+DMAStream::DMAStream(CameraDeviceSessionHwlImpl *pSession, ImxEngine bufferEngine)
+      : MMAPStream(pSession, bufferEngine), mStreamSize(0) {
     mV4l2MemType = V4L2_MEMORY_DMABUF;
     mPlane = false;
 }
 
-DMAStream::DMAStream(bool mplane, CameraDeviceSessionHwlImpl *pSession)
-      : MMAPStream(pSession), mStreamSize(0) {
+DMAStream::DMAStream(bool mplane, CameraDeviceSessionHwlImpl *pSession, ImxEngine bufferEngine)
+      : MMAPStream(pSession, bufferEngine), mStreamSize(0) {
     // If driver support V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE, will set mplane as
     // true, else set it as false.
     mPlane = mplane;

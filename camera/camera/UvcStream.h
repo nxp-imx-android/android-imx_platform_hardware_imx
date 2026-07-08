@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2012-2015 Freescale Semiconductor, Inc.
- * Copyright 2020 NXP.
+ * Copyright 2020, 2026 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,8 @@ using namespace cameraconfigparser;
 
 class UvcStream : public DMAStream {
 public:
-    UvcStream(const char* name, CameraDeviceSessionHwlImpl* pSession) : DMAStream(pSession) {
+    UvcStream(const char* name, CameraDeviceSessionHwlImpl* pSession, ImxEngine bufferEngine)
+          : DMAStream(pSession, bufferEngine) {
         strncpy(mUvcPath, name, CAMAERA_FILENAME_LENGTH - 1);
     }
     virtual ~UvcStream() {}

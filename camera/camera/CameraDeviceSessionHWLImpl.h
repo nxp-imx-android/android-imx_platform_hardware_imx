@@ -30,6 +30,7 @@
 #include "CameraConfigurationParser.h"
 #include "CameraDeviceHWLImpl.h"
 #include "CameraMetadata.h"
+#include "ImageProcessFactory.h"
 #include "JpegBuilder.h"
 #include "UvcStream.h"
 
@@ -212,6 +213,8 @@ private:
 
     int32_t processFrameBuffer(ImxStreamBuffer *srcBuf, ImxStreamBuffer *dstBuf,
                                CameraMetadata *meta);
+    int32_t convertImage(std::shared_ptr<fsl::ImageProcessDevice> &device, ImxStreamBuffer &dstBuf,
+                         ImxStreamBuffer &srcBuf);
 
     int32_t processFrameBufferMultiSrc(std::vector<ImxStreamBuffer *> &v4l2BufferList, ImxStreamBuffer *dstBuf,
                                CameraMetadata *meta);
@@ -359,8 +362,8 @@ private:
 
     std::unique_ptr<HalCameraMetadata> mSettings;
 
-    ImxEngine mCamBlitCopyType;
-    ImxEngine mCamBlitCscType;
+    std::map<int32_t, std::shared_ptr<fsl::ImageProcessDevice>> mStreamDevices;
+    ImxEngine mCamBlitCscType = ENG_NOTCARE;
     char mJpegHw[JPEG_HW_NAME_LEN] = {0};
     CameraSensorMetadata mSensorData;
 

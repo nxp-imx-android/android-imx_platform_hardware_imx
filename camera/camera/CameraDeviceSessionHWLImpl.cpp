@@ -29,7 +29,6 @@
 #include "CameraMetadata.h"
 #include "CameraUtils.h"
 #include "ISPCameraDeviceHWLImpl.h"
-#include "ImageProcess.h"
 
 #define DEBUG_FRAME_NUM 10
 
@@ -133,14 +132,14 @@ status_t CameraDeviceSessionHwlImpl::Initialize(uint32_t camera_id,
               mPhysicalIds[i]);
 
         if (strstr(cam_metadata->camera_name, UVC_NAME)) {
-            pVideoStreams[i] = new UvcStream(*mDevPath[i], this);
+            pVideoStreams[i] = new UvcStream(*mDevPath[i], this, pDev->mCamBlitCopyType);
         } else if (strstr(cam_metadata->camera_name, ISP_SENSOR_NAME)) {
-            pVideoStreams[i] = new ISPCameraMMAPStream(this);
+            pVideoStreams[i] = new ISPCameraMMAPStream(this, pDev->mCamBlitCopyType);
             ((ISPCameraMMAPStream *)pVideoStreams[i])->createISPWrapper(*mDevPath[i], &mSensorData);
         } else if (cam_metadata->buffer_type == CameraSensorMetadata::kMmap) {
-            pVideoStreams[i] = new MMAPStream(this);
+            pVideoStreams[i] = new MMAPStream(this, pDev->mCamBlitCopyType);
         } else if (cam_metadata->buffer_type == CameraSensorMetadata::kDma) {
-            pVideoStreams[i] = new DMAStream((bool)cam_metadata->mplane, this);
+            pVideoStreams[i] = new DMAStream((bool)cam_metadata->mplane, this, pDev->mCamBlitCopyType);
         } else {
             ALOGE("%s: unsupported camera %s, or unsupported buffer type %d", __func__,
                   cam_metadata->camera_name, cam_metadata->buffer_type);
@@ -213,11 +212,12 @@ status_t CameraDeviceSessionHwlImpl::Initialize(uint32_t camera_id,
     mImgProcThread->mProcdFrame = 0;
 
     // Device may be destroyed after create session, need copy some members from device.
-    mCamBlitCopyType = pDev->mCamBlitCopyType;
-    mCamBlitCscType = pDev->mCamBlitCscType;
     memcpy(mJpegHw, pDev->mJpegHw, JPEG_HW_NAME_LEN);
     mUseCpuEncoder = pDev->mUseCpuEncoder;
+    mCamBlitCscType = pDev->mCamBlitCscType;
     mSensorData = pDev->mSensorData;
+
+    // Per-stream image process devices will be created in ConfigurePipeline()
 
     mPreviewResolutionCount = pDev->mPreviewResolutionCount;
     memcpy(mPreviewResolutions, pDev->mPreviewResolutions, MAX_RESOLUTION_SIZE * sizeof(int));
@@ -839,7 +839,7 @@ int CameraDeviceSessionHwlImpl::HandleImage() {
     // Set zoom ratio for ISP camera
     CameraMetadata requestMeta(result->result_metadata.get());
 
-    if (mCamBlitCscType == ENG_G2D) {
+    {
         camera_metadata_ro_entry entry;
         ret = requestMeta.Get(ANDROID_CONTROL_ZOOM_RATIO, &entry);
         if ((ret == 0) && imgFeed->v4l2Buffer && imgFeed->v4l2Buffer->mStream)
@@ -1162,28 +1162,80 @@ int32_t CameraDeviceSessionHwlImpl::processFrameBuffer(ImxStreamBuffer *srcBuf,
         return BAD_VALUE;
     }
 
-    ImxEngine engine;
+    int32_t streamId = dstBuf->mStream->id();
+    auto it = mStreamDevices.find(streamId);
+    if (it == mStreamDevices.end() || !it->second) {
+        ALOGE("%s: no image process device for stream id %d", __func__, streamId);
+        return -EINVAL;
+    }
 
-    ImxStream *srcStream = srcBuf->mStream;
-    ImxStream *dstStream = dstBuf->mStream;
+    // RAW16 source requires a CPU device for correct handling.
+    // Zoom ratio > 1.0 requires an OCL device for GPU-accelerated scaling.
+    // If the current device does not match, recreate it with the correct engine.
+    float zoomRatio = (srcBuf->mStream) ? srcBuf->mStream->mZoomRatio : 1.0f;
+    if (srcBuf->mFormat == HAL_PIXEL_FORMAT_RAW16) {
+        if (it->second->getEngine() != fsl::ENG_CPU) {
+            ALOGI("%s: RAW16 src requires CPU but device is not CPU (was '%s'), recreating as CPU for stream id %d",
+                  __func__, it->second->getName(), streamId);
+            auto dev = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(fsl::ENG_CPU);
+            if (!dev) {
+                ALOGE("%s: failed to create CPU device for stream id %d", __func__, streamId);
+                return -ENODEV;
+            }
+            it->second = dev;
+            mStreamDevices[streamId] = it->second;
+        }
+    } else if (zoomRatio > 1.0f) {
+        if (it->second->getEngine() != fsl::ENG_OCLCVT) {
+            ALOGI("%s: zoom>1.0 requires OCL but device is not OCL (was '%s'), recreating as OCL for stream id %d",
+                  __func__, it->second->getName(), streamId);
+            auto dev = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(fsl::ENG_OCLCVT);
+            if (!dev) {
+                ALOGE("%s: failed to create OCL device for stream id %d", __func__, streamId);
+                return -ENODEV;
+            }
+            it->second = dev;
+            mStreamDevices[streamId] = it->second;
+        }
+    } else if ((zoomRatio <= 1.0f && (srcBuf->mWidth != dstBuf->mWidth || srcBuf->mHeight != dstBuf->mHeight))) {
+        if (it->second->getEngine() != fsl::ENG_OCLCVT) {
+            ALOGI("%s: zoom<=1.0 requires OCL but device is not OCL (was '%s'), recreating as OCL for stream id %d",
+                    __func__, it->second->getName(), streamId);
+            auto dev = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(fsl::ENG_OCLCVT);
+            if (!dev) {
+                ALOGE("%s: failed to create OCL device for stream id %d", __func__, streamId);
+                return -ENODEV;
+            }
+            it->second = dev;
+            mStreamDevices[streamId] = it->second;
+        }
+    }
 
-    int32_t srcFmt = srcStream->format();
-    int32_t dstFmt = dstStream->format();
+    return convertImage(it->second, *dstBuf, *srcBuf);
+}
 
-    bool bFormatSame = false;
-    if (srcFmt == dstFmt)
-        bFormatSame = true;
-    else if ( ((srcFmt == HAL_PIXEL_FORMAT_YCbCr_420_SP) || (srcFmt == HAL_PIXEL_FORMAT_YCbCr_420_888)) &&
-              ((dstFmt == HAL_PIXEL_FORMAT_YCbCr_420_SP) || (dstFmt == HAL_PIXEL_FORMAT_YCbCr_420_888)) )
-        bFormatSame = true;
+int32_t CameraDeviceSessionHwlImpl::convertImage(std::shared_ptr<fsl::ImageProcessDevice> &device,
+                                                 ImxStreamBuffer &dstBuf, ImxStreamBuffer &srcBuf) {
+    if (!device) {
+        ALOGE("%s: image process device is null", __func__);
+        return -EINVAL;
+    }
 
-    if ((srcStream->mWidth == dstStream->mWidth) && (srcStream->mHeight == dstStream->mHeight) &&
-        bFormatSame && (srcStream->mZoomRatio <= 1.0))
-        engine = mCamBlitCopyType;
-    else
-        engine = mCamBlitCscType;
+    ImxImageBuffer srcImg, dstImg;
+    memset(&srcImg, 0, sizeof(srcImg));
+    memset(&dstImg, 0, sizeof(dstImg));
+    StreamBufferToImageBuffer(srcBuf, srcImg);
+    StreamBufferToImageBuffer(dstBuf, dstImg);
 
-    return handleFrame(*dstBuf, *srcBuf, engine, mDebug);
+    srcImg.mFormat = unifyNV12Format(srcImg.mFormat);
+    dstImg.mFormat = unifyNV12Format(dstImg.mFormat);
+
+    device->setDebug(mDebug);
+    int ret = device->convert(dstImg, srcImg);
+    if (ret != 0)
+        ALOGE("%s: device '%s' convert failed, ret=%d", __func__, device->getName(), ret);
+
+    return ret;
 }
 
 int32_t CameraDeviceSessionHwlImpl::processFrameBufferMultiSrc(std::vector<ImxStreamBuffer *> &v4l2BufferList,
@@ -1205,7 +1257,7 @@ int32_t CameraDeviceSessionHwlImpl::processFrameBufferMultiSrc(std::vector<ImxSt
 
     ImxEngine engine = ENG_CPU;
 
-    return handleFrameMultiSrc(*dstBuf, *srcBufA, *srcBufB, engine, mDebug);
+    return 0;
 }
 
 int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
@@ -1362,10 +1414,71 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
         }
 
         resizeBuf.mStream = srcBuf->mStream;
-        handleFrame(resizeBuf, *srcBuf, mCamBlitCscType, mDebug);
+        int32_t streamId = dstBuf->mStream->id();
+        auto devIt = mStreamDevices.find(streamId);
+        if (devIt == mStreamDevices.end() || !devIt->second) {
+            ALOGE("%s: no image process device for stream id %d", __func__, streamId);
+            if (srcData != NULL) {
+                free(srcData);
+            }
+            FreePhyBuffer(resizeBuf.buffer);
+            return BAD_VALUE;
+        }
+
+        // RAW16 source requires a CPU device for correct handling.
+        // Otherwise zoom > 1.0 requires an OCL device for GPU-accelerated scaling.
+        if (srcBuf->mFormat == HAL_PIXEL_FORMAT_RAW16) {
+            if (devIt->second->getEngine() != fsl::ENG_CPU) {
+                ALOGI("%s: RAW16 src requires CPU but device is not CPU (was '%s'), recreating as CPU for stream id %d",
+                      __func__, devIt->second->getName(), streamId);
+                auto dev = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(fsl::ENG_CPU);
+                if (!dev) {
+                    ALOGE("%s: failed to create CPU device for stream id %d", __func__, streamId);
+                    if (srcData != NULL) free(srcData);
+                    FreePhyBuffer(resizeBuf.buffer);
+                    return BAD_VALUE;
+                }
+                devIt->second = dev;
+                mStreamDevices[streamId] = devIt->second;
+            }
+        } else if (devIt->second->getEngine() != fsl::ENG_OCLCVT) {
+            ALOGI("%s: zoom>1.0 requires OCL but device is not OCL (was '%s'), recreating as OCL for stream id %d",
+                    __func__, devIt->second->getName(), streamId);
+            auto dev = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(fsl::ENG_OCLCVT);
+            if (!dev) {
+                ALOGE("%s: failed to create OCL device for stream id %d", __func__, streamId);
+                if (srcData != NULL) free(srcData);
+                FreePhyBuffer(resizeBuf.buffer);
+                return BAD_VALUE;
+            }
+            devIt->second = dev;
+            mStreamDevices[streamId] = devIt->second;
+        }
+
+        convertImage(devIt->second, resizeBuf, *srcBuf);
 
         SwitchImxBuf(*srcBuf, resizeBuf);
         srcVirtual = (uint8_t *)srcBuf->mVirtAddr;
+    } else if (srcStream && srcStream->mZoomRatio <= 1.0f &&
+               (srcBuf->mWidth != dstBuf->mWidth || srcBuf->mHeight != dstBuf->mHeight)) {
+        if (!dstBuf->mStream) {
+            ALOGE("%s: dstBuf->mStream is null", __func__);
+            return BAD_VALUE;
+        }
+        int32_t streamId = dstBuf->mStream->id();
+        auto devIt = mStreamDevices.find(streamId);
+        if (devIt != mStreamDevices.end() && devIt->second &&
+            devIt->second->getEngine() != fsl::ENG_OCLCVT) {
+            ALOGI("%s: zoom<=1.0 requires OCL but device is not OCL (was '%s'), recreating as OCL for stream id %d",
+                    __func__, devIt->second->getName(), streamId);
+            auto dev = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(fsl::ENG_OCLCVT);
+            if (!dev) {
+                ALOGE("%s: failed to create OCL device for stream id %d", __func__, streamId);
+                return BAD_VALUE;
+            }
+            devIt->second = dev;
+            mStreamDevices[streamId] = devIt->second;
+        }
     }
 
     mainJpeg = new JpegParams(srcVirtual, (uint8_t *)(uintptr_t)srcBuf->mPhyAddr, srcBuf->mSize,
@@ -1386,7 +1499,13 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
                                    thumbWidth, thumbHeight, encodFormat);
     }
 
-    ret = mJpegBuilder->encodeImage(mainJpeg, thumbJpeg, mJpegHw, (*meta), mDebug);
+    {
+        int32_t streamId = dstBuf->mStream->id();
+        auto devIt = mStreamDevices.find(streamId);
+        auto jpegResizeDevice = (devIt != mStreamDevices.end()) ? devIt->second : nullptr;
+        ret = mJpegBuilder->encodeImage(mainJpeg, thumbJpeg, mJpegHw, (*meta), mDebug,
+                                        jpegResizeDevice);
+    }
     if (ret != NO_ERROR) {
         ALOGE("%s encodeImage failed", __func__);
         goto err_out;
@@ -1731,6 +1850,57 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
     map_pipeline_info[pipeline_id_] = pipeline_info;
     pipeline_id_++;
 
+    // Create per-stream image process devices via factory
+    {
+        auto &factory = fsl::ImageProcessFactory::getInstance();
+        uint32_t srcW = mMaxWidth;
+        uint32_t srcH = mMaxHeight;
+
+        for (int i = 0; i < stream_num; i++) {
+            Stream &stream = pipeline_info->streams->at(i);
+            HalStream &halStream = pipeline_info->hal_streams->at(i);
+            uint32_t srcFmt = stream.format;
+            uint32_t dstFmt = halStream.override_format;
+            uint32_t dstW = stream.width;
+            uint32_t dstH = stream.height;
+            if (srcFmt == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED) {
+                if (strcmp(mSensorData.v4l2_format, "nv12") == 0)
+                    srcFmt = HAL_PIXEL_FORMAT_YCbCr_420_SP;
+                else
+                    srcFmt = HAL_PIXEL_FORMAT_YCBCR_422_I;
+            }
+
+            if (dstFmt == HAL_PIXEL_FORMAT_BLOB) {
+                dstFmt = srcFmt;
+            }
+
+            if (srcFmt == HAL_PIXEL_FORMAT_RAW16) {
+                dstFmt = HAL_PIXEL_FORMAT_YCBCR_420_888;
+            }
+
+            auto device = factory.createDevice(srcFmt, dstFmt, srcW, srcH, dstW, dstH,
+                                               mCamBlitCscType);
+            if (device) {
+                ImxImageBuffer srcImg = {};
+                srcImg.mFormat = srcFmt;
+                srcImg.mWidth = srcW;
+                srcImg.mHeight = srcH;
+                device->setSrcBufferFormat(&srcImg);
+
+                ImxImageBuffer dstImg = {};
+                dstImg.mFormat = dstFmt;
+                dstImg.mWidth = dstW;
+                dstImg.mHeight = dstH;
+                device->setDstBufferFormat(&dstImg);
+            }
+
+            mStreamDevices[stream.id] = device;
+            ALOGI("%s: stream id %d (%dx%d fmt 0x%x -> %dx%d fmt 0x%x), device '%s'", __func__,
+                  stream.id, srcW, srcH, srcFmt, dstW, dstH, dstFmt,
+                  device ? device->getName() : "null");
+        }
+    }
+
     return OK;
 }
 
@@ -1916,6 +2086,7 @@ void CameraDeviceSessionHwlImpl::DestroyPipelines() {
     }
 
     map_pipeline_info.clear();
+    mStreamDevices.clear();
     pipelines_built_ = false;
 }
 

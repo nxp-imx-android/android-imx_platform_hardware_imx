@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2023 NXP.
+ *  Copyright 2020-2023, 2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -41,7 +41,8 @@ private:
 
 class ISPCameraMMAPStream : public MMAPStream {
 public:
-    ISPCameraMMAPStream(CameraDeviceSessionHwlImpl *pSession) : MMAPStream(pSession) {}
+    ISPCameraMMAPStream(CameraDeviceSessionHwlImpl *pSession, ImxEngine bufferEngine)
+          : MMAPStream(pSession, bufferEngine) {}
     int32_t createISPWrapper(char *pDevPath, CameraSensorMetadata *pSensorData);
 
     virtual int32_t ISPProcess(void *pMeta, uint32_t format);

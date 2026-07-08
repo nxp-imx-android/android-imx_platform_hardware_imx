@@ -211,11 +211,11 @@ bool ConfigureCameras(const Json::Value& value, CameraDefinition* camera) {
 
     if (!value.isMember(kCameraBlitCopyKey))
         return true;
-    camera->cam_blit_copy_hw = ValueToImxEngine(value[kCameraBlitCopyKey].asString());
+    camera->cam_blit_copy_hw = android::ValueToImxEngine(value[kCameraBlitCopyKey].asString());
 
     if (!value.isMember(kCameraBlitCscKey))
         return true;
-    camera->cam_blit_csc_hw = ValueToImxEngine(value[kCameraBlitCscKey].asString());
+    camera->cam_blit_csc_hw = android::ValueToImxEngine(value[kCameraBlitCscKey].asString());
 
     if (value.isMember(kCameraHwJpeg)) {
         camera->jpeg_hw = value[kCameraHwJpeg].asString();
@@ -508,9 +508,9 @@ bool ParseCharacteristics(CameraDefinition* camera, const Json::Value& root,
     if (root.isMember(kDewarpEng)) {
         int needDewarp = strtol(root[kDewarpEng].asString().c_str(), NULL, 10);
 
-        static_meta[cam_index].mDewarpEng = ValueToImxEngine(root[kDewarpEng].asString());
+        static_meta[cam_index].mDewarpEng = android::ValueToImxEngine(root[kDewarpEng].asString());
     } else
-        static_meta[cam_index].mDewarpEng = ENG_OCLCVT;
+        static_meta[cam_index].mDewarpEng = android::ENG_OCLCVT;
 
     ALOGI("%s: res min %dx%d, max %dx%d, needDewarp %d, dewarpEng %d", __func__,
           static_meta[cam_index].mMinWidth, static_meta[cam_index].mMinHeight,

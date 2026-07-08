@@ -31,6 +31,7 @@
 #include "CameraConfigurationParser.h"
 #include "CameraMetadata.h"
 #include "CameraUtils.h"
+#include "ImageProcessFactory.h"
 #include "log/log.h"
 
 extern "C" {
@@ -216,7 +217,8 @@ void JpegBuilder::setMetadata(CameraMetadata *meta) {
 }
 
 status_t JpegBuilder::encodeImage(JpegParams *mainJpeg, JpegParams *thumbNail, char *hw_jpeg_enc,
-                                  CameraMetadata &meta, bool debug) {
+                                  CameraMetadata &meta, bool debug,
+                                  std::shared_ptr<fsl::ImageProcessDevice> resizeDevice) {
     status_t ret = NO_ERROR;
 
     if (mainJpeg == NULL)
@@ -252,7 +254,7 @@ status_t JpegBuilder::encodeImage(JpegParams *mainJpeg, JpegParams *thumbNail, c
 
     size_t thumbCodeSize = 0;
     if (thumbNail) {
-        ret = encodeJpeg(thumbNail, hw_jpeg_enc, 0, 0);
+        ret = encodeJpeg(thumbNail, hw_jpeg_enc, 0, 0, resizeDevice);
         if (ret != NO_ERROR) {
             ALOGE("%s encodeJpeg failed", __func__);
             goto error;
@@ -271,7 +273,7 @@ status_t JpegBuilder::encodeImage(JpegParams *mainJpeg, JpegParams *thumbNail, c
     exifDataSize = mExifUtils->GetApp1Length();
     exifData = mExifUtils->GetApp1Buffer();
 
-    ret = encodeJpeg(mainJpeg, hw_jpeg_enc, exifData, exifDataSize);
+    ret = encodeJpeg(mainJpeg, hw_jpeg_enc, exifData, exifDataSize, resizeDevice);
     if (ret)
         goto error;
 
@@ -284,7 +286,8 @@ error:
 }
 
 status_t JpegBuilder::encodeJpeg(JpegParams *input, char *hw_jpeg_enc, const void *app1Buffer,
-                                 size_t app1Size) {
+                                 size_t app1Size,
+                                 std::shared_ptr<fsl::ImageProcessDevice> resizeDevice) {
     PixelFormat format = input->format;
 
     int ret = 0;
@@ -315,7 +318,29 @@ status_t JpegBuilder::encodeJpeg(JpegParams *input, char *hw_jpeg_enc, const voi
         srcBuf.buffer = input->src_handle;
         srcBuf.mStream = new ImxStream(input->in_width, input->in_height, format, 0, 0);
 
-        handleFrame(*resizeBuf, srcBuf, ENG_NOTCARE, mDebug);
+        {
+            // Use the session-provided device if available, otherwise create a temporary one
+            auto device = resizeDevice;
+            if (!device) {
+                auto &factory = fsl::ImageProcessFactory::getInstance();
+                device = factory.createDevice(format, format, input->in_width, input->in_height,
+                                              input->out_width, input->out_height);
+            }
+            if (device) {
+                ImxImageBuffer srcImg, dstImg;
+                memset(&srcImg, 0, sizeof(srcImg));
+                memset(&dstImg, 0, sizeof(dstImg));
+                StreamBufferToImageBuffer(srcBuf, srcImg);
+                StreamBufferToImageBuffer(*resizeBuf, dstImg);
+                device->setSrcBufferFormat(&srcImg);
+                device->setSrcBufferFormat(&dstImg);
+                device->setDebug(mDebug);
+                device->convert(dstImg, srcImg);
+            } else {
+                ALOGE("%s: no image process device for resize %dx%d -> %dx%d", __func__,
+                      input->in_width, input->in_height, input->out_width, input->out_height);
+            }
+        }
         input->src = (uint8_t *)resizeBuf->mVirtAddr;
     }
 

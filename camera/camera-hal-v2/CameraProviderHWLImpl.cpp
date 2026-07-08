@@ -29,7 +29,6 @@
 #include "CameraDeviceHWLImpl.h"
 #include "CameraDeviceSessionHWLImpl.h"
 #include "CameraMetadata.h"
-#include "ImageProcess.h"
 #include "VendorTags.h"
 #include "vendor_tag_defs.h"
 #include "CameraWrapper.h"
@@ -73,18 +72,12 @@ status_t CameraProviderHwlImpl::Initialize() {
         return ret;
     }
 
-    // create singleton "ImageProcess" object, so the dlopen, g2d_open/cl_g2d_open
-    // can be done in HW init, save time for CTS.
-    fsl::ImageProcess::getInstance();
-
     return OK;
 }
 
 // virtual ~CameraProviderHwlImpl();
 CameraProviderHwlImpl::~CameraProviderHwlImpl() {
     ALOGI("enter %s, this %p", __func__, this);
-    fsl::ImageProcess* imageProcess = fsl::ImageProcess::getInstance();
-    delete imageProcess;
 
     cameraManager_->stop();
     WaitForStatusCallbackFuture();

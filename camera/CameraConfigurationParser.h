@@ -19,12 +19,13 @@
 #include <string>
 #include <vector>
 
+#include "ImageUtils.h"
 #include "hal_types.h"
-#include "ImageProcess.h"
 
-using namespace fsl;
+
 
 namespace cameraconfigparser {
+using android::ImxEngine;
 using android::google_camera_hal::CameraDeviceStatus;
 using android::google_camera_hal::HalCameraMetadata;
 
