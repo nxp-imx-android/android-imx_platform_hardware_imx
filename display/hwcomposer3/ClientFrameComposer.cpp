@@ -426,6 +426,7 @@ HWC3::Error ClientFrameComposer::validateDisplay(Display* display, DisplayChange
     auto& layersForComposition = mDisplayLayers[displayId].layersForComposition;
     auto& layersForPrivate = mDisplayLayers[displayId].layersForNxpPrivate;
     auto& luckyLayer = mDisplayLayers[displayId].luckyLayer;
+    auto& readback = mDisplayLayers[displayId].readback;
 
     const std::vector<Layer*>& layers = display->getOrderedLayers();
 
@@ -480,7 +481,7 @@ HWC3::Error ClientFrameComposer::validateDisplay(Display* display, DisplayChange
         if ((int)composeType == Composition_NXP_PRIVATE || composeType == Composition::INVALID)
             continue;
 
-        if (overlaySupported && !layerSkiped) {
+        if (overlaySupported && !readback && !layerSkiped) {
             common::Rect rectFrame = layer->getDisplayFrame();
             DEBUG_LOG("UI masked rect:left=%d, top=%d, right=%d, bottom=%d", uiMaskedRect.left,
                       uiMaskedRect.top, uiMaskedRect.right, uiMaskedRect.bottom);
