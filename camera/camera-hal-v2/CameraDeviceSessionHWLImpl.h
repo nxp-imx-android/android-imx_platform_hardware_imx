@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2025 NXP.
+ *  Copyright 2020-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -265,7 +265,7 @@ private:
     bool pipelines_built_ = false;
     CameraMetadata *m_meta;
     std::map<uint32_t, PipelineInfo *> map_pipeline_info;
-    std::map<uint32_t, std::vector<FrameRequest> *> map_frame_request;
+    std::list<std::vector<FrameRequest> *> list_frame_request;
 
     std::vector<uint32_t> camera_ids;
 

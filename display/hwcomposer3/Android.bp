@@ -92,7 +92,7 @@ soong_config_module_type {
 
 soong_config_string_variable {
     name: "BOARD_SOC_TYPE",
-    values: ["IMX8Q", "IMX8MM", "IMX8MQ", "IMX8MP", "IMX8MN", "IMX8ULP", "IMX93", "IMX943", "IMX95", "IMX952"],
+    values: ["IMX8Q", "IMX8MM", "IMX8MQ", "IMX8MP", "IMX8MN", "IMX8ULP", "IMX93", "IMX937", "IMX943", "IMX95", "IMX952"],
 }
 
 hwc_config_soc_cc_defaults {
@@ -127,6 +127,9 @@ hwc_config_soc_cc_defaults {
                 cflags: ["-DPXP_LIMITATION_DOWN_SCALE"],
             },
             IMX952: {
+                cflags: ["-DMAX_SUPPORTED_OVERLAY=2"],
+            },
+            IMX937: {
                 cflags: ["-DMAX_SUPPORTED_OVERLAY=2"],
             },
         },
@@ -222,7 +225,6 @@ cc_binary {
         "-DLOG_TAG=\"NxpHWC\"",
         "-Wall",
         "-Wthread-safety",
-        "-DWORKAROUND_FOR_TRANSPARENT_TASKBAR",
     ],
 }
 

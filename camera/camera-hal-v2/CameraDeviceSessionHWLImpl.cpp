@@ -262,12 +262,13 @@ PipelineInfo *CameraDeviceSessionHwlImpl::GetPipelineInfo(uint32_t id) {
 #define WAIT_TIME_OUT 100000000LL // unit ns, wait 100ms
 
 void CameraDeviceSessionHwlImpl::DumpRequest() {
-    ALOGI("%s: map_frame_request size %zu, addr %p", __func__, map_frame_request.size(),
-          &map_frame_request);
+    ALOGI("%s: list_frame_request size %zu, addr %p", __func__, list_frame_request.size(),
+          &list_frame_request);
 
-    for (auto it = map_frame_request.begin(); it != map_frame_request.end(); it++) {
-        uint32_t frame = it->first;
-        ALOGI("%s: frame %u", __func__, frame);
+    for (auto it = list_frame_request.begin(); it != list_frame_request.end(); it++) {
+        std::vector<FrameRequest> *frameRequestVec = *it;
+        if (frameRequestVec && (frameRequestVec->size() > 0))
+            ALOGI("%s: frame %u", __func__, (*frameRequestVec)[0].frame_number);
     }
 }
 
@@ -792,7 +793,7 @@ void CameraDeviceSessionHwlImpl::WaitRequestsFinishAndCleanResource() {
         return;
     }
 
-    /* If still has on-fly requests from map_frame_request, wait to finish */
+    /* If still have requests hold in libcamera, wait to finish */
     while (mDeQueRequestIdx != mInQueRequestIdx) {
         ALOGW("%s: still has requests to process, wait %d us, DeQueIdx %lu, InQueIdx %lu, session %p",
               __func__, WAIT_ITVL_US, mDeQueRequestIdx, mInQueRequestIdx, this);
@@ -891,6 +892,7 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
     int ret = 0;
     maxStreamWidth = 0;
     maxStreamHeight = 0;
+    bool pipeline_added_to_map = false;
 
     int stream_num = request_config.streams.size();
     if (stream_num == 0) {
@@ -1019,6 +1021,7 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
           pipeline_info, &map_pipeline_info, this);
     map_pipeline_info[pipeline_id_] = pipeline_info;
     pipeline_id_++;
+    pipeline_added_to_map = true;
 
     if (m_bConfigLibcameraByIntent == false) {
         ret = ConfigLibcameraLocked(mSensorData.mLibcameraBuffers, m_libcamera_stream_format,
@@ -1043,15 +1046,17 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
     return OK;
 
 err_out:
-    if (pipeline_info != NULL) {
-        if (pipeline_info->streams != nullptr) {
-            delete pipeline_info->streams;
-        }
-        if (pipeline_info->hal_streams != nullptr) {
-            delete pipeline_info->hal_streams;
-        }
-        free(pipeline_info);
+    if (pipeline_added_to_map) {
+        pipeline_id_--;
+        map_pipeline_info.erase(pipeline_id_);
     }
+    if (pipeline_info->streams != nullptr) {
+        delete pipeline_info->streams;
+    }
+    if (pipeline_info->hal_streams != nullptr) {
+        delete pipeline_info->hal_streams;
+    }
+    free(pipeline_info);
 
     return ret;
 }
@@ -1568,11 +1573,11 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequests(uint32_t frame_number,
         }
     }
 
-    map_frame_request[frame_number] = frame_request;
-    // DumpRequest();
+    list_frame_request.push_back(frame_request);
     mInQueRequestIdx++;
 
     if (mDebug || (frame_number < DEBUG_FRAME_NUM)) {
+        DumpRequest();
         ALOGI("leave %s: session %p, frame_number %u, mInQueRequestIdx %lu, mDeQueRequestIdx %lu",
               __func__, this, frame_number, mInQueRequestIdx, mDeQueRequestIdx);
         ItvlStat(mPreSubmitRequestTime, (char *)"SubmitRequests");
@@ -1582,27 +1587,24 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequests(uint32_t frame_number,
 }
 
 int CameraDeviceSessionHwlImpl::CleanRequestsLocked() {
-    if (map_frame_request.empty())
+    if (list_frame_request.empty())
         return 0;
 
-    for (auto it = map_frame_request.begin(); it != map_frame_request.end(); it++) {
-        uint32_t frame = it->first;
-        std::vector<FrameRequest> *request = it->second;
+    for (auto it = list_frame_request.begin(); it != list_frame_request.end(); it++) {
+        std::vector<FrameRequest> *request = *it;
         if (request == NULL) {
-            ALOGW("%s: frame %d request is null", __func__, frame);
+            ALOGW("%s: request is null", __func__);
             continue;
         }
 
         uint32_t reqNum = request->size();
-        ALOGV("%s, map_frame_request, frame %d, reqNum %d", __func__, frame, reqNum);
-
         for (uint32_t i = 0; i < reqNum; i++) ReleaseFrameRequest(request->at(i));
 
         request->clear();
         delete request;
     }
 
-    map_frame_request.clear();
+    list_frame_request.clear();
 
     return 0;
 }
@@ -1884,13 +1886,12 @@ void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
         return;
     }
 
-    if (map_frame_request.size() == 0) {
-        ALOGE("%s: unexpect map_frame_request.size() 0", __func__);
+    if (list_frame_request.size() == 0) {
+        ALOGE("%s: unexpect list_frame_request.size() 0", __func__);
         return;
     }
 
-    uint32_t frame = map_frame_request.begin()->first;
-    std::vector<FrameRequest> *frameRequestVec = map_frame_request.begin()->second;
+    std::vector<FrameRequest> *frameRequestVec = *(list_frame_request.begin());
 
     // currently 1 frame map 1 request
     FrameRequest *frameRequest = &((*frameRequestVec)[0]);
@@ -1898,6 +1899,7 @@ void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
         ALOGE("%s: frameRequest NULL", __func__);
         return;
     }
+    uint32_t frame = frameRequest->frame_number;
 
     HwlPipelineRequest *hwReq = &frameRequest->hwlReq;
     if (hwReq == NULL) {
@@ -2002,9 +2004,9 @@ void CameraDeviceSessionHwlImpl::requestComplete(libcamera::Request *request) {
 
     // Till now, always 1 frame, 1 request. But consider GCH interface
     // SubmitRequests(uint32_t frame_number, std::vector<HwlPipelineRequest> &requests),
-    // need wait last FrameRequest, then erase the item in map_frame_request.
+    // need wait last FrameRequest, then erase the item in list_frame_request.
     if (frameRequest->idx == frameRequest->num - 1) {
-        map_frame_request.erase(frame);
+        list_frame_request.pop_front();
         std::vector<FrameRequest> *request = (std::vector<FrameRequest> *)frameRequest->vector;
         if (request) {
             request->clear();

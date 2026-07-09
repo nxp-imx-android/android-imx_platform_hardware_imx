@@ -82,6 +82,7 @@ typedef struct tag_fence_fd_info {
 } FenceFdInfo;
 
 typedef struct tag_request {
+    uint32_t frame_number;
     HwlPipelineRequest hwlReq;
     std::vector<FenceFdInfo> outBufferFences;
     std::vector<uint32_t> camera_ids;
@@ -323,7 +324,7 @@ private:
     bool pipelines_built_ = false;
     CameraMetadata *m_meta;
     std::map<uint32_t, PipelineInfo *> map_pipeline_info;
-    std::map<uint32_t, std::vector<FrameRequest> *> map_frame_request;
+    std::list<std::vector<FrameRequest> *> list_frame_request;
 
     std::vector<uint32_t> camera_ids;
 
