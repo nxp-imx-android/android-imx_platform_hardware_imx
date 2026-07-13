@@ -626,7 +626,7 @@ bool DrmDisplay::updateDisplayConfigs() {
         if (id > id_max)
             id_max = id;
     }
-    mStartConfigId = mStartConfigId + static_cast<int32_t>(id_max) + 1;
+    mStartConfigId = static_cast<int32_t>(id_max) + 1;
     mConfigs->clear();
     if (mConnector->buildConfigs(mConfigs, static_cast<uint32_t>(mStartConfigId))) {
         updateActiveConfig(mConfigs);
