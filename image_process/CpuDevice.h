@@ -36,8 +36,11 @@ public:
                        uint32_t srcHeight, uint32_t dstWidth, uint32_t dstHeight);
 
     int convert(ImxImageBuffer& dst, ImxImageBuffer& src) override;
+    int convertMultiSrc(ImxImageBuffer& dst, ImxImageBuffer& srcA, ImxImageBuffer& srcB) override;
 
 private:
+    static void MergeImageNV12(void* srcA, void* srcB, void* dst, uint32_t width, uint32_t height);
+
     static bool IsCscSupportByCPU(int srcFormat, int dstFormat);
 
     int convertNV12toNV21(ImxImageBuffer& dst, ImxImageBuffer& src);

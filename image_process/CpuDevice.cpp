@@ -324,4 +324,105 @@ void CpuDevice::convertBGGRtoNV12(uint8_t* inputBuffer, uint8_t* outputBuffer, i
     free(rgb888);
 }
 
+int CpuDevice::convertMultiSrc(ImxImageBuffer& dstBuf, ImxImageBuffer& srcBufA,
+                                ImxImageBuffer& srcBufB) {
+    srcBufA.mFormat = unifyNV12Format(srcBufA.mFormat);
+    srcBufB.mFormat = unifyNV12Format(srcBufB.mFormat);
+    dstBuf.mFormat  = unifyNV12Format(dstBuf.mFormat);
+
+    if (!((srcBufA.mFormat == HAL_PIXEL_FORMAT_YCbCr_420_888) &&
+          (srcBufA.mFormat == srcBufB.mFormat) &&
+          (srcBufA.mFormat == dstBuf.mFormat))) {
+        ALOGE("CpuDevice::%s: only support NV12, srcA 0x%x srcB 0x%x dst 0x%x",
+              __func__, srcBufA.mFormat, srcBufB.mFormat, dstBuf.mFormat);
+        return BAD_VALUE;
+    }
+
+    if (!((srcBufA.mWidth == srcBufB.mWidth) && (srcBufA.mHeight == srcBufB.mHeight) &&
+          (srcBufA.mWidth == dstBuf.mWidth)  && (srcBufA.mHeight == dstBuf.mHeight))) {
+        ALOGE("CpuDevice::%s: only support same resolution, srcA %ux%u srcB %ux%u dst %ux%u",
+              __func__, srcBufA.mWidth, srcBufA.mHeight,
+              srcBufB.mWidth, srcBufB.mHeight, dstBuf.mWidth, dstBuf.mHeight);
+        return BAD_VALUE;
+    }
+
+    if (mDebug) {
+        ALOGD("CpuDevice::%s: convertMultiSrc"
+              " srcA(fmt=0x%x, %ux%u stride=%u hspan=%u)"
+              " srcB(fmt=0x%x, %ux%u stride=%u hspan=%u)"
+              " dst(fmt=0x%x, %ux%u stride=%u hspan=%u)",
+              __func__,
+              srcBufA.mFormat, srcBufA.mWidth, srcBufA.mHeight, srcBufA.mStride, srcBufA.mHeightSpan,
+              srcBufB.mFormat, srcBufB.mWidth, srcBufB.mHeight, srcBufB.mStride, srcBufB.mHeightSpan,
+              dstBuf.mFormat,  dstBuf.mWidth,  dstBuf.mHeight,  dstBuf.mStride,  dstBuf.mHeightSpan);
+    }
+
+    if (srcBufA.mVirtAddr == NULL)
+        GetBufferInfoFromHandle(srcBufA.buffer, srcBufA, false, true);
+    if (srcBufB.mVirtAddr == NULL)
+        GetBufferInfoFromHandle(srcBufB.buffer, srcBufB, false, true);
+    if (dstBuf.mVirtAddr == NULL)
+        GetBufferInfoFromHandle(dstBuf.buffer, dstBuf, false, true);
+
+    if ((srcBufA.mVirtAddr == NULL) || (srcBufB.mVirtAddr == NULL) || (dstBuf.mVirtAddr == NULL)) {
+        ALOGE("CpuDevice::%s: bad virtual addr srcA %p srcB %p dst %p",
+              __func__, srcBufA.mVirtAddr, srcBufB.mVirtAddr, dstBuf.mVirtAddr);
+        return BAD_VALUE;
+    }
+
+    MergeImageNV12(srcBufA.mVirtAddr, srcBufB.mVirtAddr, dstBuf.mVirtAddr,
+                   dstBuf.mWidth, dstBuf.mHeight);
+    return 0;
+}
+
+// Merge two NV12 frames side by side into dst.
+// Left half comes from srcA (every other column), right half from srcB.
+void CpuDevice::MergeImageNV12(void* srcA, void* srcB, void* dst,
+                                uint32_t width, uint32_t height) {
+    uint32_t ySize   = width * height;
+    uint32_t yStride = width;
+
+    uint8_t  *ySrcA = (uint8_t*)srcA;
+    uint8_t  *ySrcB = (uint8_t*)srcB;
+    uint8_t  *yDst  = (uint8_t*)dst;
+
+    uint32_t cStride = width;
+    uint32_t cHeight = height / 2;
+    uint16_t *cSrcA  = (uint16_t*)(ySrcA + ySize);
+    uint16_t *cSrcB  = (uint16_t*)(ySrcB + ySize);
+    uint16_t *cDst   = (uint16_t*)(yDst  + ySize);
+
+    // Merge Y plane: left half from srcA, right half from srcB.
+    uint32_t yOffset = 0;
+    for (uint32_t row = 0; row < height; row++) {
+        uint8_t *yRowSrcA = ySrcA + yOffset;
+        uint8_t *yRowSrcB = ySrcB + yOffset;
+        uint8_t *yRowDst  = yDst  + yOffset;
+
+        for (uint32_t col = 0; col < width / 2; col++)
+            yRowDst[col] = yRowSrcA[col * 2];
+
+        for (uint32_t col = width / 2; col < width; col++)
+            yRowDst[col] = yRowSrcB[(col - width / 2) * 2];
+
+        yOffset += yStride;
+    }
+
+    // Merge UV plane (interleaved, each uint16 is one UV pair).
+    uint32_t cOffset = 0;
+    for (uint32_t row = 0; row < cHeight; row++) {
+        uint16_t *cRowSrcA = cSrcA + cOffset;
+        uint16_t *cRowSrcB = cSrcB + cOffset;
+        uint16_t *cRowDst  = cDst  + cOffset;
+
+        for (uint32_t col = 0; col < width / 4; col++)
+            cRowDst[col] = cRowSrcA[col * 2];
+
+        for (uint32_t col = width / 4; col < width / 2; col++)
+            cRowDst[col] = cRowSrcB[(col - width / 4) * 2];
+
+        cOffset += cStride / 2; // unit is uint16
+    }
+}
+
 } // namespace fsl

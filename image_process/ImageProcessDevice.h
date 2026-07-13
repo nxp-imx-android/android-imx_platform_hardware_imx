@@ -70,6 +70,16 @@ public:
     // @return 0 on success, negative error code on failure.
     virtual int convert(ImxImageBuffer& dst, ImxImageBuffer& src) = 0;
 
+    // Perform a two-source image merge into dst.
+    // Default implementation returns -ENOTSUP.
+    // @return 0 on success, -ENOTSUP if not supported, negative error code on failure.
+    virtual int convertMultiSrc(ImxImageBuffer& dst, ImxImageBuffer& srcA, ImxImageBuffer& srcB) {
+        (void)dst;
+        (void)srcA;
+        (void)srcB;
+        return -ENOTSUP;
+    }
+
     // Create a gralloc buffer handle from an ImxImageBuffer.
     virtual buffer_handle_t createBufferHandle(ImxImageBuffer& imxBuf);
 
