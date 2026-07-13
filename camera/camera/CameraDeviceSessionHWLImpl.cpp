@@ -1255,9 +1255,32 @@ int32_t CameraDeviceSessionHwlImpl::processFrameBufferMultiSrc(std::vector<ImxSt
         return BAD_VALUE;
     }
 
-    ImxEngine engine = ENG_CPU;
+    // Use a CPU device to merge the two NV12 frames side by side.
+    auto device = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(fsl::ENG_CPU);
+    if (!device) {
+        ALOGE("%s: failed to create CPU device for MultiSrc merge", __func__);
+        return -ENODEV;
+    }
 
-    return 0;
+    ImxImageBuffer srcImgA, srcImgB, dstImg;
+    memset(&srcImgA, 0, sizeof(srcImgA));
+    memset(&srcImgB, 0, sizeof(srcImgB));
+    memset(&dstImg,  0, sizeof(dstImg));
+
+    StreamBufferToImageBuffer(*srcBufA, srcImgA);
+    StreamBufferToImageBuffer(*srcBufB, srcImgB);
+    StreamBufferToImageBuffer(*dstBuf,  dstImg);
+
+    srcImgA.mFormat = unifyNV12Format(srcImgA.mFormat);
+    srcImgB.mFormat = unifyNV12Format(srcImgB.mFormat);
+    dstImg.mFormat  = unifyNV12Format(dstImg.mFormat);
+
+    device->setDebug(mDebug);
+    int ret = device->convertMultiSrc(dstImg, srcImgA, srcImgB);
+    if (ret != 0)
+        ALOGE("%s: convertMultiSrc failed, ret=%d", __func__, ret);
+
+    return ret;
 }
 
 int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
