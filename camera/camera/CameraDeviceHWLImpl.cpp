@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2020 The Android Open Source Project
- * Copyright 2023 NXP.
+ * Copyright 2023, 2026 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -348,12 +348,12 @@ status_t CameraDeviceHwlImpl::initSensorStaticData() {
         // first crop little width or little height, then scale.
         // 176x144 not work in this mode.
         if (!(cam_frmsize.discrete.width == 176 && cam_frmsize.discrete.height == 144) &&
-            maxFrmfps >= 5) {
+            (maxFrmfps >= 5) && (pictureCnt < MAX_RESOLUTION_SIZE)) {
             mPictureResolutions[pictureCnt++] = cam_frmsize.discrete.width;
             mPictureResolutions[pictureCnt++] = cam_frmsize.discrete.height;
         }
 
-        if (maxFrmfps >= 15) {
+        if ((maxFrmfps >= 15) && (previewCnt < MAX_RESOLUTION_SIZE)) {
             mPreviewResolutions[previewCnt++] = cam_frmsize.discrete.width;
             mPreviewResolutions[previewCnt++] = cam_frmsize.discrete.height;
         }
@@ -363,12 +363,12 @@ status_t CameraDeviceHwlImpl::initSensorStaticData() {
     mPictureResolutionCount = pictureCnt;
 
     int i;
-    for (i = 0; i < MAX_RESOLUTION_SIZE && i < pictureCnt; i += 2) {
+    for (i = 0; i < pictureCnt; i += 2) {
         ALOGI("SupportedPictureSizes: %d x %d", mPictureResolutions[i], mPictureResolutions[i + 1]);
     }
 
     adjustPreviewResolutions();
-    for (i = 0; i < MAX_RESOLUTION_SIZE && i < previewCnt; i += 2) {
+    for (i = 0; i < previewCnt; i += 2) {
         ALOGI("SupportedPreviewSizes: %d x %d", mPreviewResolutions[i], mPreviewResolutions[i + 1]);
     }
 

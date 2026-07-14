@@ -239,12 +239,12 @@ status_t CameraDeviceHwlImpl::initSensorStaticData() {
         mPictureResolutionCount += 2;
     }
 
-    for (i = 0; i < MAX_RESOLUTION_SIZE && i < mPictureResolutionCount; i += 2) {
+    for (i = 0; i < mPictureResolutionCount; i += 2) {
         ALOGI("SupportedPictureSizes: %d x %d", mPictureResolutions[i], mPictureResolutions[i + 1]);
     }
 
     adjustPreviewResolutions();
-    for (i = 0; i < MAX_RESOLUTION_SIZE && i < mPreviewResolutionCount; i += 2) {
+    for (i = 0; i < mPreviewResolutionCount; i += 2) {
         ALOGI("SupportedPreviewSizes: %d x %d", mPreviewResolutions[i], mPreviewResolutions[i + 1]);
     }
 
