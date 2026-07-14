@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2023, 2025 NXP.
+ *  Copyright 2020-2023, 2025-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -116,6 +116,8 @@ private:
 protected:
     status_t setMaxPictureResolutions();
     status_t adjustPreviewResolutions();
+    void DoubleWidth();
+    void HalfWidth();
 
 private:
     uint32_t camera_id_ = 0;

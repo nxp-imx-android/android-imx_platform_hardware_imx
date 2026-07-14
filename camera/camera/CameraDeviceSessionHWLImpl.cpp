@@ -1726,7 +1726,10 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
         return ALREADY_EXISTS;
     }
 
-    bool bSupport =
+    // If logical device, the preview/picture resolutions are diffrent between logical and physical cameras.
+    // And mPreviewResolutions/mPictureResolutions are only for logical camera. So just skip StreamCombJudge().
+    // TODO: Create CameraDeviceHwlImpl object for each phyiscal camera in a logical camera.
+    bool bSupport = is_logical_device_ ? true :
             CameraDeviceHwlImpl::StreamCombJudge(request_config, mPreviewResolutions,
                                                  mPreviewResolutionCount, mPictureResolutions,
                                                  mPictureResolutionCount);
@@ -1783,6 +1786,7 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
 
     maxStreamWidth = 0;
     maxStreamHeight = 0;
+    uint32_t adjustWidth = 0;
 
     for (int i = 0; i < stream_num; i++) {
         Stream stream = request_config.streams[i];
@@ -1792,8 +1796,16 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
               stream.format, (unsigned long long)stream.usage, stream.data_space, (int)stream.rotation,
               stream.is_physical_camera_stream, stream.physical_camera_id, stream.buffer_size);
 
-        if ((stream.width > maxStreamWidth) && (stream.height > maxStreamHeight)) {
-            maxStreamWidth = stream.width;
+        adjustWidth = stream.width;
+
+        // maxStreamWidth/maxStreamHeight are used to configure v4l2.
+        // For logical stream on logical device, half adjustWidth to get the real sensor width.
+        if (is_logical_device_ && (stream.is_physical_camera_stream == false)) {
+            adjustWidth /= 2;
+        }
+
+        if ((adjustWidth > maxStreamWidth) && (stream.height > maxStreamHeight)) {
+            maxStreamWidth = adjustWidth;
             maxStreamHeight = stream.height;
         }
 

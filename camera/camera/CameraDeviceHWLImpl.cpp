@@ -139,6 +139,10 @@ status_t CameraDeviceHwlImpl::Initialize() {
         (m_meta->GetStaticMeta())
                 ->Set(ANDROID_LOGICAL_MULTI_CAMERA_SENSOR_SYNC_TYPE, &logical_sensor_sync_type, 1);
 
+        // Adjust width to physical camera value, so m_phy_meta->createMetadata() can pass correct para.
+        // TODO: Also create a CameraDeviceHwlImpl object for each physical camera.
+        HalfWidth();
+
         // Update 'android.logicalMultiCamera.physicalIds' according to the assigned physical ids.
         std::vector<uint8_t> physical_ids;
         camera_metadata_ro_entry_t entry;
@@ -161,6 +165,9 @@ status_t CameraDeviceHwlImpl::Initialize() {
                 m_phy_meta = nullptr;
             }
         }
+
+        // Recover width for loigcal camera value.
+        DoubleWidth();
 
         (m_meta->GetStaticMeta())
                 ->Set(ANDROID_LOGICAL_MULTI_CAMERA_PHYSICAL_IDS, physical_ids.data(),
@@ -362,15 +369,7 @@ status_t CameraDeviceHwlImpl::initSensorStaticData() {
     mPreviewResolutionCount = previewCnt;
     mPictureResolutionCount = pictureCnt;
 
-    int i;
-    for (i = 0; i < pictureCnt; i += 2) {
-        ALOGI("SupportedPictureSizes: %d x %d", mPictureResolutions[i], mPictureResolutions[i + 1]);
-    }
-
     adjustPreviewResolutions();
-    for (i = 0; i < previewCnt; i += 2) {
-        ALOGI("SupportedPreviewSizes: %d x %d", mPreviewResolutions[i], mPreviewResolutions[i + 1]);
-    }
 
     int fpsRange[] = {10, 30, 15, 30, 30, 30};
     int rangeCount = ARRAY_SIZE(fpsRange);
@@ -378,7 +377,6 @@ status_t CameraDeviceHwlImpl::initSensorStaticData() {
     memcpy(mTargetFpsRange, fpsRange, mFpsRangeCount * sizeof(int));
 
     setMaxPictureResolutions();
-    ALOGI("mMaxWidth:%d, mMaxHeight:%d", mMaxWidth, mMaxHeight);
 
     close(fd);
 
@@ -387,6 +385,21 @@ status_t CameraDeviceHwlImpl::initSensorStaticData() {
               mMaxHeight);
         mCallback.camera_device_status_change(camera_id_, CameraDeviceStatus::kNotPresent);
     }
+
+    // Double width if it's a logical camera
+    if (mSensorData.mIsLogical)
+        DoubleWidth();
+
+    int i = 0;
+    for (i = 0; i < pictureCnt; i += 2) {
+        ALOGI("SupportedPictureSizes: %d x %d", mPictureResolutions[i], mPictureResolutions[i + 1]);
+    }
+
+    for (i = 0; i < previewCnt; i += 2) {
+        ALOGI("SupportedPreviewSizes: %d x %d", mPreviewResolutions[i], mPreviewResolutions[i + 1]);
+    }
+
+    ALOGI("mMaxWidth:%d, mMaxHeight:%d", mMaxWidth, mMaxHeight);
 
     return NO_ERROR;
 }
@@ -616,6 +629,30 @@ status_t CameraDeviceHwlImpl::GetSessionCharacteristics(
 
 HwlMemoryConfig CameraDeviceHwlImpl::GetMemoryConfig() const {
     return HwlMemoryConfig();
+}
+
+void CameraDeviceHwlImpl::DoubleWidth() {
+    int i = 0;
+
+    for (i = 0; i < mPictureResolutionCount; i += 2)
+        mPictureResolutions[i] *= 2;
+
+    for (i = 0; i < mPreviewResolutionCount; i += 2)
+        mPreviewResolutions[i] *= 2;
+
+    mMaxWidth *= 2;
+}
+
+void CameraDeviceHwlImpl::HalfWidth() {
+    int i = 0;
+
+    for (i = 0; i < mPictureResolutionCount; i += 2)
+        mPictureResolutions[i] /= 2;
+
+    for (i = 0; i < mPreviewResolutionCount; i += 2)
+        mPreviewResolutions[i] /= 2;
+
+    mMaxWidth /= 2;
 }
 
 } // namespace android

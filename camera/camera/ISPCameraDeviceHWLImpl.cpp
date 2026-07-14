@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2020 The Android Open Source Project
- * Copyright 2023 NXP.
+ * Copyright 2023, 2026 NXP.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -134,15 +134,7 @@ status_t ISPCameraDeviceHwlImpl::initSensorStaticData() {
     mPreviewResolutionCount = previewCnt;
     mPictureResolutionCount = pictureCnt;
 
-    int i;
-    for (i = 0; i < MAX_RESOLUTION_SIZE && i < pictureCnt; i += 2) {
-        ALOGI("SupportedPictureSizes: %d x %d", mPictureResolutions[i], mPictureResolutions[i + 1]);
-    }
-
     adjustPreviewResolutions();
-    for (i = 0; i < MAX_RESOLUTION_SIZE && i < previewCnt; i += 2) {
-        ALOGI("SupportedPreviewSizes: %d x %d", mPreviewResolutions[i], mPreviewResolutions[i + 1]);
-    }
 
     char layout[PROPERTY_VALUE_MAX] = {0};
     property_get(PROP_CAMERA_LAYOUT, layout, "");
@@ -161,6 +153,20 @@ status_t ISPCameraDeviceHwlImpl::initSensorStaticData() {
     }
 
     setMaxPictureResolutions();
+
+    // Double width if it's a logical camera
+    if (mSensorData.mIsLogical)
+        DoubleWidth();
+
+    int i = 0;
+    for (i = 0; i < MAX_RESOLUTION_SIZE && i < pictureCnt; i += 2) {
+        ALOGI("SupportedPictureSizes: %d x %d", mPictureResolutions[i], mPictureResolutions[i + 1]);
+    }
+
+    for (i = 0; i < MAX_RESOLUTION_SIZE && i < previewCnt; i += 2) {
+        ALOGI("SupportedPreviewSizes: %d x %d", mPreviewResolutions[i], mPreviewResolutions[i + 1]);
+    }
+
     ALOGI("mMaxWidth:%d, mMaxHeight:%d", mMaxWidth, mMaxHeight);
 
     /* get caps */
