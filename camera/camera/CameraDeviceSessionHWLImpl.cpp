@@ -1154,6 +1154,31 @@ status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2MultiOutbuf(
     return ret;
 }
 
+std::shared_ptr<fsl::ImageProcessDevice> CameraDeviceSessionHwlImpl::ensureStreamDeviceEngine(
+        int32_t streamId, fsl::ImxEngine engine) {
+    auto it = mStreamDevices.find(streamId);
+    if (it == mStreamDevices.end() || !it->second) {
+        ALOGE("%s: no image process device for stream id %d", __func__, streamId);
+        return nullptr;
+    }
+
+    if (it->second->getEngine() == engine)
+        return it->second;
+
+    ALOGI("%s: stream id %d needs engine %d, current device '%s' has engine %d, recreating",
+          __func__, streamId, engine, it->second->getName(), it->second->getEngine());
+
+    auto dev = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(engine);
+    if (!dev) {
+        ALOGE("%s: failed to create device with engine %d for stream id %d", __func__, engine,
+              streamId);
+        return nullptr;
+    }
+
+    it->second = dev;
+    return dev;
+}
+
 int32_t CameraDeviceSessionHwlImpl::processFrameBuffer(ImxStreamBuffer *srcBuf,
                                                        ImxStreamBuffer *dstBuf,
                                                        CameraMetadata *meta) {
@@ -1169,45 +1194,22 @@ int32_t CameraDeviceSessionHwlImpl::processFrameBuffer(ImxStreamBuffer *srcBuf,
         return -EINVAL;
     }
 
-    // RAW16 source requires a CPU device for correct handling.
-    // Zoom ratio > 1.0 requires an OCL device for GPU-accelerated scaling.
+    // Select the image process engine based on the conversion required:
+    // All three cases below are handled by OCLCVT:
+    //   - RAW16 source (converted to a non-RAW16 output).
+    //   - Zoom ratio > 1.0: GPU-accelerated crop/scale (zoom in).
+    //   - Any resize (src/dst dimensions differ) also needs the OCL device.
     // If the current device does not match, recreate it with the correct engine.
-    float zoomRatio = (srcBuf->mStream) ? srcBuf->mStream->mZoomRatio : 1.0f;
-    if (srcBuf->mFormat == HAL_PIXEL_FORMAT_RAW16) {
-        if (it->second->getEngine() != fsl::ENG_CPU) {
-            ALOGI("%s: RAW16 src requires CPU but device is not CPU (was '%s'), recreating as CPU for stream id %d",
-                  __func__, it->second->getName(), streamId);
-            auto dev = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(fsl::ENG_CPU);
-            if (!dev) {
-                ALOGE("%s: failed to create CPU device for stream id %d", __func__, streamId);
-                return -ENODEV;
-            }
-            it->second = dev;
-            mStreamDevices[streamId] = it->second;
-        }
-    } else if (zoomRatio > 1.0f) {
-        if (it->second->getEngine() != fsl::ENG_OCLCVT) {
-            ALOGI("%s: zoom>1.0 requires OCL but device is not OCL (was '%s'), recreating as OCL for stream id %d",
-                  __func__, it->second->getName(), streamId);
-            auto dev = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(fsl::ENG_OCLCVT);
-            if (!dev) {
-                ALOGE("%s: failed to create OCL device for stream id %d", __func__, streamId);
-                return -ENODEV;
-            }
-            it->second = dev;
-            mStreamDevices[streamId] = it->second;
-        }
-    } else if ((zoomRatio <= 1.0f && (srcBuf->mWidth != dstBuf->mWidth || srcBuf->mHeight != dstBuf->mHeight))) {
-        if (it->second->getEngine() != fsl::ENG_OCLCVT) {
-            ALOGI("%s: zoom<=1.0 requires OCL but device is not OCL (was '%s'), recreating as OCL for stream id %d",
-                    __func__, it->second->getName(), streamId);
-            auto dev = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(fsl::ENG_OCLCVT);
-            if (!dev) {
-                ALOGE("%s: failed to create OCL device for stream id %d", __func__, streamId);
-                return -ENODEV;
-            }
-            it->second = dev;
-            mStreamDevices[streamId] = it->second;
+    bool isRaw16Convert = (srcBuf->mFormat == HAL_PIXEL_FORMAT_RAW16 &&
+                           dstBuf->mFormat != HAL_PIXEL_FORMAT_RAW16);
+    bool isZoomIn = (srcBuf->mStream) ? srcBuf->mStream->mZoomRatio > 1.0f : false;
+    bool needResize = (srcBuf->mWidth != dstBuf->mWidth || srcBuf->mHeight != dstBuf->mHeight);
+
+    if (isRaw16Convert || isZoomIn || needResize) {
+        auto dev = ensureStreamDeviceEngine(streamId, fsl::ENG_OCLCVT);
+        if (!dev) {
+            ALOGE("%s: failed to get OCLCVT device for stream id %d", __func__, streamId);
+            return -ENODEV;
         }
     }
 
@@ -1339,34 +1341,11 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
 
     int captureSize = 0;
     int alignedw, alignedh, c_stride;
-    uint8_t *srcData = NULL;
-    uint8_t *rgb = NULL;
     int32_t encodFormat = srcStream->format();
     uint8_t *srcVirtual = (uint8_t *)srcBuf->mVirtAddr;
 
     switch (srcStream->format()) {
         case HAL_PIXEL_FORMAT_RAW16:
-            srcData = (uint8_t *)malloc(srcBuf->mWidth * srcBuf->mHeight * 2);
-            if (srcData == NULL) {
-                ALOGE("%s: srcData is null, memory allocation failed!", __func__);
-                return BAD_VALUE;
-            }
-            memset(srcData, 0, srcBuf->mWidth * srcBuf->mHeight * 2);
-            rgb = (uint8_t *)malloc(srcBuf->mWidth * srcBuf->mHeight * 3);
-            if (rgb == NULL) {
-                ALOGE("%s: rgb is null, memory allocation failed!", __func__);
-                free(srcData);
-                return BAD_VALUE;
-            }
-            memset(rgb, 0, srcBuf->mWidth * srcBuf->mHeight * 3);
-
-            // bggr -> rgb888 -> yuv422i
-            SbggrToRgb888((uint16_t *)srcData, rgb, srcBuf->mWidth, srcBuf->mHeight);
-            Rgb888ToYuv422i(rgb, (uint8_t *)srcData, srcBuf->mWidth, srcBuf->mHeight);
-            free(rgb);
-
-            srcVirtual = srcData;
-            encodFormat = HAL_PIXEL_FORMAT_YCbCr_422_I;
             alignedw = ALIGN_PIXEL_16(capture->mWidth);
             alignedh = ALIGN_PIXEL_16(capture->mHeight);
             captureSize = alignedw * alignedh * 2;
@@ -1408,9 +1387,6 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
     rawBuf = rawFrame->getBase();
     if (rawBuf == MAP_FAILED) {
         ALOGE("%s new MemoryHeapBase failed", __func__);
-        if (srcData != NULL) {
-            free(srcData);
-        }
         return BAD_VALUE;
     }
 
@@ -1418,90 +1394,91 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
     thumbBuf = thumbFrame->getBase();
     if (thumbBuf == MAP_FAILED) {
         ALOGE("%s new MemoryHeapBase failed", __func__);
-        if (srcData != NULL) {
-            free(srcData);
-        }
         return BAD_VALUE;
     }
 
-    // Handle zoom in
-    if (srcStream->mZoomRatio > 1.0) {
-        resizeBuf.mFormatSize = srcBuf->mFormatSize;
-        ret = AllocPhyBuffer(srcBuf->mWidth, srcBuf->mHeight, srcBuf->mFormat, resizeBuf, true, false, true);
-        if (ret) {
-            ALOGE("%s:%d AllocPhyBuffer failed", __func__, __LINE__);
-            if (srcData != NULL) {
-                free(srcData);
-            }
-            return BAD_VALUE;
-        }
+    // Select the image process engine based on the conversion required
+    // All three cases below are handled by OCLCVT:
+    //   - RAW16 source: direct bggr -> yuv422i conversion.
+    //   - Zoom ratio > 1.0: GPU-accelerated crop/scale (zoom in).
+    //   - Any resize (src/dst dimensions differ): scaled later during JPEG encoding.
+    // If the current device does not match, recreate it with the correct engine
+    bool isRaw16Convert = (srcStream->format() == HAL_PIXEL_FORMAT_RAW16);
+    bool isZoomIn = (srcStream->mZoomRatio > 1.0f);
+    bool needResize = (srcBuf->mWidth != dstBuf->mWidth || srcBuf->mHeight != dstBuf->mHeight);
 
-        resizeBuf.mStream = srcBuf->mStream;
-        int32_t streamId = dstBuf->mStream->id();
-        auto devIt = mStreamDevices.find(streamId);
-        if (devIt == mStreamDevices.end() || !devIt->second) {
-            ALOGE("%s: no image process device for stream id %d", __func__, streamId);
-            if (srcData != NULL) {
-                free(srcData);
-            }
-            FreePhyBuffer(resizeBuf.buffer);
-            return BAD_VALUE;
-        }
-
-        // RAW16 source requires a CPU device for correct handling.
-        // Otherwise zoom > 1.0 requires an OCL device for GPU-accelerated scaling.
-        if (srcBuf->mFormat == HAL_PIXEL_FORMAT_RAW16) {
-            if (devIt->second->getEngine() != fsl::ENG_CPU) {
-                ALOGI("%s: RAW16 src requires CPU but device is not CPU (was '%s'), recreating as CPU for stream id %d",
-                      __func__, devIt->second->getName(), streamId);
-                auto dev = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(fsl::ENG_CPU);
-                if (!dev) {
-                    ALOGE("%s: failed to create CPU device for stream id %d", __func__, streamId);
-                    if (srcData != NULL) free(srcData);
-                    FreePhyBuffer(resizeBuf.buffer);
-                    return BAD_VALUE;
-                }
-                devIt->second = dev;
-                mStreamDevices[streamId] = devIt->second;
-            }
-        } else if (devIt->second->getEngine() != fsl::ENG_OCLCVT) {
-            ALOGI("%s: zoom>1.0 requires OCL but device is not OCL (was '%s'), recreating as OCL for stream id %d",
-                    __func__, devIt->second->getName(), streamId);
-            auto dev = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(fsl::ENG_OCLCVT);
-            if (!dev) {
-                ALOGE("%s: failed to create OCL device for stream id %d", __func__, streamId);
-                if (srcData != NULL) free(srcData);
-                FreePhyBuffer(resizeBuf.buffer);
-                return BAD_VALUE;
-            }
-            devIt->second = dev;
-            mStreamDevices[streamId] = devIt->second;
-        }
-
-        convertImage(devIt->second, resizeBuf, *srcBuf);
-
-        SwitchImxBuf(*srcBuf, resizeBuf);
-        srcVirtual = (uint8_t *)srcBuf->mVirtAddr;
-    } else if (srcStream && srcStream->mZoomRatio <= 1.0f &&
-               (srcBuf->mWidth != dstBuf->mWidth || srcBuf->mHeight != dstBuf->mHeight)) {
+    if (isRaw16Convert || isZoomIn || needResize) {
         if (!dstBuf->mStream) {
             ALOGE("%s: dstBuf->mStream is null", __func__);
             return BAD_VALUE;
         }
         int32_t streamId = dstBuf->mStream->id();
-        auto devIt = mStreamDevices.find(streamId);
-        if (devIt != mStreamDevices.end() && devIt->second &&
-            devIt->second->getEngine() != fsl::ENG_OCLCVT) {
-            ALOGI("%s: zoom<=1.0 requires OCL but device is not OCL (was '%s'), recreating as OCL for stream id %d",
-                    __func__, devIt->second->getName(), streamId);
-            auto dev = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(fsl::ENG_OCLCVT);
-            if (!dev) {
-                ALOGE("%s: failed to create OCL device for stream id %d", __func__, streamId);
+        auto dev = ensureStreamDeviceEngine(streamId, fsl::ENG_OCLCVT);
+        if (!dev) {
+            ALOGE("%s: failed to get OCLCVT device for stream id %d", __func__, streamId);
+            return -ENODEV;
+        }
+
+        // The resolution keeps same for case RAW16->YUYV and case zoom in.
+        // Use "resizeBuf" due to code unification.
+        if (isRaw16Convert) {
+            // Allocate a YUV422I buffer at the sensor resolution as the OCLCVT output.
+            resizeBuf.mFormatSize = getSizeByForamtRes(HAL_PIXEL_FORMAT_YCbCr_422_I, srcBuf->mWidth,
+                                                       srcBuf->mHeight, false);
+            if (resizeBuf.mFormatSize == 0)
+                resizeBuf.mFormatSize = srcBuf->mFormatSize;
+            ret = AllocPhyBuffer(srcBuf->mWidth, srcBuf->mHeight, HAL_PIXEL_FORMAT_YCbCr_422_I,
+                                 resizeBuf, true, false, true);
+            if (ret) {
+                ALOGE("%s:%d AllocPhyBuffer for RAW16->YUV422I failed", __func__, __LINE__);
                 return BAD_VALUE;
             }
-            devIt->second = dev;
-            mStreamDevices[streamId] = devIt->second;
+
+            // Build the image buffers explicitly: resizeBuf has no ImxStream, so we
+            // cannot rely on convertImage() to derive the dst format from a stream.
+            ImxImageBuffer srcImg, dstImg;
+            memset(&srcImg, 0, sizeof(srcImg));
+            memset(&dstImg, 0, sizeof(dstImg));
+            StreamBufferToImageBuffer(*srcBuf, srcImg);
+
+            dstImg = resizeBuf;
+            dstImg.mFormat = HAL_PIXEL_FORMAT_YCbCr_422_I;
+            dstImg.mWidth = srcBuf->mWidth;
+            dstImg.mHeight = srcBuf->mHeight;
+            dstImg.mStride = srcBuf->mWidth;
+            dstImg.mHeightSpan = srcBuf->mHeight;
+
+            dev->setDebug(mDebug);
+            ret = dev->convert(dstImg, srcImg);
+            if (ret != 0) {
+                ALOGE("%s: OCLCVT RAW16->YUV422I convert failed, ret=%d", __func__, ret);
+                FreePhyBuffer(resizeBuf.buffer);
+                memset(&resizeBuf, 0, sizeof(resizeBuf));
+                return BAD_VALUE;
+            }
+
+            // Swap the converted YUV422I buffer in as the encoder source and update
+            // the encode format accordingly.
+            SwitchImxBuf(*srcBuf, resizeBuf);
+            srcVirtual = (uint8_t*)srcBuf->mVirtAddr;
+            encodFormat = HAL_PIXEL_FORMAT_YCbCr_422_I;
+        } else if (isZoomIn) {
+            resizeBuf.mFormatSize = srcBuf->mFormatSize;
+            ret = AllocPhyBuffer(srcBuf->mWidth, srcBuf->mHeight, srcBuf->mFormat, resizeBuf, true,
+                                 false, true);
+            if (ret) {
+                ALOGE("%s:%d AllocPhyBuffer failed", __func__, __LINE__);
+                return BAD_VALUE;
+            }
+
+            resizeBuf.mStream = srcBuf->mStream;
+            convertImage(dev, resizeBuf, *srcBuf);
+
+            SwitchImxBuf(*srcBuf, resizeBuf);
+            srcVirtual = (uint8_t*)srcBuf->mVirtAddr;
         }
+        // else: plain resize (zoom <= 1.0) is applied later during JPEG encoding
+        // via jpegResizeDevice; only the engine needs to be OCLCVT here.
     }
 
     mainJpeg = new JpegParams(srcVirtual, (uint8_t *)(uintptr_t)srcBuf->mPhyAddr, srcBuf->mSize,
@@ -1561,10 +1538,6 @@ err_out:
     if (resizeBuf.mPhyAddr > 0) {
         SwitchImxBuf(*srcBuf, resizeBuf);
         FreePhyBuffer(resizeBuf.buffer);
-    }
-
-    if (srcData != NULL) {
-        free(srcData);
     }
 
     return ret;
@@ -1907,10 +1880,6 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
 
             if (dstFmt == HAL_PIXEL_FORMAT_BLOB) {
                 dstFmt = srcFmt;
-            }
-
-            if (srcFmt == HAL_PIXEL_FORMAT_RAW16) {
-                dstFmt = HAL_PIXEL_FORMAT_YCBCR_420_888;
             }
 
             auto device = factory.createDevice(srcFmt, dstFmt, srcW, srcH, dstW, dstH,

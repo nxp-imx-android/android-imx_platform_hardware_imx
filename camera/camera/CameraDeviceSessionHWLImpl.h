@@ -216,6 +216,12 @@ private:
     int32_t convertImage(std::shared_ptr<fsl::ImageProcessDevice> &device, ImxStreamBuffer &dstBuf,
                          ImxStreamBuffer &srcBuf);
 
+    // Ensure the image process device bound to |streamId| uses |engine|.
+    // If the current device uses a different engine, it is recreated.
+    // Returns the (possibly recreated) device, or nullptr on failure.
+    std::shared_ptr<fsl::ImageProcessDevice> ensureStreamDeviceEngine(int32_t streamId,
+                                                                      fsl::ImxEngine engine);
+
     int32_t processFrameBufferMultiSrc(std::vector<ImxStreamBuffer *> &v4l2BufferList, ImxStreamBuffer *dstBuf,
                                CameraMetadata *meta);
 
