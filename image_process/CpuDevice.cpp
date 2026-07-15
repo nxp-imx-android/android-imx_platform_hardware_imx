@@ -339,7 +339,7 @@ int CpuDevice::convertMultiSrc(ImxImageBuffer& dstBuf, ImxImageBuffer& srcBufA,
     }
 
     if (!((srcBufA.mWidth == srcBufB.mWidth) && (srcBufA.mHeight == srcBufB.mHeight) &&
-          (srcBufA.mWidth == dstBuf.mWidth)  && (srcBufA.mHeight == dstBuf.mHeight))) {
+          (srcBufA.mWidth * 2 == dstBuf.mWidth)  && (srcBufA.mHeight == dstBuf.mHeight))) {
         ALOGE("CpuDevice::%s: only support same resolution, srcA %ux%u srcB %ux%u dst %ux%u",
               __func__, srcBufA.mWidth, srcBufA.mHeight,
               srcBufB.mWidth, srcBufB.mHeight, dstBuf.mWidth, dstBuf.mHeight);
@@ -371,12 +371,11 @@ int CpuDevice::convertMultiSrc(ImxImageBuffer& dstBuf, ImxImageBuffer& srcBufA,
     }
 
     MergeImageNV12(srcBufA.mVirtAddr, srcBufB.mVirtAddr, dstBuf.mVirtAddr,
-                   dstBuf.mWidth, dstBuf.mHeight);
+                   srcBufA.mWidth, srcBufA.mHeight);
     return 0;
 }
 
-// Merge two NV12 frames side by side into dst.
-// Left half comes from srcA (every other column), right half from srcB.
+// Merge two NV12 frames horizonally
 void CpuDevice::MergeImageNV12(void* srcA, void* srcB, void* dst,
                                 uint32_t width, uint32_t height) {
     uint32_t ySize   = width * height;
@@ -390,20 +389,20 @@ void CpuDevice::MergeImageNV12(void* srcA, void* srcB, void* dst,
     uint32_t cHeight = height / 2;
     uint16_t *cSrcA  = (uint16_t*)(ySrcA + ySize);
     uint16_t *cSrcB  = (uint16_t*)(ySrcB + ySize);
-    uint16_t *cDst   = (uint16_t*)(yDst  + ySize);
+    uint16_t *cDst   = (uint16_t*)(yDst  + ySize * 2);
 
     // Merge Y plane: left half from srcA, right half from srcB.
     uint32_t yOffset = 0;
     for (uint32_t row = 0; row < height; row++) {
         uint8_t *yRowSrcA = ySrcA + yOffset;
         uint8_t *yRowSrcB = ySrcB + yOffset;
-        uint8_t *yRowDst  = yDst  + yOffset;
+        uint8_t *yRowDst  = yDst  + yOffset * 2;
 
-        for (uint32_t col = 0; col < width / 2; col++)
-            yRowDst[col] = yRowSrcA[col * 2];
+        for (uint32_t col = 0; col < width; col++)
+            yRowDst[col] = yRowSrcA[col];
 
-        for (uint32_t col = width / 2; col < width; col++)
-            yRowDst[col] = yRowSrcB[(col - width / 2) * 2];
+        for (uint32_t col = width; col < width * 2; col++)
+            yRowDst[col] = yRowSrcB[col - width];
 
         yOffset += yStride;
     }
@@ -413,13 +412,13 @@ void CpuDevice::MergeImageNV12(void* srcA, void* srcB, void* dst,
     for (uint32_t row = 0; row < cHeight; row++) {
         uint16_t *cRowSrcA = cSrcA + cOffset;
         uint16_t *cRowSrcB = cSrcB + cOffset;
-        uint16_t *cRowDst  = cDst  + cOffset;
+        uint16_t *cRowDst  = cDst  + cOffset * 2;
 
-        for (uint32_t col = 0; col < width / 4; col++)
-            cRowDst[col] = cRowSrcA[col * 2];
+        for (uint32_t col = 0; col < width/2; col++)
+            cRowDst[col] = cRowSrcA[col];
 
-        for (uint32_t col = width / 4; col < width / 2; col++)
-            cRowDst[col] = cRowSrcB[(col - width / 4) * 2];
+        for (uint32_t col = width / 2; col < width; col++)
+            cRowDst[col] = cRowSrcB[col - width/2];
 
         cOffset += cStride / 2; // unit is uint16
     }
