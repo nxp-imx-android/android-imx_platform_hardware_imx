@@ -359,7 +359,7 @@ int32_t GrallocMapperV5::getStandardMetadata(gralloc_handle_t memHandle, F&& pro
         return provide(mDriver->get_width(memHandle));
     }
     if constexpr (metadataType == StandardMetadataType::STRIDE) {
-        return provide(mDriver->get_pixel_stride(memHandle));
+        return provide(mDriver->get_stride(memHandle));
     }
     if constexpr (metadataType == StandardMetadataType::HEIGHT) {
         return provide(mDriver->get_height(memHandle));

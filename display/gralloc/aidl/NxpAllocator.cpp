@@ -158,7 +158,7 @@ ndk::ScopedAStatus NxpAllocator::allocate(const BufferDescriptorInfoV4& descript
 
     auto format = static_cast<PixelFormat>(memHandle->format);
     if (format == PixelFormat::RAW10 || format == PixelFormat::RAW12 ||
-        format == PixelFormat::RAW14 || format == PixelFormat::RAW16)
+        format == PixelFormat::RAW14)
         *outStride = static_cast<int32_t>(memHandle->strides[0]);
     else
         *outStride = static_cast<int32_t>(memHandle->pixel_stride);

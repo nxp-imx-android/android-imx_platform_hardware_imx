@@ -8,6 +8,7 @@
 #ifndef __GRALLOC_DRIVER_H
 #define __GRALLOC_DRIVER_H
 
+#include <aidl/android/hardware/graphics/common/PixelFormat.h>
 #include <hardware/gralloc.h>
 
 #include <functional>
@@ -16,6 +17,8 @@
 #include <unordered_set>
 
 #include "gralloc_helpers.h"
+
+using aidl::android::hardware::graphics::common::PixelFormat;
 
 class gralloc_driver {
 public:
@@ -64,6 +67,14 @@ public:
     }
     uint32_t get_plane_size(gralloc_handle_t hnd, uint32_t plane) const {
         return hnd->sizes[plane];
+    }
+    uint32_t get_stride(gralloc_handle_t hnd) const {
+        auto format = static_cast<PixelFormat>(hnd->format);
+        if (format == PixelFormat::RAW10 || format == PixelFormat::RAW12 ||
+            format == PixelFormat::RAW14)
+            return hnd->strides[0];
+        else
+            return hnd->pixel_stride;
     }
 
 private:
