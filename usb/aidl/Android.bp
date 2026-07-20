@@ -25,13 +25,17 @@ cc_binary {
         "Usb.cpp",
     ],
     shared_libs: [
-        "android.hardware.usb-V2-ndk",
+        "android.hardware.usb-V4-ndk",
         "libbase",
         "libbinder_ndk",
         "libcutils",
         "liblog",
         "libutils",
         "libpower",
+    ],
+    static_libs: [
+        "libusbutils",
+        "android.hardware.usb.flags-aconfig-cc-lib",
     ],
 }
 
