@@ -134,9 +134,15 @@ float OclCvtDevice::sniff(uint32_t srcFormat, uint32_t dstFormat, uint32_t srcWi
         }
     }
 
-    // OclCvt doesn't support RAW16 input; let CPU handle it
-    if (srcFormat == HAL_PIXEL_FORMAT_RAW16)
-        return CONFIDENCE_NONE;
+    // OclCvt only supports RAW16 (SBGGR10) input when converting to YUV422I or
+    // NV12; any other RAW16 output (including RAW16 --> RAW16 copy) is not
+    // supported and must be handled by the CPU.
+    if (srcFormat == HAL_PIXEL_FORMAT_RAW16) {
+        if (dstFormat != HAL_PIXEL_FORMAT_YCbCr_422_I &&
+            dstFormat != HAL_PIXEL_FORMAT_YCbCr_420_888 &&
+            dstFormat != HAL_PIXEL_FORMAT_YCbCr_420_SP)
+            return CONFIDENCE_NONE;
+    }
 
     // General confidence for supported conversions
     return CONFIDENCE_OCLCVT;
@@ -158,6 +164,9 @@ int OclCvtDevice::HalPixelFormatToOclPixelFormat(uint32_t& halPixelFormat,
             break;
         case HAL_PIXEL_FORMAT_RGB_888:
             oclPixelFormat = OCL_FORMAT_RGB888;
+            break;
+        case HAL_PIXEL_FORMAT_RAW16:
+            oclPixelFormat = OCL_FORMAT_SBGGR10;
             break;
         default:
             ALOGW("%s: unsupported halPixelFormat %d", __func__, halPixelFormat);
