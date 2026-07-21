@@ -90,6 +90,14 @@ typedef struct tag_request {
     std::vector<uint32_t> camera_ids;
 } FrameRequest;
 
+// ATF limited to 5, count 1 discard buffer in driver, so 4 in user space.
+#define MAX_ISI_RDC_BLOCK_US    4U
+typedef struct tag_rdc_block_list {
+    uint32_t num;
+    uint32_t size[MAX_ISI_RDC_BLOCK_US];
+    uint64_t phyAddr[MAX_ISI_RDC_BLOCK_US];
+} __packed s_rdc_block_list;
+
 // Implementation of CameraDeviceSessionHwl interface
 class CameraDeviceSessionHwlImpl : public CameraDeviceSessionHwl {
 public:
@@ -242,6 +250,7 @@ private:
     void ISPProcess(HalCameraMetadata *cameraMeta, libcamera::Request *request);
     status_t PrepareLibcamera();
     status_t AllocLibcameraBuffer();
+    int isi_rdc_commit(s_rdc_block_list &rdc_block_list);
 
 public:
     CameraSensorMetadata *getSensorData() { return &mSensorData; }
@@ -370,6 +379,8 @@ private:
 
     static std::map<CameraDeviceSessionHwlImpl *, sp<ImgProcThread>> sessionThreadMap;
     static Mutex sessionThreadMapLock;
+
+    char videoPath[32];
 
 public:
     int32_t m_raw_v4l2_format = -1;

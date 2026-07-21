@@ -464,7 +464,7 @@ void CameraDeviceHwlImpl::WarmUp() {
         return;
 
     mCamWrap->camera_->acquire();
-    int ret = mCamWrap->ConfigAndStart(mSensorData.mLibcameraBuffers, mMaxWidth, mMaxHeight);
+    int ret = mCamWrap->Config(mSensorData.mLibcameraBuffers, mMaxWidth, mMaxHeight);
     if (ret) {
         ALOGW("%s: ConfigAndStart failed, ret %d", __func__, ret);
     }

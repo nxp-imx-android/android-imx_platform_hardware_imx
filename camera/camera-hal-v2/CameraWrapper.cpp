@@ -90,9 +90,9 @@ void CameraWrapper::GetConfigSize(uint32_t refWidth, uint32_t refHeight,
     return;
 }
 
-int CameraWrapper::ConfigAndStart(uint32_t bufferNum, uint32_t width, uint32_t height) {
-    if (state_ == Running) {
-        ALOGI("%s: already runnig", __func__);
+int CameraWrapper::Config(uint32_t bufferNum, uint32_t width, uint32_t height) {
+    if (state_ != CameraState::Stopped) {
+        ALOGW("%s: state %d is not stopped", __func__, state_);
         return 0;
     }
 
@@ -180,24 +180,36 @@ int CameraWrapper::ConfigAndStart(uint32_t bufferNum, uint32_t width, uint32_t h
         return -EINVAL;
     }
 
+    mStreamWidth = configWidth;
+    mStreamHeight = configHeight;
+
+    state_ = CameraState::Configured;
+    return 0;
+}
+
+int CameraWrapper::Start() {
+    if (state_ != CameraState::Configured) {
+        ALOGE("%s: state %d is not configured", __func__, state_);
+        return -EINVAL;
+    }
+
     ALOGI("%s: call camera_->start", __func__);
-    ret = camera_->start();
+    int ret = camera_->start();
     if (ret) {
         ALOGE("%s: Failed to start camera", __func__);
         return -EINVAL;
     }
     ALOGI("%s: camera_->start ok", __func__);
 
-    mStreamWidth = configWidth;
-    mStreamHeight = configHeight;
     state_ = CameraState::Running;
-
     return 0;
 }
 
 void CameraWrapper::Stop() {
-    if (state_ == CameraState::Stopped)
+    if (state_ != CameraState::Running) {
+        ALOGW("%s: state %d is not running", __func__, state_);
         return;
+    }
 
     ALOGI("%s: call camera_->stop", __func__);
     int ret = camera_->stop();

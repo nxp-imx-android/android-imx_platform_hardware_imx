@@ -213,6 +213,7 @@ CameraDeviceSessionHwlImpl::CameraDeviceSessionHwlImpl(PhysicalMetaMapPtr physic
     mPreCapAndFeedTime = 0;
     mPreSubmitRequestTime = 0;
     mCamWrap = nullptr;
+    memset(videoPath, 0, sizeof(videoPath));
 
     physical_meta_map_ = std::move(physical_devices);
 }
@@ -930,23 +931,100 @@ err_out:
     return ret;
 }
 
+static int GetVideoDeviceIndexByName(const char* name)
+{
+    char path[128];
+    char buf[256];
+    int index;
+    FILE* fp;
+
+    for (index = 0; index < 16; index++) {
+        snprintf(path, sizeof(path), "/sys/class/video4linux/video%d/name", index);
+        fp = fopen(path, "r");
+        if (!fp)
+            continue;
+
+        if (fgets(buf, sizeof(buf), fp) != NULL) {
+            if (strncmp(buf, name, strlen(name)) == 0) {
+                fclose(fp);
+                return index;
+            }
+        }
+        fclose(fp);
+    }
+
+    return -1;
+}
+
+#define ISI_VIDEO_DEVICE_NAME "mxc_isi.0.capture"
+#define V4L2_CID_ISI_RDC    (V4L2_CID_USER_BASE + 0x1001)
+int CameraDeviceSessionHwlImpl::isi_rdc_commit(s_rdc_block_list &rdc_block_list) {
+    int isi_video_index = -1;
+
+    if (videoPath[0] != 0)
+        goto rdc_commit;
+
+    isi_video_index = GetVideoDeviceIndexByName(ISI_VIDEO_DEVICE_NAME);
+    if (isi_video_index == -1) {
+        ALOGE("%s: no video device %s", __func__, ISI_VIDEO_DEVICE_NAME);
+        return -1;
+    }
+
+    snprintf(videoPath, sizeof(videoPath), "/dev/video%d", isi_video_index);
+
+rdc_commit:
+    int32_t fd = open(videoPath, O_RDWR);
+    if (fd < 0) {
+        ALOGE("%s: open %s failed", __func__, videoPath);
+        return -1;
+    }
+
+    ALOGI("%s: open %s ok, fd %d", __func__, videoPath, fd);
+
+    struct v4l2_ext_control ext_ctrl = {};
+    ext_ctrl.id   = V4L2_CID_ISI_RDC;
+    ext_ctrl.size = sizeof(s_rdc_block_list);
+    ext_ctrl.ptr  = &rdc_block_list;
+
+    struct v4l2_ext_controls ext_ctrls = {};
+    ext_ctrls.ctrl_class = V4L2_CTRL_CLASS_USER;
+    ext_ctrls.count      = 1;
+    ext_ctrls.controls   = &ext_ctrl;
+
+    int ret = ioctl(fd, VIDIOC_S_EXT_CTRLS, &ext_ctrls);
+    if (ret == -1) {
+        ALOGE("%s: VIDIOC_S_EXT_CTRLS for V4L2_CID_ISI_RDC failed, ret %d, %s",
+              __func__, ret, strerror(errno));
+        close(fd);
+        return ret;
+    }
+
+    close(fd);
+    ALOGI("%s: VIDIOC_S_CTRL ok", __func__);
+
+    return 0;
+}
+
 status_t CameraDeviceSessionHwlImpl::AllocLibcameraBuffer() {
     int ret = 0;
     uint32_t bufferNum = mSensorData.mLibcameraBuffers;
+    uint32_t i = 0;
+    s_rdc_block_list rdc_block_list = {};
 
-    for (uint32_t i = 0; i < bufferNum; i++) {
+    for (i = 0; i < bufferNum; i++) {
         uint32_t bufferStride;
         ImxImageBuffer srcBuf;
         memset(&srcBuf, 0, sizeof(srcBuf));
 
         uint32_t allocWidth = mCamWrap->mStreamWidth ;
-        if (strstr(mSocType, "imx8mn") || strstr(mSocType, "imx8qm") ||
+        if (strstr(mSocType, "imx8qm") ||
             strstr(mSocType, "imx8qxp") || strstr(mSocType, "imx8mp")) {
             allocWidth = mCamWrap->mStreamWidth * 2;
             ALOGI("%s: double mCamWrap->mStreamWidth from %u to %u", __func__, mCamWrap->mStreamWidth, allocWidth);
         }
 
-        ret = AllocPhyBuffer(allocWidth, mCamWrap->mStreamHeight, mCamWrap->mHalFormat, srcBuf, true);
+        bool bGetPhyAddr = strstr(mSocType, "imx8mn") ? true : false;
+        ret = AllocPhyBuffer(allocWidth, mCamWrap->mStreamHeight, mCamWrap->mHalFormat, srcBuf, true, bGetPhyAddr, false);
         if (ret) {
             ALOGE("%s: failed to allocate buffer:%d x %d, format=%x, ret=%d", __func__, allocWidth,
                   mCamWrap->mStreamHeight, mCamWrap->mHalFormat, ret);
@@ -976,6 +1054,39 @@ status_t CameraDeviceSessionHwlImpl::AllocLibcameraBuffer() {
               pfb, srcBuf.buffer, mFrameBuffersFree.size(), this);
     }
 
+    if (mFrameBufferHandleMap.size() != bufferNum) {
+        ALOGE("%s: unexpected! mFrameBufferHandleMap size (%zu) != bufferNum (%u)", __func__, mFrameBufferHandleMap.size(), bufferNum);
+        ret = BAD_VALUE;
+        goto err_out;
+    }
+
+
+    if (strstr(mSocType, "imx8mn") == NULL)
+        return 0;
+
+    // On 8mn, pass v4l2 buffers to ISI driver
+    if (bufferNum > MAX_ISI_RDC_BLOCK_US) {
+        ALOGE("!!! %s: bufferNum(%u) > MAX_ISI_RDC_BLOCK_US(%u), the extra buffers will not be protected",
+            __func__, bufferNum, MAX_ISI_RDC_BLOCK_US);
+        ret = BAD_VALUE;
+        goto err_out;
+    }
+
+    i = 0;
+    for (auto &it : mFrameBufferHandleMap) {
+        rdc_block_list.phyAddr[i] = it.second.mPhyAddr;
+        rdc_block_list.size[i] = it.second.mFormatSize;
+        ALOGI("%s: set rdc_block_list, index %u, phyAddr 0x%lx, size %u", __func__, i, rdc_block_list.phyAddr[i], rdc_block_list.size[i]);
+        i++;
+    }
+    rdc_block_list.num = bufferNum;
+
+    ret = isi_rdc_commit(rdc_block_list);
+    if (ret) {
+        ALOGE("%s: isi_rdc_commit failed, ret %d", __func__, ret);
+        goto err_out;
+    }
+
     return 0;
 
 err_out:
@@ -986,10 +1097,10 @@ err_out:
 status_t CameraDeviceSessionHwlImpl::PrepareLibcamera() {
     int ret = 0;
 
-    ret = mCamWrap->ConfigAndStart(mSensorData.mLibcameraBuffers,
+    ret = mCamWrap->Config(mSensorData.mLibcameraBuffers,
                                 maxStreamWidth, maxStreamHeight);
     if (ret) {
-        ALOGE("%s: ConfigAndStart failed, ret %d, buffers %d, format 0x%x, width %d, height %d",
+        ALOGE("%s: mCamWrap->Config() failed, ret %d, buffers %d, format 0x%x, width %d, height %d",
               __func__, ret, mSensorData.mLibcameraBuffers, mCamWrap->mHalFormat,
               maxStreamWidth, maxStreamHeight);
         return ret;
@@ -998,6 +1109,13 @@ status_t CameraDeviceSessionHwlImpl::PrepareLibcamera() {
     ret = AllocLibcameraBuffer();
     if (ret) {
         ALOGE("%s: AllocLibcameraBuffer failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    ret = mCamWrap->Start();
+    if (ret) {
+        ALOGE("%s: mCamWrap->Start() failed, ret %d", __func__, ret);
+        CleanFrameBuffersLocked();
         return ret;
     }
 

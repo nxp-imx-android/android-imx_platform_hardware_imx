@@ -37,6 +37,7 @@ public:
 
     enum CameraState {
         Stopped,
+        Configured,
         Running,
     };
     CameraState state_ = Stopped;
@@ -53,7 +54,8 @@ public:
     uint64_t mExposureDefUs = 0;
 
 public:
-    int ConfigAndStart(uint32_t bufferNum, uint32_t width, uint32_t height);
+    int Config(uint32_t bufferNum, uint32_t width, uint32_t height);
+    int Start();
     void Stop();
     bool IsRunning() { return (state_ == Running); };
     void SetHalFormat(int halFormat);
