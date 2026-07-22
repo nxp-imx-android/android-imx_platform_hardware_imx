@@ -433,6 +433,11 @@ done:
             (getContext().getFormat().encoding == "audio/vnd.sony.dsd")) {
         return StreamAlsa::refinePosition(position);
     }
+    if (!mStarted) {
+        // Proxies aren't opened until tryStart() runs (owner arbitration / standby),
+        // so skip the ALSA poll to avoid the benign "no opened devices" warning.
+        return ::android::OK;
+    }
     if (mIsInput) {
         // Use ALSA hw timestamps and clamp to monotonic max to avoid retrograde position.
         const int64_t savedFrames = position->frames;
