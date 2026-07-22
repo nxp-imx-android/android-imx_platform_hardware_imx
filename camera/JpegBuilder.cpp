@@ -392,6 +392,15 @@ status_t JpegBuilder::buildImage(ImxStreamBuffer *streamBuf, char *hw_jpeg_enc) 
     } else {
         uint8_t *pDst = (uint8_t *)streamBuf->mVirtAddr;
         mRequestSize = mMainInput->jpeg_size;
+
+        if (mDebug) {
+            // Check if SOI (0xff 0xd8), EOI(0xff 0xd9).
+            uint8_t* pEnc = mMainInput->dst;
+            ALOGI("%s enc out: jpeg_size=%u enc_head=%02x %02x enc_tail=%02x %02x", __func__,
+                  mRequestSize, pEnc[0], pEnc[1], (mRequestSize >= 2) ? pEnc[mRequestSize - 2] : 0,
+                  (mRequestSize >= 1) ? pEnc[mRequestSize - 1] : 0);
+        }
+
         memcpy(pDst, mMainInput->dst, mRequestSize);
     }
 

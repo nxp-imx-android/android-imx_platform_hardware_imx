@@ -454,14 +454,25 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
             ALOGE("Error: %s format 0x%x not supported", __func__, srcStream->format());
     }
 
-    sp<MemoryHeapBase> rawFrame(new MemoryHeapBase(captureSize, 0, "rawFrame"));
+    // The encoder output buffer must be able to hold the whole encoded JPEG. Sizing it to the
+    // raw pixel size (captureSize) is not safe: a high quality or noisy scene can
+    // compress to more bytes than the raw output size. When that happens the libjpeg soft
+    // encoder destination manager wraps back to the start of the buffer (see
+    // jpegBuilder_empty_output_buffer in YuvToJpegEncoder.cpp) and overwrites the SOI (ff d8)
+    // header, producing an undecodable JPEG.
+    // The issue is easy to occur at low resolutions, so double the jpegBufSize in this case.
+
+    int jpegBufSize =
+            (capture->mWidth <= 320 && capture->mHeight <= 240) ? (captureSize * 2) : captureSize;
+
+    sp<MemoryHeapBase> rawFrame(new MemoryHeapBase(jpegBufSize, 0, "rawFrame"));
     rawBuf = rawFrame->getBase();
     if (rawBuf == MAP_FAILED) {
         ALOGE("%s new MemoryHeapBase failed", __func__);
         return BAD_VALUE;
     }
 
-    sp<MemoryHeapBase> thumbFrame(new MemoryHeapBase(captureSize, 0, "thumbFrame"));
+    sp<MemoryHeapBase> thumbFrame(new MemoryHeapBase(jpegBufSize, 0, "thumbFrame"));
     thumbBuf = thumbFrame->getBase();
     if (thumbBuf == MAP_FAILED) {
         ALOGE("%s new MemoryHeapBase failed", __func__);
@@ -490,9 +501,9 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
         SwitchImxBuf(*srcBuf, resizeBuf);
     }
 
-    mainJpeg = new JpegParams((uint8_t *)srcBuf->mVirtAddr, (uint8_t *)(uintptr_t)srcBuf->mPhyAddr,
-                              srcBuf->mSize, srcBuf->mFd, srcBuf->buffer, (uint8_t *)rawBuf,
-                              captureSize, encodeQuality, srcStream->mWidth, srcStream->mHeight,
+    mainJpeg = new JpegParams((uint8_t*)srcBuf->mVirtAddr, (uint8_t*)(uintptr_t)srcBuf->mPhyAddr,
+                              srcBuf->mSize, srcBuf->mFd, srcBuf->buffer, (uint8_t*)rawBuf,
+                              jpegBufSize, encodeQuality, srcStream->mWidth, srcStream->mHeight,
                               capture->mWidth, capture->mHeight, srcStream->format());
 
     ret = meta->getJpegThumbSize(thumbWidth, thumbHeight);
@@ -501,7 +512,8 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
     }
 
     if ((thumbWidth > 0) && (thumbHeight > 0)) {
-        int thumbSize = captureSize;
+        int thumbSize = jpegBufSize;
+
         thumbJpeg =
                 new JpegParams((uint8_t *)srcBuf->mVirtAddr, (uint8_t *)(uintptr_t)srcBuf->mPhyAddr,
                                srcBuf->mSize, srcBuf->mFd, srcBuf->buffer, (uint8_t *)thumbBuf,
@@ -535,8 +547,8 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
     jpegBlob->jpeg_blob_id = CAMERA3_JPEG_BLOB_ID;
     jpegBlob->jpeg_size = mJpegBuilder->getImageSize();
 
-    ALOGI("%s, dstbuf size %d, %d, jpeg_size %d, max jpeg size %d", __func__, (int)dstBuf->mSize,
-          captureSize, jpegBlob->jpeg_size, maxJpegSize);
+    ALOGI("%s, dstbuf size %d, captureSize %d, jpeg_size %d, jpegBufSize %d, max jpeg size %d",
+          __func__, (int)dstBuf->mSize, captureSize, jpegBlob->jpeg_size, jpegBufSize, maxJpegSize);
 
 err_out:
     if (mainJpeg != NULL)
