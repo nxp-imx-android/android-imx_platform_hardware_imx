@@ -574,7 +574,7 @@ status_t CameraMetadata::createMetadata(CameraDeviceHwlImpl *pDev,
 #endif
 
     int32_t availableResultKeys[] = {ANDROID_SENSOR_TIMESTAMP, ANDROID_FLASH_STATE,
-                                     ANDROID_CONTROL_ZOOM_RATIO};
+                                     ANDROID_CONTROL_ZOOM_RATIO, ANDROID_INFO_DEVICE_TYPE};
     if (strstr(mSensorData.camera_name, ISP_SENSOR_NAME) == NULL) {
         m_static_meta->Set(ANDROID_REQUEST_AVAILABLE_RESULT_KEYS, availableResultKeys,
                            ARRAY_SIZE(availableResultKeys));
@@ -657,6 +657,7 @@ status_t CameraMetadata::createMetadata(CameraDeviceHwlImpl *pDev,
 #endif
       ANDROID_FLASH_INFO_AVAILABLE,
       ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL,
+      ANDROID_INFO_DEVICE_TYPE,
       ANDROID_COLOR_CORRECTION_AVAILABLE_ABERRATION_MODES,
       ANDROID_SCALER_CROPPING_TYPE,
       ANDROID_SCALER_AVAILABLE_MAX_DIGITAL_ZOOM,
