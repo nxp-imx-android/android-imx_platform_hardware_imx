@@ -590,7 +590,8 @@ status_t ExternalCameraDevice::initDefaultCharsKeys(
                                            ANDROID_STATISTICS_FACE_DETECT_MODE,
                                            ANDROID_STATISTICS_HOT_PIXEL_MAP_MODE,
                                            ANDROID_STATISTICS_LENS_SHADING_MAP_MODE,
-                                           ANDROID_STATISTICS_SCENE_FLICKER};
+                                           ANDROID_STATISTICS_SCENE_FLICKER,
+                                           ANDROID_INFO_DEVICE_TYPE};
     UPDATE(ANDROID_REQUEST_AVAILABLE_RESULT_KEYS, availableResultKeys,
            ARRAY_SIZE(availableResultKeys));
 
