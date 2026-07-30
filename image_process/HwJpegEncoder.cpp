@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020-2023, 2025 NXP.
+ *  Copyright 2020-2023, 2025-2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -120,6 +120,9 @@ int HwJpegEncoder::onEncoderConfig(struct encoder_args *ea, char *srcbuf,
     bool support_m2m;
     bool support_mp;
     int ret;
+
+    bufferin->m.planes = NULL;
+    bufferout->m.planes = NULL;
 
     enumJpegEnc();
 
@@ -254,8 +257,19 @@ int HwJpegEncoder::onEncoderConfig(struct encoder_args *ea, char *srcbuf,
 
     return 0;
 failed:
+    // Release the calloced v4l2_plane arrays on the error path.
+    if (bufferin->m.planes) {
+        free(bufferin->m.planes);
+        bufferin->m.planes = NULL;
+    }
+    if (bufferout->m.planes) {
+        free(bufferout->m.planes);
+        bufferout->m.planes = NULL;
+    }
+
     return -1;
 }
+
 
 int HwJpegEncoder::onEncoderStart(struct v4l2_buffer *buf_in, struct v4l2_buffer *buf_out,
                                   char *dstbuf) {

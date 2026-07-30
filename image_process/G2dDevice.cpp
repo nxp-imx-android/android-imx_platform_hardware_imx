@@ -60,6 +60,13 @@ G2dDevice::G2dDevice(ImxEngine engine)
 }
 
 G2dDevice::~G2dDevice() {
+    // Free the dewarp coordinate buffer allocated by PrepareDewarpBinary
+    if (mFree && mDewarpCtx.g2d_coord_buf) {
+        mFree(mDewarpCtx.g2d_coord_buf);
+        mDewarpCtx.g2d_coord_buf = NULL;
+        mDewarpCtx.enable = false;
+    }
+
     if (mG2dHandle != NULL) {
         closeEngine(mG2dHandle);
     }
@@ -114,8 +121,14 @@ bool G2dDevice::init() {
         return false;
     }
 
+    // Prepare the dewarp coordinate binary only for the (mbcam) layout.
+    // a ~9.8MB physically contiguous buffer was used.
+    char cameraLayout[PROPERTY_VALUE_MAX] = {0};
+    property_get("ro.boot.camera.layout", cameraLayout, "");
+    bool layoutMBCam = (strcmp(cameraLayout, "mbcam") == 0);
+
     // Check dewarp support
-    if (mG2dHandle && mQueryFeature) {
+    if (layoutMBCam && mG2dHandle && mQueryFeature) {
         int can_warp = 0;
         mQueryFeature(mG2dHandle, G2D_WARP_DEWARP, &can_warp);
         if (can_warp) {
