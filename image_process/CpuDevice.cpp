@@ -26,6 +26,11 @@
 
 namespace fsl {
 
+CpuDevice& CpuDevice::getInstance() {
+    static CpuDevice sInstance;
+    return sInstance;
+}
+
 CpuDevice::CpuDevice() {
     ALOGI("CpuDevice: initialized");
 }

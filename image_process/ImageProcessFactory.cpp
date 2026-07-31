@@ -33,11 +33,21 @@ static std::shared_ptr<ImageProcessDevice> createDeviceInstance() {
 }
 
 static std::shared_ptr<ImageProcessDevice> createG2dDevice() {
-    return std::make_shared<G2dDevice>(ENG_G2D);
+    G2dDevice &g2dDev = G2dDevice::getInstance(ENG_G2D);
+    // G2dDevice is a singleton, so the deleter does nothing.
+    return std::shared_ptr<G2dDevice>(&g2dDev, [](G2dDevice*){});
 }
 
 static std::shared_ptr<ImageProcessDevice> createDpuDevice() {
-    return std::make_shared<G2dDevice>(ENG_DPU);
+    G2dDevice &dpuDev = G2dDevice::getInstance(ENG_DPU);
+    // G2dDevice is a singleton, so the deleter does nothing.
+    return std::shared_ptr<G2dDevice>(&dpuDev, [](G2dDevice*){});
+}
+
+static std::shared_ptr<ImageProcessDevice> createCpuDevice() {
+    CpuDevice &cpuDev = CpuDevice::getInstance();
+    // CpuDevice is a singleton, so the deleter does nothing.
+    return std::shared_ptr<CpuDevice>(&cpuDev, [](CpuDevice*){});
 }
 
 ImageProcessFactory& ImageProcessFactory::getInstance() {
@@ -52,7 +62,7 @@ ImageProcessFactory::ImageProcessFactory() {
             {"g2d", ENG_G2D, createG2dDevice, G2dDevice::g2d_sniff},
             {"dpu", ENG_DPU, createDpuDevice, G2dDevice::dpu_sniff},
             {"oclcvt", ENG_OCLCVT, createDeviceInstance<OclCvtDevice>, OclCvtDevice::sniff},
-            {"cpu", ENG_CPU, createDeviceInstance<CpuDevice>, CpuDevice::sniff},
+            {"cpu", ENG_CPU, createCpuDevice, CpuDevice::sniff},
     };
 
     ALOGI("ImageProcessFactory: registered %zu device types", mDeviceEntries.size());

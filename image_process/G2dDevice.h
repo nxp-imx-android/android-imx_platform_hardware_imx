@@ -49,9 +49,7 @@ struct DewarpCtx {
 // Handles 2D blitter operations via the g2d library.
 class G2dDevice : public ImageProcessDevice {
 public:
-    // @param engine: ENG_G2D or ENG_DPU
-    explicit G2dDevice(ImxEngine engine);
-    ~G2dDevice() override;
+    static G2dDevice& getInstance(ImxEngine engine);
 
     ImxEngine getEngine() const override { return mEngine; }
     const char* getName() const override;
@@ -64,6 +62,12 @@ public:
     int convert(ImxImageBuffer& dst, ImxImageBuffer& src) override;
 
 private:
+    // @param engine: ENG_G2D or ENG_DPU
+    explicit G2dDevice(ImxEngine engine);
+    ~G2dDevice() override;
+    G2dDevice(const G2dDevice&) = delete;
+    G2dDevice& operator=(const G2dDevice&) = delete;
+
     bool init();
     static bool getDefaultG2DLib(char* libName, int size, bool* pVIVG2D);
     int openEngine(void** handle);

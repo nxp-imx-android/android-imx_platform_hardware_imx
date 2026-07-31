@@ -34,6 +34,16 @@
 
 namespace fsl {
 
+G2dDevice& G2dDevice::getInstance(ImxEngine engine) {
+    if (engine == ENG_G2D) {
+        static G2dDevice sInstanceG2D(ENG_G2D);
+        return sInstanceG2D;
+    } else {
+        static G2dDevice sInstanceDPU(ENG_DPU);
+        return sInstanceDPU;
+    }
+}
+
 G2dDevice::G2dDevice(ImxEngine engine)
       : mEngine(engine),
         mInitialized(false),

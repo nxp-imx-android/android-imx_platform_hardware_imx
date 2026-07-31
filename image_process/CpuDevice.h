@@ -26,8 +26,7 @@ namespace fsl {
 // Always available as the lowest-priority fallback.
 class CpuDevice : public ImageProcessDevice {
 public:
-    CpuDevice();
-    ~CpuDevice() override = default;
+    static CpuDevice& getInstance();
 
     ImxEngine getEngine() const override { return ENG_CPU; }
     const char* getName() const override { return "cpu"; }
@@ -39,6 +38,11 @@ public:
     int convertMultiSrc(ImxImageBuffer& dst, ImxImageBuffer& srcA, ImxImageBuffer& srcB) override;
 
 private:
+    CpuDevice();
+    ~CpuDevice() override = default;
+    CpuDevice(const CpuDevice&) = delete;
+    CpuDevice& operator=(const CpuDevice&) = delete;
+
     static void MergeImageNV12(void* srcA, void* srcB, void* dst, uint32_t width, uint32_t height);
 
     static bool IsCscSupportByCPU(int srcFormat, int dstFormat);
