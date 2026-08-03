@@ -601,6 +601,46 @@ bool ParseCharacteristics(CameraDefinition* camera, const Json::Value& root,
 
 #define PROP_CAMERA_LAYOUT "ro.boot.camera.layout"
 #define PROP_ISPSENSOR_MAXSIZE "ro.boot.camera.ispsensor.maxsize"
+
+// Return "-frdm" if the device model indicates a FRDM board, otherwise "".
+// Supported FRDM boards that use the "-frdm" config, for example:
+//   "NXP i.MX952 FRDM board"
+//   "NXP FRDM-IMX95"
+// Below boards are excluded from using the "-frdm" config:
+// imx95 frdm pro ("NXP FRDM-IMX95-PRO")
+// imx8mp frdm ("NXP FRDM-IMX8MPLUS")
+// imx937 frdm("NXP i.MX937 FRDM board")
+static std::string getFrdmSuffix() {
+    std::string soc_type = android::base::GetProperty(kSocType, "");
+    if (soc_type.find("imx8mp") != std::string::npos ||
+        soc_type.find("imx937") != std::string::npos) {
+        ALOGI("%s: %s detected, using default config", __func__, soc_type.c_str());
+        return "";
+    }
+
+    std::string model_name;
+    if (android::base::ReadFileToString("/proc/device-tree/model", &model_name)) {
+        model_name = android::base::Trim(model_name);
+        ALOGI("%s: Device model: %s", __func__, model_name.c_str());
+
+        // Exclude the FRDM-IMX95-PRO board, it uses the default config.
+        if (model_name.find("PRO") != std::string::npos ||
+            model_name.find("pro") != std::string::npos) {
+            ALOGI("%s: FRDM-PRO board detected, using default config", __func__);
+            return "";
+        }
+
+        if (model_name.find("FRDM") != std::string::npos ||
+            model_name.find("frdm") != std::string::npos) {
+            return "-frdm";
+        }
+    } else {
+        ALOGW("%s: Failed to read /proc/device-tree/model, using default config", __func__);
+    }
+
+    return "";
+}
+
 bool CameraConfigurationParser::Init() {
     std::string config;
     char name[PATH_MAX] = {0};
@@ -611,16 +651,28 @@ bool CameraConfigurationParser::Init() {
     char maxsize[PROPERTY_VALUE_MAX] = {0};
     property_get(PROP_ISPSENSOR_MAXSIZE, maxsize, "");
 
+    std::string frdm = getFrdmSuffix();
+
+    // The layout property may already carry the "frdm" tag, e.g.
+    // androidboot.camera.layout=frdm-dual-os08a20. In that case do not append
+    // the model-derived "-frdm" suffix again to avoid a duplicated segment
+    // like camera_config_imx952-frdm-frdm-dual-os08a20.json.
+    if (strstr(layout, "frdm") != NULL)
+        frdm = "";
+
     if (strcmp(layout, "") == 0)
-        snprintf(name, PATH_MAX, "%s_%s%s", kCameraConfiguration,
-                 android::base::GetProperty(kSocType, "").c_str(), ".json");
+        snprintf(name, PATH_MAX, "%s_%s%s%s", kCameraConfiguration,
+                 android::base::GetProperty(kSocType, "").c_str(), frdm.c_str(), ".json");
     else {
+
         if (strcmp(maxsize, "4k") == 0)
-            snprintf(name, PATH_MAX, "%s_%s-4k-%s%s", kCameraConfiguration,
-                     android::base::GetProperty(kSocType, "").c_str(), layout, ".json");
+            snprintf(name, PATH_MAX, "%s_%s%s-4k-%s%s", kCameraConfiguration,
+                     android::base::GetProperty(kSocType, "").c_str(), frdm.c_str(), layout,
+                     ".json");
         else
-            snprintf(name, PATH_MAX, "%s_%s-%s%s", kCameraConfiguration,
-                     android::base::GetProperty(kSocType, "").c_str(), layout, ".json");
+            snprintf(name, PATH_MAX, "%s_%s%s-%s%s", kCameraConfiguration,
+                     android::base::GetProperty(kSocType, "").c_str(), frdm.c_str(), layout,
+                     ".json");
     }
 
     ALOGI("%s: parse %s", __func__, name);
