@@ -39,6 +39,7 @@ using namespace android;
 // Higher confidence means the device is more suitable for the given conversion.
 // A score of 0.0 means the device cannot handle the conversion.
 static constexpr float CONFIDENCE_NONE = 0.0f;
+static constexpr float CONFIDENCE_BYPASS = 0.2f;
 static constexpr float CONFIDENCE_CPU = 0.4f;
 static constexpr float CONFIDENCE_OCLCVT = 0.7f;
 static constexpr float CONFIDENCE_DPU = 0.8f;

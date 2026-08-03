@@ -23,6 +23,7 @@
 #include "CpuDevice.h"
 #include "G2dDevice.h"
 #include "OclCvtDevice.h"
+#include "BypassDevice.h"
 
 namespace fsl {
 
@@ -50,6 +51,12 @@ static std::shared_ptr<ImageProcessDevice> createCpuDevice() {
     return std::shared_ptr<CpuDevice>(&cpuDev, [](CpuDevice*){});
 }
 
+static std::shared_ptr<ImageProcessDevice> createBypassDevice() {
+    BypassDevice &bypassDev = BypassDevice::getInstance();
+    // BypassDevice is a singleton, so the deleter does nothing.
+    return std::shared_ptr<BypassDevice>(&bypassDev, [](BypassDevice*){});
+}
+
 ImageProcessFactory& ImageProcessFactory::getInstance() {
     static ImageProcessFactory sInstance;
     return sInstance;
@@ -63,6 +70,7 @@ ImageProcessFactory::ImageProcessFactory() {
             {"dpu", ENG_DPU, createDpuDevice, G2dDevice::dpu_sniff},
             {"oclcvt", ENG_OCLCVT, createDeviceInstance<OclCvtDevice>, OclCvtDevice::sniff},
             {"cpu", ENG_CPU, createCpuDevice, CpuDevice::sniff},
+            {"bypass", ENG_BYPASS, createBypassDevice, BypassDevice::sniff},
     };
 
     ALOGI("ImageProcessFactory: registered %zu device types", mDeviceEntries.size());

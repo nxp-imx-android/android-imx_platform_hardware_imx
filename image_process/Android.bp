@@ -49,6 +49,7 @@ cc_library_shared {
         "G2dDevice.cpp",
         "OclCvtDevice.cpp",
         "CpuDevice.cpp",
+        "BypassDevice.cpp",
         "ImageProcessFactory.cpp",
         "HwJpegEncoder.cpp",
         "YuvToJpegEncoder.cpp"
