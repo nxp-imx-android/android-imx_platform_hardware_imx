@@ -434,9 +434,9 @@ done:
         return StreamAlsa::refinePosition(position);
     }
     if (!mStarted) {
-        // Proxies aren't opened until tryStart() runs (owner arbitration / standby),
-        // so skip the ALSA poll to avoid the benign "no opened devices" warning.
-        return ::android::OK;
+        // ALSA proxy not open yet. NO_INIT (not OK) skips the poll (no warning)
+        // and makes the framework drop this sample, else VTS position goes backward.
+        return ::android::NO_INIT;
     }
     if (mIsInput) {
         // Use ALSA hw timestamps and clamp to monotonic max to avoid retrograde position.
