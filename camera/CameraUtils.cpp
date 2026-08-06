@@ -141,8 +141,9 @@ int32_t StreamBufferToImageBuffer(ImxStreamBuffer &streamBuffer, ImxImageBuffer 
     imageBuffer.mFormat = stream->format();
     imageBuffer.mWidth = stream->width();
     imageBuffer.mHeight = stream->height();
-    imageBuffer.mStride = stream->width();
-    imageBuffer.mHeightSpan = stream->height();
+    imageBuffer.mStride = (streamBuffer.mStride != 0) ? streamBuffer.mStride : stream->width();
+    imageBuffer.mHeightSpan =
+            (streamBuffer.mHeightSpan != 0) ? streamBuffer.mHeightSpan : stream->height();
     imageBuffer.mVirtAddr = streamBuffer.mVirtAddr;
     imageBuffer.mPhyAddr = streamBuffer.mPhyAddr;
     imageBuffer.mFd = streamBuffer.mFd;
