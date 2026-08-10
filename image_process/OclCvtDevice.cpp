@@ -134,11 +134,12 @@ float OclCvtDevice::sniff(uint32_t srcFormat, uint32_t dstFormat, uint32_t srcWi
         }
     }
 
-    // OclCvt only supports RAW16 (SBGGR10) input when converting to YUV422I or
-    // NV12; any other RAW16 output (including RAW16 --> RAW16 copy) is not
-    // supported and must be handled by the CPU.
+    // OclCvt only supports RAW16 (SBGGR10) input for the following outputs:
+    //   - RAW16 / YUV422I / NV12.
+    // Any other RAW16 output is not supported.
     if (srcFormat == HAL_PIXEL_FORMAT_RAW16) {
-        if (dstFormat != HAL_PIXEL_FORMAT_YCbCr_422_I &&
+        if (dstFormat != HAL_PIXEL_FORMAT_RAW16 &&
+            dstFormat != HAL_PIXEL_FORMAT_YCbCr_422_I &&
             dstFormat != HAL_PIXEL_FORMAT_YCbCr_420_888 &&
             dstFormat != HAL_PIXEL_FORMAT_YCbCr_420_SP)
             return CONFIDENCE_NONE;

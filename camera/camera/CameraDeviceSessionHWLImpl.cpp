@@ -1196,12 +1196,11 @@ int32_t CameraDeviceSessionHwlImpl::processFrameBuffer(ImxStreamBuffer *srcBuf,
 
     // Select the image process engine based on the conversion required:
     // All three cases below are handled by OCLCVT:
-    //   - RAW16 source (converted to a non-RAW16 output).
+    //   - RAW16 source (bggr copy, bggr --> yuv422i, bggr --> nv12).
     //   - Zoom ratio > 1.0: GPU-accelerated crop/scale (zoom in).
     //   - Any resize (src/dst dimensions differ) also needs the OCL device.
     // If the current device does not match, recreate it with the correct engine.
-    bool isRaw16Convert = (srcBuf->mFormat == HAL_PIXEL_FORMAT_RAW16 &&
-                           dstBuf->mFormat != HAL_PIXEL_FORMAT_RAW16);
+    bool isRaw16Convert = (srcBuf->mFormat == HAL_PIXEL_FORMAT_RAW16);
     bool isZoomIn = (srcBuf->mStream) ? srcBuf->mStream->mZoomRatio > 1.0f : false;
     bool needResize = (srcBuf->mWidth != dstBuf->mWidth || srcBuf->mHeight != dstBuf->mHeight);
 
