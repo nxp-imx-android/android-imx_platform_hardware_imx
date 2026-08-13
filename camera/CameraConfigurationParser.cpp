@@ -657,7 +657,12 @@ bool CameraConfigurationParser::Init() {
     // androidboot.camera.layout=frdm-dual-os08a20. In that case do not append
     // the model-derived "-frdm" suffix again to avoid a duplicated segment
     // like camera_config_imx952-frdm-frdm-dual-os08a20.json.
-    if (strstr(layout, "frdm") != NULL)
+    //
+    // The ap1302 and mbcam cameras have identical characteristics on EVK and
+    // FRDM boards, so they intentionally share the same (EVK) config,
+    // Do not append the "-frdm" suffix for these layouts.
+    if (strstr(layout, "frdm") != NULL || strcmp(layout, "ap1302") == 0 ||
+        strcmp(layout, "mbcam") == 0)
         frdm = "";
 
     if (strcmp(layout, "") == 0)
