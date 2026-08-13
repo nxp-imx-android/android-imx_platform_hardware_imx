@@ -433,6 +433,12 @@ done:
             (getContext().getFormat().encoding == "audio/vnd.sony.dsd")) {
         return StreamAlsa::refinePosition(position);
     }
+    // Stub path (e.g. imx8mq input, no codec): no hw clock, mStarted never set.
+    // Keep OK above the !mStarted check so the framework's frame counter drives
+    // the observable position (else it stays -1, VTS position never increases).
+    if (isStubStreamOnWorker()) {
+        return ::android::OK;
+    }
     if (!mStarted) {
         // ALSA proxy not open yet. NO_INIT (not OK) skips the poll (no warning)
         // and makes the framework drop this sample, else VTS position goes backward.
