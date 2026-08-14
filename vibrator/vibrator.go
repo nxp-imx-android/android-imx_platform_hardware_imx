@@ -26,12 +26,7 @@ func vibratorDefaults(ctx android.LoadHookContext) {
 
 	p := &props{}
 
-	var version string = ctx.AConfig().PlatformVersionName()
-	if version == "12" {
-		p.Target.Android.Shared_libs = append(p.Target.Android.Shared_libs, "android.hardware.vibrator-V2-ndk_platform")
-	} else {
-		p.Target.Android.Shared_libs = append(p.Target.Android.Shared_libs, "android.hardware.vibrator-V2-ndk")
-	}
+	p.Target.Android.Shared_libs = append(p.Target.Android.Shared_libs, "android.hardware.vibrator-V4-ndk")
 
 	ctx.AppendProperties(p)
 }

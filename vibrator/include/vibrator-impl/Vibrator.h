@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2019 The Android Open Source Project
+ * Copyright 2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,15 +18,14 @@
 #pragma once
 
 #include <aidl/android/hardware/vibrator/BnVibrator.h>
+#include <android-base/thread_annotations.h>
 #include <cutils/properties.h>
-#include <utils/Mutex.h>
-#include <utils/threads.h>
 
 namespace aidl {
 namespace android {
 namespace hardware {
 namespace vibrator {
-using ::android::Mutex;
+
 #define DEF_VIBRATOR_DEV "vibrator"
 #define DEF_VIBRATOR_PATH "/sys/class/leds/"
 #define VIBRATOR_STRENGTH_OFF 0
@@ -34,6 +34,7 @@ using ::android::Mutex;
 #define VIBRATOR_STRENGTH_STRONG 1
 
 class Vibrator : public BnVibrator {
+  public:
     ndk::ScopedAStatus getCapabilities(int32_t* _aidl_return) override;
     ndk::ScopedAStatus off() override;
     ndk::ScopedAStatus on(int32_t timeoutMs,
@@ -41,6 +42,9 @@ class Vibrator : public BnVibrator {
     ndk::ScopedAStatus perform(Effect effect, EffectStrength strength,
                                const std::shared_ptr<IVibratorCallback>& callback,
                                int32_t* _aidl_return) override;
+    ndk::ScopedAStatus performVendorEffect(
+            const VendorEffect& effect,
+            const std::shared_ptr<IVibratorCallback>& callback) override;
     ndk::ScopedAStatus getSupportedEffects(std::vector<Effect>* _aidl_return) override;
     ndk::ScopedAStatus setAmplitude(float amplitude) override;
     ndk::ScopedAStatus setExternalControl(bool enabled) override;
@@ -64,20 +68,38 @@ class Vibrator : public BnVibrator {
     ndk::ScopedAStatus getSupportedBraking(std::vector<Braking>* supported) override;
     ndk::ScopedAStatus composePwle(const std::vector<PrimitivePwle>& composite,
                                    const std::shared_ptr<IVibratorCallback>& callback) override;
+    ndk::ScopedAStatus getFrequencyToOutputAccelerationMap(
+            std::vector<FrequencyAccelerationMapEntry>* _aidl_return) override;
+    ndk::ScopedAStatus getPwleV2PrimitiveDurationMaxMillis(int32_t* maxDurationMs) override;
+    ndk::ScopedAStatus getPwleV2PrimitiveDurationMinMillis(int32_t* minDurationMs) override;
+    ndk::ScopedAStatus getPwleV2CompositionSizeMax(int32_t* maxSize) override;
+    ndk::ScopedAStatus composePwleV2(const CompositePwleV2& composite,
+                                     const std::shared_ptr<IVibratorCallback>& callback) override;
 
-private:
+    void setGlobalVibrationCallback(const std::shared_ptr<IVibratorCallback>& callback);
+
+  private:
+    // NXP i.MX LED-based vibrator brightness control.
     void initBrightness();
     int setBrightness(float brightness);
     int getMaxBrightness();
 
-protected:
-    Mutex mLock;
-    int mMaxBrightness;
-    char mBrightnessPath[PROPERTY_VALUE_MAX];
-    double mStrength;
+    mutable std::mutex mMutex;
+    bool mIsVibrating GUARDED_BY(mMutex) = false;
+    int32_t mCapabilities GUARDED_BY(mMutex) = 0;
+    std::shared_ptr<IVibratorCallback> mVibrationCallback GUARDED_BY(mMutex) = nullptr;
+    std::shared_ptr<IVibratorCallback> mGlobalVibrationCallback GUARDED_BY(mMutex) = nullptr;
+
+    // NXP i.MX brightness sysfs state.
+    int mMaxBrightness = -1;
+    char mBrightnessPath[PROPERTY_VALUE_MAX] = {0};
+    double mStrength = VIBRATOR_STRENGTH_MEDIUM;
+    bool mBrightnessInited = false;
+
+    void dispatchVibrate(int32_t timeoutMs, const std::shared_ptr<IVibratorCallback>& callback);
 };
 
-} // namespace vibrator
-} // namespace hardware
-} // namespace android
-} // namespace aidl
+}  // namespace vibrator
+}  // namespace hardware
+}  // namespace android
+}  // namespace aidl

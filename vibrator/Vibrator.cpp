@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2019 The Android Open Source Project
+ * Copyright 2026 NXP
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,12 +18,9 @@
 #include "vibrator-impl/Vibrator.h"
 
 #include <android-base/logging.h>
-#include <cutils/log.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <sys/stat.h>
 #include <utils/Log.h>
 
+#include <chrono>
 #include <thread>
 
 namespace aidl {
@@ -30,33 +28,36 @@ namespace android {
 namespace hardware {
 namespace vibrator {
 
-static constexpr int32_t kComposeDelayMaxMs = 1000;
-static constexpr int32_t kComposeSizeMax = 256;
-static constexpr int32_t kComposePwleSizeMax = 127;
+static constexpr int32_t COMPOSE_DELAY_MAX_MS = 1000;
+static constexpr int32_t COMPOSE_SIZE_MAX = 256;
+static constexpr int32_t COMPOSE_PWLE_SIZE_MAX = 127;
+static constexpr int32_t COMPOSE_PWLE_V2_SIZE_MAX = 16;
 
-static constexpr float kResonantFrequency = 150.0;
-static constexpr float kQFactor = 11.0;
+static constexpr float Q_FACTOR = 11.0;
 static constexpr int32_t COMPOSE_PWLE_PRIMITIVE_DURATION_MAX_MS = 16383;
+static constexpr int32_t COMPOSE_PWLE_V2_PRIMITIVE_DURATION_MAX_MS = 1000;
+static constexpr int32_t COMPOSE_PWLE_V2_PRIMITIVE_DURATION_MIN_MS = 20;
 static constexpr float PWLE_LEVEL_MIN = 0.0;
-static constexpr float PWLE_LEVEL_MAX = 0.98256;
+static constexpr float PWLE_LEVEL_MAX = 1.0;
 static constexpr float PWLE_FREQUENCY_RESOLUTION_HZ = 1.0;
 static constexpr float PWLE_FREQUENCY_MIN_HZ = 140.0;
+static constexpr float RESONANT_FREQUENCY_HZ = 150.0;
 static constexpr float PWLE_FREQUENCY_MAX_HZ = 160.0;
+static constexpr float PWLE_BW_MAP_SIZE =
+        1 + ((PWLE_FREQUENCY_MAX_HZ - PWLE_FREQUENCY_MIN_HZ) / PWLE_FREQUENCY_RESOLUTION_HZ);
 
-ndk::ScopedAStatus Vibrator::getCapabilities(int32_t *_aidl_return) {
-    LOG(INFO) << "Vibrator reporting capabilities";
-    *_aidl_return = IVibrator::CAP_ON_CALLBACK | IVibrator::CAP_PERFORM_CALLBACK |
-            IVibrator::CAP_AMPLITUDE_CONTROL | IVibrator::CAP_EXTERNAL_CONTROL |
-            IVibrator::CAP_EXTERNAL_AMPLITUDE_CONTROL | IVibrator::CAP_COMPOSE_EFFECTS |
-            IVibrator::CAP_ALWAYS_ON_CONTROL | IVibrator::CAP_GET_RESONANT_FREQUENCY |
-            IVibrator::CAP_GET_Q_FACTOR | IVibrator::CAP_FREQUENCY_CONTROL |
-            IVibrator::CAP_COMPOSE_PWLE_EFFECTS;
-    initBrightness();
-    return ndk::ScopedAStatus::ok();
-}
+// Service specific error code used for vendor vibration effects.
+static constexpr int32_t ERROR_CODE_INVALID_DURATION = 1;
 
+// ----------------------------------------------------------------------------
+// NXP i.MX LED-based vibrator brightness control helpers.
+// ----------------------------------------------------------------------------
 void Vibrator::initBrightness() {
-    Mutex::Autolock _l(mLock);
+    if (mBrightnessInited) {
+        return;
+    }
+    mBrightnessInited = true;
+
     // default strength
     mStrength = VIBRATOR_STRENGTH_MEDIUM;
 
@@ -75,8 +76,9 @@ void Vibrator::initBrightness() {
         mMaxBrightness = -1;
         ALOGE("%s cannot open vibrator file %s", __func__, path);
     } else {
-        if (fread(&mMaxBrightness, 1, 3, file) == 3) {
-            mMaxBrightness = atoi((char *)&mMaxBrightness);
+        char buf[16] = {0};
+        if (fread(buf, 1, sizeof(buf) - 1, file) > 0) {
+            mMaxBrightness = atoi(buf);
             ALOGI("%s get maxBrightness:%d", __func__, mMaxBrightness);
         }
         fclose(file);
@@ -85,7 +87,6 @@ void Vibrator::initBrightness() {
 
 int Vibrator::setBrightness(float brightness) {
     ALOGI("%s:orignal float brightness %f", __func__, brightness);
-    Mutex::Autolock _l(mLock);
     if (mMaxBrightness == -1) {
         ALOGE("%s:mMaxBrightness is -1", __func__);
         return -1;
@@ -105,38 +106,157 @@ int Vibrator::setBrightness(float brightness) {
 }
 
 int Vibrator::getMaxBrightness() {
-    Mutex::Autolock _l(mLock);
     return mMaxBrightness;
 }
 
-ndk::ScopedAStatus Vibrator::off() {
-    LOG(INFO) << "Vibrator off";
-    setBrightness(VIBRATOR_STRENGTH_OFF);
+// ----------------------------------------------------------------------------
+// Vibration dispatch (AOSP default logic + NXP brightness driving).
+// ----------------------------------------------------------------------------
+void Vibrator::dispatchVibrate(int32_t timeoutMs,
+                               const std::shared_ptr<IVibratorCallback>& callback) {
+    {
+        std::lock_guard lock(mMutex);
+        initBrightness();
+        if (mIsVibrating) {
+            // Already vibrating, ignore new request.
+            return;
+        }
+        mVibrationCallback = std::shared_ptr<IVibratorCallback>(callback);
+        mIsVibrating = true;
+        // Drive the LED-based vibrator on.
+        setBrightness(mStrength);
+    }
+    // Note that thread lambdas aren't using implicit capture [=], to avoid capturing "this",
+    // which may be asynchronously destructed.
+    std::thread([timeoutMs, callback, sharedThis = this->ref<Vibrator>()] {
+        LOG(VERBOSE) << "Starting delayed callback on another thread";
+        std::this_thread::sleep_for(std::chrono::milliseconds(timeoutMs));
+
+        if (sharedThis) {
+            std::shared_ptr<IVibratorCallback> vibrationCallback, globalCallback;
+            {
+                std::lock_guard lock(sharedThis->mMutex);
+                globalCallback = std::move(sharedThis->mGlobalVibrationCallback);
+                sharedThis->mIsVibrating = false;
+                // make sure any delayed call will not trigger this again.
+                sharedThis->mGlobalVibrationCallback = nullptr;
+                // Turn off the LED-based vibrator.
+                sharedThis->setBrightness(VIBRATOR_STRENGTH_OFF);
+                if (sharedThis->mVibrationCallback == callback) {
+                    vibrationCallback = std::move(sharedThis->mVibrationCallback);
+                    // make sure any delayed call will not trigger this again.
+                    sharedThis->mVibrationCallback = nullptr;
+                } else {
+                    vibrationCallback = nullptr;
+                }
+            }
+            if (vibrationCallback) {
+                LOG(VERBOSE) << "Notifying callback onComplete";
+                if (!vibrationCallback->onComplete().isOk()) {
+                    LOG(ERROR) << "Failed to call onComplete";
+                }
+            }
+            if (globalCallback) {
+                LOG(VERBOSE) << "Notifying global callback onComplete";
+                if (!globalCallback->onComplete().isOk()) {
+                    LOG(ERROR) << "Failed to call onComplete";
+                }
+            }
+        }
+    }).detach();
+}
+
+void Vibrator::setGlobalVibrationCallback(const std::shared_ptr<IVibratorCallback>& callback) {
+    std::shared_ptr<IVibratorCallback> immediateCallback = nullptr;
+    {
+        std::lock_guard lock(mMutex);
+        if (mIsVibrating) {
+            mGlobalVibrationCallback = callback;
+        } else {
+            immediateCallback = callback;
+        }
+    }
+    if (immediateCallback) {
+        std::thread([callback] {
+            LOG(VERBOSE) << "Notifying global callback onComplete";
+            if (!callback->onComplete().isOk()) {
+                LOG(ERROR) << "Failed to call onComplete";
+            }
+        }).detach();
+    }
+}
+
+ndk::ScopedAStatus Vibrator::getCapabilities(int32_t* _aidl_return) {
+    LOG(VERBOSE) << "Vibrator reporting capabilities";
+    std::lock_guard lock(mMutex);
+    if (mCapabilities == 0) {
+        int32_t version;
+        if (!getInterfaceVersion(&version).isOk()) {
+            return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_ILLEGAL_STATE));
+        }
+        mCapabilities = IVibrator::CAP_ON_CALLBACK | IVibrator::CAP_PERFORM_CALLBACK |
+                        IVibrator::CAP_AMPLITUDE_CONTROL | IVibrator::CAP_EXTERNAL_CONTROL |
+                        IVibrator::CAP_EXTERNAL_AMPLITUDE_CONTROL | IVibrator::CAP_COMPOSE_EFFECTS |
+                        IVibrator::CAP_ALWAYS_ON_CONTROL | IVibrator::CAP_GET_RESONANT_FREQUENCY |
+                        IVibrator::CAP_GET_Q_FACTOR | IVibrator::CAP_FREQUENCY_CONTROL |
+                        IVibrator::CAP_COMPOSE_PWLE_EFFECTS;
+
+        if (version >= 3) {
+            mCapabilities |=
+                    IVibrator::CAP_PERFORM_VENDOR_EFFECTS | IVibrator::CAP_COMPOSE_PWLE_EFFECTS_V2;
+        }
+    }
+
+    *_aidl_return = mCapabilities;
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::on(int32_t timeoutMs,
-                                const std::shared_ptr<IVibratorCallback> &callback) {
-    LOG(INFO) << "Vibrator on for timeoutMs: " << timeoutMs;
-    if (callback != nullptr) {
-        std::thread([=] {
-            LOG(INFO) << "Starting on on another thread";
-            setBrightness(mStrength);
-            usleep(timeoutMs * 1000);
-            LOG(INFO) << "Notifying on complete";
-            if (!callback->onComplete().isOk()) {
-                LOG(ERROR) << "Failed to call onComplete";
+ndk::ScopedAStatus Vibrator::off() {
+    LOG(VERBOSE) << "Vibrator off";
+    std::shared_ptr<IVibratorCallback> callback, globalCallback;
+    {
+        std::lock_guard lock(mMutex);
+        initBrightness();
+        callback = std::move(mVibrationCallback);
+        globalCallback = std::move(mGlobalVibrationCallback);
+        mIsVibrating = false;
+        // make sure any delayed call will not trigger these again.
+        mVibrationCallback = nullptr;
+        mGlobalVibrationCallback = nullptr;
+        // Turn off the LED-based vibrator.
+        setBrightness(VIBRATOR_STRENGTH_OFF);
+    }
+    if (callback || globalCallback) {
+        std::thread([callback, globalCallback] {
+            if (callback) {
+                LOG(VERBOSE) << "Notifying callback onComplete";
+                if (!callback->onComplete().isOk()) {
+                    LOG(ERROR) << "Failed to call onComplete";
+                }
+            }
+            if (globalCallback) {
+                LOG(VERBOSE) << "Notifying global callback onComplete";
+                if (!globalCallback->onComplete().isOk()) {
+                    LOG(ERROR) << "Failed to call onComplete";
+                }
             }
         }).detach();
     }
     return ndk::ScopedAStatus::ok();
 }
 
+ndk::ScopedAStatus Vibrator::on(int32_t timeoutMs,
+                                const std::shared_ptr<IVibratorCallback>& callback) {
+    LOG(VERBOSE) << "Vibrator on for timeoutMs: " << timeoutMs;
+    dispatchVibrate(timeoutMs, callback);
+    return ndk::ScopedAStatus::ok();
+}
+
 ndk::ScopedAStatus Vibrator::perform(Effect effect, EffectStrength strength,
-                                     const std::shared_ptr<IVibratorCallback> &callback,
-                                     int32_t *_aidl_return) {
-    LOG(INFO) << "Vibrator perform";
-    ALOGI("%s: effect:%d, strength:%hhd", __func__, effect, strength);
+                                     const std::shared_ptr<IVibratorCallback>& callback,
+                                     int32_t* _aidl_return) {
+    LOG(VERBOSE) << "Vibrator perform";
+
     if (effect != Effect::CLICK && effect != Effect::TICK) {
         return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
     }
@@ -145,44 +265,70 @@ ndk::ScopedAStatus Vibrator::perform(Effect effect, EffectStrength strength,
         return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
     }
 
-    // Adapt strength
-    switch (strength) {
-        case EffectStrength::LIGHT:
-            mStrength = VIBRATOR_STRENGTH_LIGHT;
-            break;
-        case EffectStrength::MEDIUM:
-            mStrength = VIBRATOR_STRENGTH_MEDIUM;
-            break;
-        case EffectStrength::STRONG:
-            mStrength = VIBRATOR_STRENGTH_STRONG;
-            break;
-        default:
-            mStrength = VIBRATOR_STRENGTH_MEDIUM;
+    // Adapt NXP vibrator strength.
+    {
+        std::lock_guard lock(mMutex);
+        switch (strength) {
+            case EffectStrength::LIGHT:
+                mStrength = VIBRATOR_STRENGTH_LIGHT;
+                break;
+            case EffectStrength::MEDIUM:
+                mStrength = VIBRATOR_STRENGTH_MEDIUM;
+                break;
+            case EffectStrength::STRONG:
+                mStrength = VIBRATOR_STRENGTH_STRONG;
+                break;
+            default:
+                mStrength = VIBRATOR_STRENGTH_MEDIUM;
+        }
     }
 
     constexpr size_t kEffectMillis = 100;
-
-    if (callback != nullptr) {
-        std::thread([=] {
-            LOG(INFO) << "Starting perform on another thread";
-            setBrightness(mStrength);
-            usleep(kEffectMillis * 1000);
-            LOG(INFO) << "Notifying perform complete";
-            callback->onComplete();
-        }).detach();
-    }
-
+    dispatchVibrate(kEffectMillis, callback);
     *_aidl_return = kEffectMillis;
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::getSupportedEffects(std::vector<Effect> *_aidl_return) {
+ndk::ScopedAStatus Vibrator::performVendorEffect(
+        const VendorEffect& effect, const std::shared_ptr<IVibratorCallback>& callback) {
+    LOG(VERBOSE) << "Vibrator perform vendor effect";
+    int32_t capabilities = 0;
+    if (!getCapabilities(&capabilities).isOk()) {
+        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+    }
+    if ((capabilities & IVibrator::CAP_PERFORM_VENDOR_EFFECTS) == 0) {
+        return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
+    }
+    EffectStrength strength = effect.strength;
+    if (strength != EffectStrength::LIGHT && strength != EffectStrength::MEDIUM &&
+        strength != EffectStrength::STRONG) {
+        return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_ILLEGAL_ARGUMENT));
+    }
+    float scale = effect.scale;
+    if (scale <= 0) {
+        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
+    }
+    float vendorScale = effect.vendorScale;
+    if (vendorScale <= 0) {
+        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
+    }
+
+    int32_t durationMs = 0;
+    if (!effect.vendorData.getInt("DURATION_MS", &durationMs) || durationMs <= 0) {
+        return ndk::ScopedAStatus::fromServiceSpecificError(ERROR_CODE_INVALID_DURATION);
+    }
+
+    dispatchVibrate(durationMs, callback);
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Vibrator::getSupportedEffects(std::vector<Effect>* _aidl_return) {
     *_aidl_return = {Effect::CLICK, Effect::TICK};
     return ndk::ScopedAStatus::ok();
 }
 
 ndk::ScopedAStatus Vibrator::setAmplitude(float amplitude) {
-    LOG(INFO) << "Vibrator set amplitude: " << amplitude;
+    LOG(VERBOSE) << "Vibrator set amplitude: " << amplitude;
     if (amplitude <= 0.0f || amplitude > 1.0f) {
         return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_ILLEGAL_ARGUMENT));
     }
@@ -190,21 +336,21 @@ ndk::ScopedAStatus Vibrator::setAmplitude(float amplitude) {
 }
 
 ndk::ScopedAStatus Vibrator::setExternalControl(bool enabled) {
-    LOG(INFO) << "Vibrator set external control: " << enabled;
+    LOG(VERBOSE) << "Vibrator set external control: " << enabled;
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::getCompositionDelayMax(int32_t *maxDelayMs) {
-    *maxDelayMs = kComposeDelayMaxMs;
+ndk::ScopedAStatus Vibrator::getCompositionDelayMax(int32_t* maxDelayMs) {
+    *maxDelayMs = COMPOSE_DELAY_MAX_MS;
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::getCompositionSizeMax(int32_t *maxSize) {
-    *maxSize = kComposeSizeMax;
+ndk::ScopedAStatus Vibrator::getCompositionSizeMax(int32_t* maxSize) {
+    *maxSize = COMPOSE_SIZE_MAX;
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::getSupportedPrimitives(std::vector<CompositePrimitive> *supported) {
+ndk::ScopedAStatus Vibrator::getSupportedPrimitives(std::vector<CompositePrimitive>* supported) {
     *supported = {
             CompositePrimitive::NOOP,       CompositePrimitive::CLICK,
             CompositePrimitive::THUD,       CompositePrimitive::SPIN,
@@ -216,7 +362,7 @@ ndk::ScopedAStatus Vibrator::getSupportedPrimitives(std::vector<CompositePrimiti
 }
 
 ndk::ScopedAStatus Vibrator::getPrimitiveDuration(CompositePrimitive primitive,
-                                                  int32_t *durationMs) {
+                                                  int32_t* durationMs) {
     std::vector<CompositePrimitive> supported;
     getSupportedPrimitives(&supported);
     if (std::find(supported.begin(), supported.end(), primitive) == supported.end()) {
@@ -230,17 +376,17 @@ ndk::ScopedAStatus Vibrator::getPrimitiveDuration(CompositePrimitive primitive,
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::compose(const std::vector<CompositeEffect> &composite,
-                                     const std::shared_ptr<IVibratorCallback> &callback) {
-    if (composite.size() > kComposeSizeMax) {
+ndk::ScopedAStatus Vibrator::compose(const std::vector<CompositeEffect>& composite,
+                                     const std::shared_ptr<IVibratorCallback>& callback) {
+    if (composite.size() > COMPOSE_SIZE_MAX) {
         return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
     }
 
     std::vector<CompositePrimitive> supported;
     getSupportedPrimitives(&supported);
 
-    for (auto &e : composite) {
-        if (e.delayMs > kComposeDelayMaxMs) {
+    for (auto& e : composite) {
+        if (e.delayMs > COMPOSE_DELAY_MAX_MS) {
             return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
         }
         if (e.scale < 0.0f || e.scale > 1.0f) {
@@ -251,31 +397,18 @@ ndk::ScopedAStatus Vibrator::compose(const std::vector<CompositeEffect> &composi
         }
     }
 
-    std::thread([=] {
-        LOG(INFO) << "Starting compose on another thread";
+    int32_t totalDuration = 0;
+    for (auto& e : composite) {
+        int32_t durationMs;
+        getPrimitiveDuration(e.primitive, &durationMs);
+        totalDuration += e.delayMs + durationMs;
+    }
 
-        for (auto &e : composite) {
-            if (e.delayMs) {
-                usleep(e.delayMs * 1000);
-            }
-            LOG(INFO) << "triggering primitive " << static_cast<int>(e.primitive) << " @ scale "
-                      << e.scale;
-
-            int32_t durationMs;
-            getPrimitiveDuration(e.primitive, &durationMs);
-            usleep(durationMs * 1000);
-        }
-
-        if (callback != nullptr) {
-            LOG(INFO) << "Notifying perform complete";
-            callback->onComplete();
-        }
-    }).detach();
-
+    dispatchVibrate(totalDuration, callback);
     return ndk::ScopedAStatus::ok();
 }
 
-ndk::ScopedAStatus Vibrator::getSupportedAlwaysOnEffects(std::vector<Effect> *_aidl_return) {
+ndk::ScopedAStatus Vibrator::getSupportedAlwaysOnEffects(std::vector<Effect>* _aidl_return) {
     return getSupportedEffects(_aidl_return);
 }
 
@@ -286,24 +419,24 @@ ndk::ScopedAStatus Vibrator::alwaysOnEnable(int32_t id, Effect effect, EffectStr
     if (std::find(effects.begin(), effects.end(), effect) == effects.end()) {
         return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
     } else {
-        LOG(INFO) << "Enabling always-on ID " << id << " with " << toString(effect) << "/"
-                  << toString(strength);
+        LOG(VERBOSE) << "Enabling always-on ID " << id << " with " << toString(effect) << "/"
+                     << toString(strength);
         return ndk::ScopedAStatus::ok();
     }
 }
 
 ndk::ScopedAStatus Vibrator::alwaysOnDisable(int32_t id) {
-    LOG(INFO) << "Disabling always-on ID " << id;
+    LOG(VERBOSE) << "Disabling always-on ID " << id;
     return ndk::ScopedAStatus::ok();
 }
 
 ndk::ScopedAStatus Vibrator::getResonantFrequency(float *resonantFreqHz) {
-    *resonantFreqHz = kResonantFrequency;
+    *resonantFreqHz = RESONANT_FREQUENCY_HZ;
     return ndk::ScopedAStatus::ok();
 }
 
 ndk::ScopedAStatus Vibrator::getQFactor(float *qFactor) {
-    *qFactor = kQFactor;
+    *qFactor = Q_FACTOR;
     return ndk::ScopedAStatus::ok();
 }
 
@@ -318,11 +451,26 @@ ndk::ScopedAStatus Vibrator::getFrequencyMinimum(float *freqMinimumHz) {
 }
 
 ndk::ScopedAStatus Vibrator::getBandwidthAmplitudeMap(std::vector<float> *_aidl_return) {
-    // A valid array should be of size:
-    //     (PWLE_FREQUENCY_MAX_HZ - PWLE_FREQUENCY_MIN_HZ) / PWLE_FREQUENCY_RESOLUTION_HZ
-    *_aidl_return = {0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10,
-                     0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17, 0.18, 0.19, 0.20};
-    return ndk::ScopedAStatus::ok();
+    // The output BandwidthAmplitudeMap will be as below and the maximum
+    // amplitude 1.0 will be set on RESONANT_FREQUENCY_HZ
+    // {0.9, 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99, 1, 0.99, 0.98, 0.97,
+    // 0.96, 0.95, 0.94, 0.93, 0.92, 0.91, 0.9}
+    int32_t capabilities = 0;
+    int halfMapSize = PWLE_BW_MAP_SIZE / 2;
+    Vibrator::getCapabilities(&capabilities);
+    if (capabilities & IVibrator::CAP_FREQUENCY_CONTROL) {
+        std::vector<float> bandwidthAmplitudeMap(PWLE_BW_MAP_SIZE, PWLE_LEVEL_MAX);
+        for (int i = 0; i < halfMapSize; ++i) {
+            bandwidthAmplitudeMap[halfMapSize + i + 1] =
+                    bandwidthAmplitudeMap[halfMapSize + i] - 0.01;
+            bandwidthAmplitudeMap[halfMapSize - i - 1] =
+                    bandwidthAmplitudeMap[halfMapSize - i] - 0.01;
+        }
+        *_aidl_return = bandwidthAmplitudeMap;
+        return ndk::ScopedAStatus::ok();
+    } else {
+        return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+    }
 }
 
 ndk::ScopedAStatus Vibrator::getPwlePrimitiveDurationMax(int32_t *durationMs) {
@@ -331,7 +479,7 @@ ndk::ScopedAStatus Vibrator::getPwlePrimitiveDurationMax(int32_t *durationMs) {
 }
 
 ndk::ScopedAStatus Vibrator::getPwleCompositionSizeMax(int32_t *maxSize) {
-    *maxSize = kComposePwleSizeMax;
+    *maxSize = COMPOSE_PWLE_SIZE_MAX;
     return ndk::ScopedAStatus::ok();
 }
 
@@ -458,19 +606,131 @@ ndk::ScopedAStatus Vibrator::composePwle(const std::vector<PrimitivePwle> &compo
         }
     }
 
-    std::thread([=] {
-        LOG(INFO) << "Starting composePwle on another thread";
-        usleep(totalDuration * 1000);
-        if (callback != nullptr) {
-            LOG(INFO) << "Notifying compose PWLE complete";
-            callback->onComplete();
-        }
-    }).detach();
+    dispatchVibrate(totalDuration, callback);
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Vibrator::getFrequencyToOutputAccelerationMap(
+        std::vector<FrequencyAccelerationMapEntry>* _aidl_return) {
+    int32_t capabilities = 0;
+    if (!getCapabilities(&capabilities).isOk()) {
+        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+    }
+    if (!(capabilities & IVibrator::CAP_FREQUENCY_CONTROL)) {
+        return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
+    }
+
+    std::vector<FrequencyAccelerationMapEntry> frequencyToOutputAccelerationMap;
+
+    std::vector<std::pair<float, float>> frequencyToOutputAccelerationData = {
+            {30.0f, 0.01f},  {46.0f, 0.09f},  {50.0f, 0.1f},   {55.0f, 0.12f},  {62.0f, 0.66f},
+            {83.0f, 0.82f},  {85.0f, 0.85f},  {92.0f, 1.05f},  {107.0f, 1.63f}, {115.0f, 1.72f},
+            {123.0f, 1.81f}, {135.0f, 2.23f}, {144.0f, 2.47f}, {145.0f, 2.5f},  {150.0f, 3.0f},
+            {175.0f, 2.51f}, {181.0f, 2.41f}, {190.0f, 2.28f}, {200.0f, 2.08f}, {204.0f, 1.96f},
+            {205.0f, 1.9f},  {224.0f, 1.7f},  {235.0f, 1.5f},  {242.0f, 1.46f}, {253.0f, 1.41f},
+            {263.0f, 1.39f}, {65.0f, 1.38f},  {278.0f, 1.37f}, {294.0f, 1.35f}, {300.0f, 1.34f}};
+    for (const auto& entry : frequencyToOutputAccelerationData) {
+        frequencyToOutputAccelerationMap.push_back(
+                FrequencyAccelerationMapEntry(/*frequency=*/entry.first,
+                                              /*maxOutputAcceleration=*/entry.second));
+    }
+
+    *_aidl_return = frequencyToOutputAccelerationMap;
 
     return ndk::ScopedAStatus::ok();
 }
 
-} // namespace vibrator
-} // namespace hardware
-} // namespace android
-} // namespace aidl
+ndk::ScopedAStatus Vibrator::getPwleV2PrimitiveDurationMaxMillis(int32_t* maxDurationMs) {
+    *maxDurationMs = COMPOSE_PWLE_V2_PRIMITIVE_DURATION_MAX_MS;
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Vibrator::getPwleV2CompositionSizeMax(int32_t* maxSize) {
+    *maxSize = COMPOSE_PWLE_V2_SIZE_MAX;
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Vibrator::getPwleV2PrimitiveDurationMinMillis(int32_t* minDurationMs) {
+    *minDurationMs = COMPOSE_PWLE_V2_PRIMITIVE_DURATION_MIN_MS;
+    return ndk::ScopedAStatus::ok();
+}
+
+float getPwleV2FrequencyMinHz(
+        std::vector<FrequencyAccelerationMapEntry> frequencyToOutputAccelerationMap) {
+    if (frequencyToOutputAccelerationMap.empty()) {
+        return 0.0f;
+    }
+
+    float minFrequency = frequencyToOutputAccelerationMap[0].frequencyHz;
+
+    for (const auto& entry : frequencyToOutputAccelerationMap) {
+        if (entry.frequencyHz < minFrequency) {
+            minFrequency = entry.frequencyHz;
+        }
+    }
+
+    return minFrequency;
+}
+
+float getPwleV2FrequencyMaxHz(
+        std::vector<FrequencyAccelerationMapEntry> frequencyToOutputAccelerationMap) {
+    if (frequencyToOutputAccelerationMap.empty()) {
+        return 0.0f;
+    }
+
+    float maxFrequency = frequencyToOutputAccelerationMap[0].frequencyHz;
+
+    for (const auto& entry : frequencyToOutputAccelerationMap) {
+        if (entry.frequencyHz > maxFrequency) {
+            maxFrequency = entry.frequencyHz;
+        }
+    }
+
+    return maxFrequency;
+}
+
+ndk::ScopedAStatus Vibrator::composePwleV2(const CompositePwleV2& composite,
+                                           const std::shared_ptr<IVibratorCallback>& callback) {
+    LOG(VERBOSE) << "Vibrator compose PWLE V2";
+    int32_t capabilities = 0;
+    if (!getCapabilities(&capabilities).isOk()) {
+        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+    }
+    if (!(capabilities & IVibrator::CAP_COMPOSE_PWLE_EFFECTS_V2) ||
+        !(capabilities & IVibrator::CAP_FREQUENCY_CONTROL)) {
+        return ndk::ScopedAStatus(AStatus_fromExceptionCode(EX_UNSUPPORTED_OPERATION));
+    }
+
+    int compositionSizeMax;
+    getPwleV2CompositionSizeMax(&compositionSizeMax);
+    if (composite.pwlePrimitives.empty() || composite.pwlePrimitives.size() > compositionSizeMax) {
+        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
+    }
+
+    int32_t totalEffectDuration = 0;
+    std::vector<FrequencyAccelerationMapEntry> frequencyToOutputAccelerationMap;
+    getFrequencyToOutputAccelerationMap(&frequencyToOutputAccelerationMap);
+    float minFrequency = getPwleV2FrequencyMinHz(frequencyToOutputAccelerationMap);
+    float maxFrequency = getPwleV2FrequencyMaxHz(frequencyToOutputAccelerationMap);
+
+    for (auto& e : composite.pwlePrimitives) {
+        if (e.timeMillis < 0.0f || e.timeMillis > COMPOSE_PWLE_V2_PRIMITIVE_DURATION_MAX_MS) {
+            return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
+        }
+        if (e.amplitude < 0.0f || e.amplitude > 1.0f) {
+            return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
+        }
+        if (e.frequencyHz < minFrequency || e.frequencyHz > maxFrequency) {
+            return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
+        }
+        totalEffectDuration += e.timeMillis;
+    }
+
+    dispatchVibrate(totalEffectDuration, callback);
+    return ndk::ScopedAStatus::ok();
+}
+
+}  // namespace vibrator
+}  // namespace hardware
+}  // namespace android
+}  // namespace aidl
