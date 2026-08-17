@@ -1198,7 +1198,11 @@ int32_t CameraDeviceSessionHwlImpl::processFrameBuffer(ImxStreamBuffer *srcBuf,
     // frame by frame, so re-check it here and switch to OCLCVT when needed.
     bool isZoomIn = (srcBuf->mStream) ? srcBuf->mStream->mZoomRatio > 1.0f : false;
 
-    if (isZoomIn) {
+    // v4l2 may deliver a RAW16 buffer per-frame (still-capture);
+    // so force OCLCVT for RAW16 input.
+    bool isRaw16Convert = (srcBuf->mFormat == HAL_PIXEL_FORMAT_RAW16);
+
+    if (isRaw16Convert || isZoomIn) {
         auto dev = ensureStreamDeviceEngine(streamId, fsl::ENG_OCLCVT);
         if (!dev) {
             ALOGE("%s: failed to get OCLCVT device for stream id %d", __func__, streamId);
@@ -1865,37 +1869,28 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
         auto &factory = fsl::ImageProcessFactory::getInstance();
         uint32_t srcW = mMaxWidth;
         uint32_t srcH = mMaxHeight;
+        // v4l2 base format (NV12/YUV422I), same as HandleIntent(). The v4l2
+        // source can become RAW16 per-frame for still-capture; that case is
+        // handled at runtime in processFrameBuffer(), not here.
+        uint32_t srcFmt = (strcmp(mSensorData.v4l2_format, "nv12") == 0)
+                                   ? HAL_PIXEL_FORMAT_YCbCr_420_SP
+                                   : HAL_PIXEL_FORMAT_YCBCR_422_I;
 
         for (int i = 0; i < stream_num; i++) {
             Stream &stream = pipeline_info->streams->at(i);
             HalStream &halStream = pipeline_info->hal_streams->at(i);
-            uint32_t srcFmt = stream.format;
             uint32_t dstFmt = halStream.override_format;
             uint32_t dstW = stream.width;
             uint32_t dstH = stream.height;
-            if (srcFmt == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED) {
-                if (strcmp(mSensorData.v4l2_format, "nv12") == 0)
-                    srcFmt = HAL_PIXEL_FORMAT_YCbCr_420_SP;
-                else
-                    srcFmt = HAL_PIXEL_FORMAT_YCBCR_422_I;
-            }
-
             if (dstFmt == HAL_PIXEL_FORMAT_BLOB) {
                 dstFmt = srcFmt;
             }
 
-            // Some conversions are static: they only depend on the stream
-            // format and the source/destination resolution, both fixed at
-            // pipeline configuration time.  Decide the engine here:
-            //   - RAW16 source (bggr copy, bggr --> yuv422i, bggr --> nv12).
-            //   - Any resize (src/dst dimensions differ).
-            // Both are handled by OCLCVT, so force that engine at config time.
-            // The only per-frame case left is zoom-in (mZoomRatio > 1.0), which
-            // is handled in processFrameBuffer() via ensureStreamDeviceEngine().
+            // Force OCLCVT for resize; RAW16/zoom cases are handled per-frame
+            // in processFrameBuffer() via ensureStreamDeviceEngine().
             ImxEngine engine = mCamBlitCscType;
-            bool isRaw16Convert = (srcFmt == HAL_PIXEL_FORMAT_RAW16);
             bool needResize = (srcW != dstW || srcH != dstH);
-            if (isRaw16Convert || needResize)
+            if (needResize)
                 engine = fsl::ENG_OCLCVT;
 
             auto device = factory.createDevice(srcFmt, dstFmt, srcW, srcH, dstW, dstH,
