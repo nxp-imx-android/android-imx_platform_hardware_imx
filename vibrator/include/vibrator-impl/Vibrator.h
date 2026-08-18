@@ -20,6 +20,7 @@
 #include <aidl/android/hardware/vibrator/BnVibrator.h>
 #include <android-base/thread_annotations.h>
 #include <cutils/properties.h>
+#include <limits.h>
 
 namespace aidl {
 namespace android {
@@ -92,7 +93,7 @@ class Vibrator : public BnVibrator {
 
     // NXP i.MX brightness sysfs state.
     int mMaxBrightness = -1;
-    char mBrightnessPath[PROPERTY_VALUE_MAX] = {0};
+    char mBrightnessPath[PATH_MAX] = {0};
     double mStrength = VIBRATOR_STRENGTH_MEDIUM;
     bool mBrightnessInited = false;
 

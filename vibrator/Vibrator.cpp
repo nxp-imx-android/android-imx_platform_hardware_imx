@@ -58,17 +58,18 @@ void Vibrator::initBrightness() {
     }
     mBrightnessInited = true;
 
-    // default strength
-    mStrength = VIBRATOR_STRENGTH_MEDIUM;
+    // Do not reset mStrength here: perform() sets mStrength before the first
+    // dispatchVibrate()/initBrightness() call, so resetting it would clobber the
+    // requested LIGHT/STRONG strength with MEDIUM on the first vibration.
 
-    char path[PROPERTY_VALUE_MAX];
-    property_get("vendor.hw.vibrator.dev", path, DEF_VIBRATOR_DEV);
-    strcpy(mBrightnessPath, DEF_VIBRATOR_PATH);
-    strcat(mBrightnessPath, path);
-    // now mBrightnessPath=/sys/class/leds/vibrator  path=vibrator
-    strcpy(path, mBrightnessPath);
-    strcat(mBrightnessPath, "/brightness");
-    strcat(path, "/max_brightness");
+    char dev[PROPERTY_VALUE_MAX];
+    property_get("vendor.hw.vibrator.dev", dev, DEF_VIBRATOR_DEV);
+
+    // Build the sysfs paths with snprintf to avoid overflowing the buffers when
+    // vendor.hw.vibrator.dev holds a long value.
+    char path[PATH_MAX];
+    snprintf(mBrightnessPath, sizeof(mBrightnessPath), "%s%s/brightness", DEF_VIBRATOR_PATH, dev);
+    snprintf(path, sizeof(path), "%s%s/max_brightness", DEF_VIBRATOR_PATH, dev);
     ALOGI("%s:mBrightnessPath:%s    path:%s ", __func__, mBrightnessPath, path);
 
     FILE *file = fopen(path, "r");
