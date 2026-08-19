@@ -42,6 +42,24 @@ struct DisplayChanges {
         compositionChanges->layers.emplace_back(std::move(compositionChange));
     }
 
+    // Request SurfaceFlinger to clear (punch a transparent hole in) the client
+    // target over this layer's region. Used when the layer is composed by a
+    // hardware overlay plane that sits BELOW the client/primary plane (e.g. 8MQ
+    // DCSS), so opaque client-composited UI above it would otherwise cover the
+    // overlay. mask = LayerRequest::CLEAR_CLIENT_TARGET.
+    void addLayerRequest(int64_t displayId, int64_t layerId, int32_t mask) {
+        if (!displayRequestChanges) {
+            displayRequestChanges.emplace();
+            displayRequestChanges->display = displayId;
+            displayRequestChanges->mask = 0;
+        }
+
+        DisplayRequest::LayerRequest layerRequest;
+        layerRequest.layer = layerId;
+        layerRequest.mask = mask;
+        displayRequestChanges->layerRequests.emplace_back(std::move(layerRequest));
+    }
+
     void clearLayerCompositionChanges() { compositionChanges.reset(); }
 
     bool hasAnyChanges() const {

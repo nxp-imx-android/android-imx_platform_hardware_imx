@@ -485,13 +485,27 @@ HWC3::Error ClientFrameComposer::validateDisplay(Display* display, DisplayChange
             common::Rect rectFrame = layer->getDisplayFrame();
             DEBUG_LOG("UI masked rect:left=%d, top=%d, right=%d, bottom=%d", uiMaskedRect.left,
                       uiMaskedRect.top, uiMaskedRect.right, uiMaskedRect.bottom);
-            if (checkRectOverlap(uiMaskedRect, rectFrame) ||
-                client->checkOverlayLimitation(displayId, layer) != HWC3::Error::None ||
-                (composeType != Composition::DEVICE && composeType != Composition::CLIENT)) {
+            auto infoPtr = layer->getBufferInfo();
+            const bool isProtected = infoPtr && (infoPtr->usage & GRALLOC_USAGE_PROTECTED);
+            bool rejectOverlapUI = checkRectOverlap(uiMaskedRect, rectFrame);
+            // A fullscreen background/UI layer rejected earlier poisons uiMaskedRect to
+            // the whole screen; that would cascade-reject secure video via rejectOverlapUI
+            // and force it to CLIENT, where LayerFE blacks out protected content. Only
+            // platforms without a 2D engine (mG2dComposer invalid, e.g. 8MQ) hit this: on
+            // G2D platforms checkMustDeviceComposition() forces protected layers to DEVICE
+            // so they are never blacked out. Restrict the exemption to the no-G2D case to
+            // avoid perturbing overlay/scaler arbitration on DPU/DPU95.
+            if (rejectOverlapUI && isProtected && !mG2dComposer->isValid()) {
+                rejectOverlapUI = false;
+            }
+            bool rejectLimitation = !rejectOverlapUI &&
+                    client->checkOverlayLimitation(displayId, layer) != HWC3::Error::None;
+            bool rejectBadType =
+                    (composeType != Composition::DEVICE && composeType != Composition::CLIENT);
+            if (rejectOverlapUI || rejectLimitation || rejectBadType) {
                 mergeRect(uiMaskedRect, rectFrame);
             } else {
                 auto handle = layer->getBuffer().getBuffer();
-                auto infoPtr = layer->getBufferInfo();
                 auto [error, planeId] = client->getPlaneForLayerBuffer(displayId, handle, infoPtr);
                 if (error == HWC3::Error::None) {
                     layersForOverlay.emplace(planeId, layer);
@@ -499,6 +513,18 @@ HWC3::Error ClientFrameComposer::validateDisplay(Display* display, DisplayChange
                     if (composeType != Composition::DEVICE)
                         outChanges->addLayerCompositionChange(display->getHwcId(), layerId,
                                                               Composition::DEVICE);
+
+                    // The overlay plane composites BELOW the primary/client plane on all
+                    // supported SoCs: DCSS enforces it via immutable plane zpos, while
+                    // DPU/DPU95 rely on flushPrimary programming primary zpos =
+                    // mOverlayMaxZpos + 1. So opaque UI above a protected layer, if
+                    // client-composited, would cover the overlay. Notify SurfaceFlinger to punch a
+                    // transparent hole in the client target so the overlay shows through.
+                    if (isProtected) {
+                        outChanges->addLayerRequest(display->getHwcId(), layerId,
+                                                    DisplayRequest::LayerRequest::
+                                                            CLEAR_CLIENT_TARGET);
+                    }
                     continue;
                 } else {
                     mergeRect(uiMaskedRect, rectFrame);
