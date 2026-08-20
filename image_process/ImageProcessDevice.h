@@ -81,12 +81,6 @@ public:
         return -ENOTSUP;
     }
 
-    // Create a gralloc buffer handle from an ImxImageBuffer.
-    virtual buffer_handle_t createBufferHandle(ImxImageBuffer& imxBuf);
-
-    // Destroy a buffer handle created by createBufferHandle.
-    virtual void destroyBufferHandle(buffer_handle_t buffer);
-
     // Save the format and resolution from the source buffer.
     // @return 0 on success, negative error code on failure.
     virtual int setSrcBufferFormat(ImxImageBuffer* buf) {

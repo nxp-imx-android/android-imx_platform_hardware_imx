@@ -1095,4 +1095,34 @@ int GetUsage(buffer_handle_t handle, uint64_t &usage) {
     return 0;
 }
 
+buffer_handle_t createBufferHandle(ImxImageBuffer& imxBuf) {
+#ifdef USE_MALI
+    ALOGE("%s: no implement in MALI GPU", __func__);
+    return NULL;
+#else
+    void* mem = native_handle_create(GRALLOC_HANDLE_NUM_FDS, GRALLOC_HANDLE_NUM_INTS);
+    if (mem == nullptr) {
+        return nullptr;
+    }
+
+    buffer_handle_t handle =
+            new (mem) gralloc_handle(imxBuf.mFd, imxBuf.mSize, 0, HAL_PIXEL_FORMAT_RGBA_8888,
+                                     imxBuf.mSize / 4, 1, 1, imxBuf.mSize / 4);
+    gralloc_handle_set_phys(handle, imxBuf.mPhyAddr);
+    gralloc_handle_set_base(handle, (uint64_t)imxBuf.mVirtAddr);
+
+    return handle;
+#endif
+}
+
+void destroyBufferHandle(buffer_handle_t buffer) {
+#ifdef USE_MALI
+    ALOGE("%s: no implement in MALI GPU", __func__);
+    return;
+#else
+    if (buffer)
+        free((void*)buffer);
+#endif
+}
+
 } // namespace android

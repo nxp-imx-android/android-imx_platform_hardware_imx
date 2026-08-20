@@ -45,7 +45,6 @@ cc_library_shared {
 
     srcs: [
         "ImageUtils.cpp",
-        "ImageProcessDevice.cpp",
         "G2dDevice.cpp",
         "OclCvtDevice.cpp",
         "CpuDevice.cpp",

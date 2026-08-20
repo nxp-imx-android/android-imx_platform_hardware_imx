@@ -110,6 +110,9 @@ static inline uint32_t unifyNV12Format(uint32_t format) {
             ? HAL_PIXEL_FORMAT_YCbCr_420_888 : format;
 }
 
+buffer_handle_t createBufferHandle(ImxImageBuffer& imxBuf);
+void destroyBufferHandle(buffer_handle_t buffer);
+
 } // namespace android
 
 #endif // IMAGE_UTILS_H
