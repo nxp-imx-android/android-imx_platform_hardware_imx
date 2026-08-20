@@ -2456,7 +2456,12 @@ Status ExternalCameraDeviceSession::OutputThread::allocateIntermediateBuffers(
     for (const auto& stream : streams) {
         Size sz = {stream.width, stream.height};
         Size alignedV4lSize = {ALIGN_PIXEL_16(v4lSize.width), ALIGN_PIXEL_16(v4lSize.height)};
-        if (mUseHardwareDecoder && strstr(socType, "imx95")) {
+        // The mxc-jpeg-dec used on i.MX95/i.MX952 and i.MX937 aligns the decoded width to
+        // 32 pixels and the height to 16 pixels. Use the matching alignment so the
+        // intermediate buffer bookkeeping matches the real decoded frame size
+        // (e.g. 176x144 is decoded to 192x144).
+        if (mUseHardwareDecoder &&
+            (strstr(socType, "imx95") || strstr(socType, "imx937"))) {
             alignedV4lSize = {ALIGN_PIXEL_32(v4lSize.width), ALIGN_PIXEL_16(v4lSize.height)};
         }
         if (sz == alignedV4lSize) {
