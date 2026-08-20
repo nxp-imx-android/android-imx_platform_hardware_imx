@@ -30,8 +30,8 @@ using google_camera_hal::Stream;
 // stream uses memory map buffers which allcated in kernel space.
 class MMAPStream : public VideoStream {
 public:
-    MMAPStream(CameraDeviceSessionHwlImpl *pSession, ImxEngine bufferEngine);
-    MMAPStream(CameraDeviceSessionHwlImpl *pSession, bool mplane, ImxEngine bufferEngine);
+    MMAPStream(CameraDeviceSessionHwlImpl *pSession);
+    MMAPStream(CameraDeviceSessionHwlImpl *pSession, bool mplane);
     virtual ~MMAPStream();
 
     // configure device.
@@ -51,9 +51,6 @@ public:
     virtual int32_t freeBuffersLocked() { return 0; }
 
     uint32_t PickValidFps(int vformat, uint32_t width, uint32_t height, uint32_t requestFps);
-
-protected:
-    std::shared_ptr<fsl::ImageProcessDevice> mBufferDevice;
 };
 
 } // namespace android

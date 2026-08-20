@@ -41,8 +41,8 @@ private:
 
 class ISPCameraMMAPStream : public MMAPStream {
 public:
-    ISPCameraMMAPStream(CameraDeviceSessionHwlImpl *pSession, ImxEngine bufferEngine)
-          : MMAPStream(pSession, bufferEngine) {}
+    ISPCameraMMAPStream(CameraDeviceSessionHwlImpl *pSession)
+          : MMAPStream(pSession) {}
     int32_t createISPWrapper(char *pDevPath, CameraSensorMetadata *pSensorData);
 
     virtual int32_t ISPProcess(void *pMeta, uint32_t format);

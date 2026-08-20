@@ -26,8 +26,8 @@ namespace android {
 // that exports DMABUF handle.
 class DMAStream : public MMAPStream {
 public:
-    DMAStream(CameraDeviceSessionHwlImpl *pSession, ImxEngine bufferEngine);
-    DMAStream(bool mplane, CameraDeviceSessionHwlImpl *pSession, ImxEngine bufferEngine);
+    DMAStream(CameraDeviceSessionHwlImpl *pSession);
+    DMAStream(bool mplane, CameraDeviceSessionHwlImpl *pSession);
     virtual ~DMAStream();
 
     // configure device.

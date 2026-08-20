@@ -26,8 +26,8 @@ using namespace cameraconfigparser;
 
 class UvcStream : public DMAStream {
 public:
-    UvcStream(const char* name, CameraDeviceSessionHwlImpl* pSession, ImxEngine bufferEngine)
-          : DMAStream(pSession, bufferEngine) {
+    UvcStream(const char* name, CameraDeviceSessionHwlImpl* pSession)
+          : DMAStream(pSession) {
         strncpy(mUvcPath, name, CAMAERA_FILENAME_LENGTH - 1);
     }
     virtual ~UvcStream() {}

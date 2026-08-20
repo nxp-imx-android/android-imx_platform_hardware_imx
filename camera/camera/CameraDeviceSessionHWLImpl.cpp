@@ -132,14 +132,14 @@ status_t CameraDeviceSessionHwlImpl::Initialize(uint32_t camera_id,
               mPhysicalIds[i]);
 
         if (strstr(cam_metadata->camera_name, UVC_NAME)) {
-            pVideoStreams[i] = new UvcStream(*mDevPath[i], this, pDev->mCamBlitCopyType);
+            pVideoStreams[i] = new UvcStream(*mDevPath[i], this);
         } else if (strstr(cam_metadata->camera_name, ISP_SENSOR_NAME)) {
-            pVideoStreams[i] = new ISPCameraMMAPStream(this, pDev->mCamBlitCopyType);
+            pVideoStreams[i] = new ISPCameraMMAPStream(this);
             ((ISPCameraMMAPStream *)pVideoStreams[i])->createISPWrapper(*mDevPath[i], &mSensorData);
         } else if (cam_metadata->buffer_type == CameraSensorMetadata::kMmap) {
-            pVideoStreams[i] = new MMAPStream(this, pDev->mCamBlitCopyType);
+            pVideoStreams[i] = new MMAPStream(this);
         } else if (cam_metadata->buffer_type == CameraSensorMetadata::kDma) {
-            pVideoStreams[i] = new DMAStream((bool)cam_metadata->mplane, this, pDev->mCamBlitCopyType);
+            pVideoStreams[i] = new DMAStream((bool)cam_metadata->mplane, this);
         } else {
             ALOGE("%s: unsupported camera %s, or unsupported buffer type %d", __func__,
                   cam_metadata->camera_name, cam_metadata->buffer_type);

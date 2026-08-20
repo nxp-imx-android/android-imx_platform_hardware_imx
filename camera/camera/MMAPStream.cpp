@@ -31,20 +31,18 @@
 
 namespace android {
 
-MMAPStream::MMAPStream(CameraDeviceSessionHwlImpl *pSession, ImxEngine bufferEngine)
+MMAPStream::MMAPStream(CameraDeviceSessionHwlImpl *pSession)
       : VideoStream(pSession) {
     mPlane = false;
     mV4l2MemType = V4L2_MEMORY_MMAP;
-    mBufferDevice = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(bufferEngine);
 }
 
-MMAPStream::MMAPStream(CameraDeviceSessionHwlImpl *pSession, bool mplane, ImxEngine bufferEngine)
+MMAPStream::MMAPStream(CameraDeviceSessionHwlImpl *pSession, bool mplane)
       : VideoStream(pSession) {
     // If driver support V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE, will set mplane as
     // true, else set it as false.
     mPlane = mplane;
     mV4l2MemType = V4L2_MEMORY_MMAP;
-    mBufferDevice = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(bufferEngine);
 }
 
 MMAPStream::~MMAPStream() {}
@@ -244,8 +242,7 @@ int32_t MMAPStream::onDeviceStartLocked() {
         }
 
         memset(mBuffers[i]->mVirtAddr, 0xFF, mBuffers[i]->mSize);
-        if (mBufferDevice)
-            mBuffers[i]->buffer = mBufferDevice->createBufferHandle(*mBuffers[i]);
+        mBuffers[i]->buffer = createBufferHandle(*mBuffers[i]);
 
         ALOGI("%s, register buffer, phy 0x%lx, virt %p, size %d", __func__, mBuffers[i]->mPhyAddr,
               mBuffers[i]->mVirtAddr, (int)mBuffers[i]->mSize);
@@ -304,9 +301,7 @@ err:
             if (mBuffers[i]->mFd > 0)
                 close(mBuffers[i]->mFd);
 
-            if (mBufferDevice)
-                mBufferDevice->destroyBufferHandle(mBuffers[i]->buffer);
-
+            destroyBufferHandle(mBuffers[i]->buffer);
             delete mBuffers[i];
             mBuffers[i] = NULL;
         }
@@ -341,9 +336,7 @@ int32_t MMAPStream::onDeviceStopLocked() {
             if (mBuffers[i]->mFd > 0)
                 close(mBuffers[i]->mFd);
 
-            if (mBufferDevice)
-                mBufferDevice->destroyBufferHandle(mBuffers[i]->buffer);
-
+            destroyBufferHandle(mBuffers[i]->buffer);
             delete mBuffers[i];
             mBuffers[i] = NULL;
         }
