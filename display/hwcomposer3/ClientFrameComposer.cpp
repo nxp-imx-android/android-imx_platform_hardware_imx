@@ -204,6 +204,8 @@ void ClientFrameComposer::hdcpAuthSuccessCallback(int64_t displayId,
         hdcpContext.hdcpThread->setHdcpThreadEnabled(false);
     }
 
+    hdcpContext.hdcpConnected = true;
+
     if (outType == DisplayConnectionType::EXTERNAL) {
         client->setSecureMode(displayId, false);
     }
@@ -231,9 +233,14 @@ HWC3::Error ClientFrameComposer::initHdcpForDisplay(int64_t displayId, int64_t h
     hdcpContext.hdcpThread->start();
     hdcpContext.hdcpThread->setHdcpThreadEnabled(true);
 
-    // Set initial HDCP state
-    bool isPrimary = (connectionType == DisplayConnectionType::INTERNAL);
-    notifyFrameworkHdcpState(displayId, true, isPrimary);
+    // Only the primary display reports an initial state here. For an external
+    // display the levels are still HDCP_NONE at this point (the poll thread has
+    // not read the sink yet) and this runs before onHotplug, so the framework
+    // would drop the notification anyway. The real state is reported from
+    // hdcpAuthSuccessCallback once authentication completes.
+    if (connectionType == DisplayConnectionType::INTERNAL) {
+        notifyFrameworkHdcpState(displayId, true, /* isPrimary */ true);
+    }
 
     return HWC3::Error::None;
 }
@@ -1020,6 +1027,14 @@ HWC3::Error ClientFrameComposer::startHdcpNegotiation(Display* display,
 
     hdcpContext.hdcpThread->getHdcpLevels(curLevels);
 
+    // The probe done at hotplug never authenticated, so curLevels is still
+    // HDCP_NONE and this sink cannot satisfy any request.
+    if (!hdcpContext.hdcpConnected) {
+        ALOGE("%s: display:%d HDCP authentication never succeeded, cannot start negotiation",
+              __FUNCTION__, displayId);
+        return HWC3::Error::Unsupported;
+    }
+
     // Check HDCP level whether meet the requirement from framework
     if (curLevels.connectedLevel < connectedLevel || curLevels.maxLevel > maxLevel) {
         ALOGE("%s: current display doesn't meet the hdcp requirement from framework, "
@@ -1048,9 +1063,11 @@ void ClientFrameComposer::notifyFrameworkHdcpState(int64_t displayId, bool state
         hdcpContext.hdcpThread->getHdcpLevels(curLevels);
         if (!isPrimary) {
             // for external display, hdcp state will be changed according to secure layer.
+            // Dedup is required: presentDisplay calls this on every frame that
+            // has no secure layer.
             if (hdcpContext.hdcpState != state) {
                 hdcpContext.hdcpState = state;
-                (*mHdcpChangedCallback)(hdcpContext.hwcId, hdcpContext.hdcpState, curLevels);
+                (*mHdcpChangedCallback)(hdcpContext.hwcId, state, curLevels);
             }
         } else {
             // for primary display, hdcp will be always on.

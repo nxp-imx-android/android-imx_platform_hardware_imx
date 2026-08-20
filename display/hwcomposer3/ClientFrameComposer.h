@@ -122,7 +122,10 @@ private:
     struct DisplayHdcpContext {
         std::unique_ptr<HDCPThread> hdcpThread;
         DisplayConnectionType connectionType = DisplayConnectionType::INTERNAL;
+        // Last state reported to framework (dedup key), vs. actual link auth
+        // state. Kept separate so a re-negotiation is not swallowed by dedup.
         bool hdcpState = false;
+        bool hdcpConnected = false;
         int64_t hwcId = -1;
     };
 

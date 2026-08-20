@@ -133,6 +133,7 @@ void HDCPThread::updateHdcpLevels(std::string hdcpCap,
 }
 
 HWC3::Error HDCPThread::getHdcpLevels(HdcpLevels& levels) {
+    std::lock_guard<std::mutex> lock(mStateMutex);
     levels.connectedLevel = mLevels.connectedLevel;
     levels.maxLevel = mLevels.maxLevel;
     return HWC3::Error::None;
