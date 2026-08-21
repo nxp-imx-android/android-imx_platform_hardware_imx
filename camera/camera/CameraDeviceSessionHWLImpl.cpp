@@ -1063,6 +1063,9 @@ status_t CameraDeviceSessionHwlImpl::ProcessMultiCapbuf2Outbuf(std::vector<ImxSt
     processFrameBufferMultiSrc(v4l2BufferList, dstBuf, &requestMeta);
     uint64_t t2 = systemTime();
 
+    if (mDebug)
+        ALOGI("%s: processFrameBufferMultiSrc use %lu ms", __func__, (t2-t1)/1000000);
+
     ReleaseImxStreamBuffer(dstBuf);
     return 0;
 }
@@ -1254,12 +1257,14 @@ int32_t CameraDeviceSessionHwlImpl::processFrameBufferMultiSrc(std::vector<ImxSt
         return BAD_VALUE;
     }
 
-    // Use a CPU device to merge the two NV12 frames side by side.
-    auto device = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(fsl::ENG_CPU);
-    if (!device) {
-        ALOGE("%s: failed to create CPU device for MultiSrc merge", __func__);
-        return -ENODEV;
+    int32_t streamId = dstBuf->mStream->id();
+    auto it = mStreamDevices.find(streamId);
+    if (it == mStreamDevices.end() || !it->second) {
+        ALOGE("%s: no image process device for stream id %d", __func__, streamId);
+        return -EINVAL;
     }
+
+    std::shared_ptr<fsl::ImageProcessDevice> &device = it->second;
 
     ImxImageBuffer srcImgA, srcImgB, dstImg;
     memset(&srcImgA, 0, sizeof(srcImgA));
@@ -1892,6 +1897,8 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
             bool needResize = (srcW != dstW || srcH != dstH);
             if (needResize)
                 engine = fsl::ENG_OCLCVT;
+            else if (is_logical_device_ && (stream.is_physical_camera_stream == false))
+                engine = fsl::ENG_CPU;
 
             auto device = factory.createDevice(srcFmt, dstFmt, srcW, srcH, dstW, dstH,
                                                engine);
