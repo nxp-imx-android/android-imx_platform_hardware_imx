@@ -20,6 +20,7 @@
 
 #include <EleOperation.h>
 #include <signal.h>
+#include <string.h>
 
 static const char ele_nvmd_path[] = "/data/vendor/ele/";
 static const char ele_nvm_master_name[] = "/data/vendor/ele/master";
@@ -95,8 +96,43 @@ static int nvm_manager() {
     return ret;
 }
 
-int main(/*int argc, char *argv[]*/) {
+/*
+ * The kernel loads the ELE run-time firmware lazily, on the first message
+ * carrying the HSM API version. Opening the device node is not enough since it
+ * only issues a plain GET_MU_INFO ioctl, so a session open is the minimal
+ * operation triggering the load. No file system access is involved, thus this
+ * can run long before /data is mounted.
+ */
+static int trigger_fw_load() {
+    EleOperation ops(MU_CHANNEL_PLAT_HSM);
+
+    if (ops.eleOpenDeviceNode() != ELE_NO_ERROR) {
+        ALOGE("Failed to open ELE device node!");
+        return GENERAL_FAILURE;
+    }
+
+    if (ops.eleOpenSession() != ELE_NO_ERROR) {
+        ALOGE("Failed to open ELE session!");
+        return GENERAL_FAILURE;
+    }
+
+    if (ops.eleCloseSession() != ELE_NO_ERROR) {
+        ALOGE("Failed to close ELE session!");
+        return GENERAL_FAILURE;
+    }
+
+    ALOGI("ELE run-time FW load triggered.");
+
+    return GENERAL_SUCCESS;
+}
+
+int main(int argc, char *argv[]) {
     struct sigaction action = {};
+
+    /* Only trigger the ELE run-time FW load then exit */
+    if (argc > 1 && !strcmp(argv[1], "--trigger-fw")) {
+        return trigger_fw_load();
+    }
 
     /* Register exit handler */
     action.sa_handler = daemon_exit;

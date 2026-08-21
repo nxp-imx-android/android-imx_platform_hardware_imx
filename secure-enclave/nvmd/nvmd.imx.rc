@@ -3,3 +3,9 @@ service nvmd /vendor/bin/hw/nvmd
     group system
     disabled
     oneshot
+
+service ele_fw_trigger /vendor/bin/hw/nvmd --trigger-fw
+    user system
+    group system
+    disabled
+    oneshot
