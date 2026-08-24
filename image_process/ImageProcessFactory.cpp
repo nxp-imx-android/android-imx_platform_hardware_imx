@@ -170,7 +170,8 @@ std::shared_ptr<ImageProcessDevice> ImageProcessFactory::createDevice(
         engine = mDeviceEntries[resolvedIndex].engine;
     }
 
-    CacheKey key(srcFormat, dstFormat, srcWidth, srcHeight, dstWidth, dstHeight, engine);
+    CacheKey key = (engine != ENG_OCLCVT) ? CacheKey(0, 0, 0, 0, 0, 0, engine) :
+        CacheKey(srcFormat, dstFormat, srcWidth, srcHeight, dstWidth, dstHeight, engine);
 
     // Return a cached device when the parameters match a previous call.
     auto cached = lookupCache(key);
@@ -212,8 +213,11 @@ std::shared_ptr<ImageProcessDevice> ImageProcessFactory::createDevice(
                 device = mDeviceEntries[index].creator();
                 // Update the key to reflect the actual engine selected by the fallback,
                 // so the cached entry engine matches the device that was created.
-                key = CacheKey(srcFormat, dstFormat, srcWidth, srcHeight, dstWidth, dstHeight,
-                            mDeviceEntries[index].engine);
+                if (mDeviceEntries[index].engine != ENG_OCLCVT)
+                    key = CacheKey(0, 0, 0, 0, 0, 0, mDeviceEntries[index].engine);
+                else
+                    key = CacheKey(srcFormat, dstFormat, srcWidth, srcHeight, dstWidth, dstHeight,
+                                mDeviceEntries[index].engine);
             }
         }
     }
