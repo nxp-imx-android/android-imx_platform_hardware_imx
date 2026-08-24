@@ -1887,15 +1887,21 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
             uint32_t dstFmt = halStream.override_format;
             uint32_t dstW = stream.width;
             uint32_t dstH = stream.height;
+            bool isJpeg = (dstFmt == HAL_PIXEL_FORMAT_BLOB);
             if (dstFmt == HAL_PIXEL_FORMAT_BLOB) {
                 dstFmt = srcFmt;
             }
 
             // Force OCLCVT for resize; RAW16/zoom cases are handled per-frame
             // in processFrameBuffer() via ensureStreamDeviceEngine().
+            // The JPEG/BLOB stream device is also reused as the resize engine
+            // during JPEG encoding (encodeJpeg), which always downscales the
+            // thumbnail (e.g. 1920x1080 -> 320x240).
+            // i.MX8MP g2d cannot resize NV12, so force OCLCVT for JPEG streams
+            // even when the main image itself does not need a resize.
             ImxEngine engine = mCamBlitCscType;
             bool needResize = (srcW != dstW || srcH != dstH);
-            if (needResize)
+            if (needResize || isJpeg)
                 engine = fsl::ENG_OCLCVT;
             else if (is_logical_device_ && (stream.is_physical_camera_stream == false))
                 engine = fsl::ENG_CPU;
