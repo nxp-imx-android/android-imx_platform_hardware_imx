@@ -368,7 +368,6 @@ private:
 
     std::unique_ptr<HalCameraMetadata> mSettings;
 
-    std::map<int32_t, std::shared_ptr<fsl::ImageProcessDevice>> mStreamDevices;
     ImxEngine mCamBlitCscType = ENG_NOTCARE;
     char mJpegHw[JPEG_HW_NAME_LEN] = {0};
     CameraSensorMetadata mSensorData;

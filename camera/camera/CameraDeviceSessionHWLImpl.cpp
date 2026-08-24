@@ -1157,31 +1157,6 @@ status_t CameraDeviceSessionHwlImpl::ProcessCapbuf2MultiOutbuf(
     return ret;
 }
 
-std::shared_ptr<fsl::ImageProcessDevice> CameraDeviceSessionHwlImpl::ensureStreamDeviceEngine(
-        int32_t streamId, fsl::ImxEngine engine) {
-    auto it = mStreamDevices.find(streamId);
-    if (it == mStreamDevices.end() || !it->second) {
-        ALOGE("%s: no image process device for stream id %d", __func__, streamId);
-        return nullptr;
-    }
-
-    if (it->second->getEngine() == engine)
-        return it->second;
-
-    ALOGI("%s: stream id %d needs engine %d, current device '%s' has engine %d, recreating",
-          __func__, streamId, engine, it->second->getName(), it->second->getEngine());
-
-    auto dev = fsl::ImageProcessFactory::getInstance().createDeviceByEngine(engine);
-    if (!dev) {
-        ALOGE("%s: failed to create device with engine %d for stream id %d", __func__, engine,
-              streamId);
-        return nullptr;
-    }
-
-    it->second = dev;
-    return dev;
-}
-
 int32_t CameraDeviceSessionHwlImpl::processFrameBuffer(ImxStreamBuffer *srcBuf,
                                                        ImxStreamBuffer *dstBuf,
                                                        CameraMetadata *meta) {
@@ -1190,12 +1165,8 @@ int32_t CameraDeviceSessionHwlImpl::processFrameBuffer(ImxStreamBuffer *srcBuf,
         return BAD_VALUE;
     }
 
-    int32_t streamId = dstBuf->mStream->id();
-    auto it = mStreamDevices.find(streamId);
-    if (it == mStreamDevices.end() || !it->second) {
-        ALOGE("%s: no image process device for stream id %d", __func__, streamId);
-        return -EINVAL;
-    }
+
+    bool needResize = ((srcBuf->mWidth != dstBuf->mWidth) || (srcBuf->mHeight != dstBuf->mHeight));
 
     // zoom-in is dynamic: mZoomRatio can change
     // frame by frame, so re-check it here and switch to OCLCVT when needed.
@@ -1205,15 +1176,23 @@ int32_t CameraDeviceSessionHwlImpl::processFrameBuffer(ImxStreamBuffer *srcBuf,
     // so force OCLCVT for RAW16 input.
     bool isRaw16Convert = (srcBuf->mFormat == HAL_PIXEL_FORMAT_RAW16);
 
-    if (isRaw16Convert || isZoomIn) {
-        auto dev = ensureStreamDeviceEngine(streamId, fsl::ENG_OCLCVT);
-        if (!dev) {
-            ALOGE("%s: failed to get OCLCVT device for stream id %d", __func__, streamId);
-            return -ENODEV;
-        }
+
+    ImxEngine engine;
+    if (isRaw16Convert || isZoomIn || needResize)
+        engine = fsl::ENG_OCLCVT;
+    else
+        engine = mCamBlitCscType;
+
+    auto &factory = fsl::ImageProcessFactory::getInstance();
+    auto dev = factory.createDevice(srcBuf->mFormat, dstBuf->mFormat,
+        srcBuf->mWidth, srcBuf->mHeight, dstBuf->mWidth, dstBuf->mHeight, engine);
+    if (!dev) {
+        ALOGE("%s: failed to create device, isRaw16Convert %d, isZoomIn %d, needResize %d, engine %d",
+            __func__, isRaw16Convert, isZoomIn, needResize, engine);
+        return -ENODEV;
     }
 
-    return convertImage(it->second, *dstBuf, *srcBuf);
+    return convertImage(dev, *dstBuf, *srcBuf);
 }
 
 int32_t CameraDeviceSessionHwlImpl::convertImage(std::shared_ptr<fsl::ImageProcessDevice> &device,
@@ -1257,15 +1236,6 @@ int32_t CameraDeviceSessionHwlImpl::processFrameBufferMultiSrc(std::vector<ImxSt
         return BAD_VALUE;
     }
 
-    int32_t streamId = dstBuf->mStream->id();
-    auto it = mStreamDevices.find(streamId);
-    if (it == mStreamDevices.end() || !it->second) {
-        ALOGE("%s: no image process device for stream id %d", __func__, streamId);
-        return -EINVAL;
-    }
-
-    std::shared_ptr<fsl::ImageProcessDevice> &device = it->second;
-
     ImxImageBuffer srcImgA, srcImgB, dstImg;
     memset(&srcImgA, 0, sizeof(srcImgA));
     memset(&srcImgB, 0, sizeof(srcImgB));
@@ -1279,8 +1249,16 @@ int32_t CameraDeviceSessionHwlImpl::processFrameBufferMultiSrc(std::vector<ImxSt
     srcImgB.mFormat = unifyNV12Format(srcImgB.mFormat);
     dstImg.mFormat  = unifyNV12Format(dstImg.mFormat);
 
-    device->setDebug(mDebug);
-    int ret = device->convertMultiSrc(dstImg, srcImgA, srcImgB);
+    auto &factory = fsl::ImageProcessFactory::getInstance();
+    auto dev = factory.createDevice(srcImgA.mFormat, dstImg.mFormat,
+                  srcImgA.mWidth, srcImgA.mHeight, dstImg.mWidth, dstImg.mHeight, ENG_CPU);
+    if (!dev) {
+        ALOGE("%s: failed to create ENG_CPU device for merge", __func__);
+        return -ENODEV;
+    }
+
+    dev->setDebug(mDebug);
+    int ret = dev->convertMultiSrc(dstImg, srcImgA, srcImgB);
     if (ret != 0)
         ALOGE("%s: convertMultiSrc failed, ret=%d", __func__, ret);
 
@@ -1423,12 +1401,8 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
             ALOGE("%s: dstBuf->mStream is null", __func__);
             return BAD_VALUE;
         }
-        int32_t streamId = dstBuf->mStream->id();
-        auto dev = ensureStreamDeviceEngine(streamId, fsl::ENG_OCLCVT);
-        if (!dev) {
-            ALOGE("%s: failed to get OCLCVT device for stream id %d", __func__, streamId);
-            return -ENODEV;
-        }
+
+        auto &factory = fsl::ImageProcessFactory::getInstance();
 
         // The resolution keeps same for case RAW16->YUYV and case zoom in.
         // Use "resizeBuf" due to code unification.
@@ -1459,6 +1433,13 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
             dstImg.mStride = srcBuf->mWidth;
             dstImg.mHeightSpan = srcBuf->mHeight;
 
+            auto dev = factory.createDevice(srcImg.mFormat, dstImg.mFormat,
+              srcImg.mWidth, srcImg.mHeight, dstImg.mWidth, dstImg.mHeight, ENG_OCLCVT);
+            if (!dev) {
+                ALOGE("%s: failed to create OCLCVT device for raw convert", __func__);
+                return -ENODEV;
+            }
+
             dev->setDebug(mDebug);
             ret = dev->convert(dstImg, srcImg);
             if (ret != 0) {
@@ -1483,6 +1464,13 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
             }
 
             resizeBuf.mStream = srcBuf->mStream;
+            auto dev = factory.createDevice(srcBuf->mFormat, resizeBuf.mFormat,
+              srcBuf->mWidth, srcBuf->mHeight, resizeBuf.mWidth, resizeBuf.mHeight, ENG_OCLCVT);
+            if (!dev) {
+                ALOGE("%s: failed to create OCLCVT device for zoom in", __func__);
+                return -ENODEV;
+            }
+
             convertImage(dev, resizeBuf, *srcBuf);
 
             SwitchImxBuf(*srcBuf, resizeBuf);
@@ -1510,13 +1498,7 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
                                    thumbWidth, thumbHeight, encodFormat);
     }
 
-    {
-        int32_t streamId = dstBuf->mStream->id();
-        auto devIt = mStreamDevices.find(streamId);
-        auto jpegResizeDevice = (devIt != mStreamDevices.end()) ? devIt->second : nullptr;
-        ret = mJpegBuilder->encodeImage(mainJpeg, thumbJpeg, mJpegHw, (*meta), mDebug,
-                                        jpegResizeDevice);
-    }
+    ret = mJpegBuilder->encodeImage(mainJpeg, thumbJpeg, mJpegHw, (*meta), mDebug, nullptr);
     if (ret != NO_ERROR) {
         ALOGE("%s encodeImage failed", __func__);
         goto err_out;
@@ -1869,67 +1851,6 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
     map_pipeline_info[pipeline_id_] = pipeline_info;
     pipeline_id_++;
 
-    // Create per-stream image process devices via factory
-    {
-        auto &factory = fsl::ImageProcessFactory::getInstance();
-        uint32_t srcW = mMaxWidth;
-        uint32_t srcH = mMaxHeight;
-        // v4l2 base format (NV12/YUV422I), same as HandleIntent(). The v4l2
-        // source can become RAW16 per-frame for still-capture; that case is
-        // handled at runtime in processFrameBuffer(), not here.
-        uint32_t srcFmt = (strcmp(mSensorData.v4l2_format, "nv12") == 0)
-                                   ? HAL_PIXEL_FORMAT_YCbCr_420_SP
-                                   : HAL_PIXEL_FORMAT_YCBCR_422_I;
-
-        for (int i = 0; i < stream_num; i++) {
-            Stream &stream = pipeline_info->streams->at(i);
-            HalStream &halStream = pipeline_info->hal_streams->at(i);
-            uint32_t dstFmt = halStream.override_format;
-            uint32_t dstW = stream.width;
-            uint32_t dstH = stream.height;
-            bool isJpeg = (dstFmt == HAL_PIXEL_FORMAT_BLOB);
-            if (dstFmt == HAL_PIXEL_FORMAT_BLOB) {
-                dstFmt = srcFmt;
-            }
-
-            // Force OCLCVT for resize; RAW16/zoom cases are handled per-frame
-            // in processFrameBuffer() via ensureStreamDeviceEngine().
-            // The JPEG/BLOB stream device is also reused as the resize engine
-            // during JPEG encoding (encodeJpeg), which always downscales the
-            // thumbnail (e.g. 1920x1080 -> 320x240).
-            // i.MX8MP g2d cannot resize NV12, so force OCLCVT for JPEG streams
-            // even when the main image itself does not need a resize.
-            ImxEngine engine = mCamBlitCscType;
-            bool needResize = (srcW != dstW || srcH != dstH);
-            if (needResize || isJpeg)
-                engine = fsl::ENG_OCLCVT;
-            else if (is_logical_device_ && (stream.is_physical_camera_stream == false))
-                engine = fsl::ENG_CPU;
-
-            auto device = factory.createDevice(srcFmt, dstFmt, srcW, srcH, dstW, dstH,
-                                               engine);
-
-            if (device) {
-                ImxImageBuffer srcImg = {};
-                srcImg.mFormat = srcFmt;
-                srcImg.mWidth = srcW;
-                srcImg.mHeight = srcH;
-                device->setSrcBufferFormat(&srcImg);
-
-                ImxImageBuffer dstImg = {};
-                dstImg.mFormat = dstFmt;
-                dstImg.mWidth = dstW;
-                dstImg.mHeight = dstH;
-                device->setDstBufferFormat(&dstImg);
-            }
-
-            mStreamDevices[stream.id] = device;
-            ALOGI("%s: stream id %d (%dx%d fmt 0x%x -> %dx%d fmt 0x%x), device '%s'", __func__,
-                  stream.id, srcW, srcH, srcFmt, dstW, dstH, dstFmt,
-                  device ? device->getName() : "null");
-        }
-    }
-
     return OK;
 }
 
@@ -2115,7 +2036,6 @@ void CameraDeviceSessionHwlImpl::DestroyPipelines() {
     }
 
     map_pipeline_info.clear();
-    mStreamDevices.clear();
     pipelines_built_ = false;
 }
 
