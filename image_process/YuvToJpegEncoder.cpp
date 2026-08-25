@@ -43,11 +43,21 @@ YuvToJpegEncoder::YuvToJpegEncoder(int format)
       : fNumPlanes(1),
         color(1),
         mPixelFormat(format),
+        mStride(0),
         mDebug(false) {}
 
 int YuvToJpegEncoder::encode(void *inYuv, int quality, void *outBuf, int outSize, int outWidth,
-                             int outHeight, const void *app1Buffer, size_t app1Size, bool debug) {
+                             int outHeight, const void *app1Buffer, size_t app1Size, bool debug,
+                             int inStride) {
     mDebug = debug;
+    // When the caller does not know/need the stride, fall back to packed layout
+    // (line stride == width). Otherwise honor the real source stride so padded
+    // buffers (e.g. 64-aligned G2D/DPU resize targets) are read correctly.
+    mStride = (inStride > 0) ? inStride : outWidth;
+    if (mDebug)
+        ALOGI("%s: outWidth=%d outHeight=%d inStride=%d mStride=%d", __func__, outWidth, outHeight,
+              inStride, mStride);
+
     jpeg_compress_struct cinfo;
     jpegBuilder_error_mgr sk_err;
     jpegBuilder_destination_mgr dest_mgr((uint8_t *)outBuf, outSize);
@@ -117,26 +127,26 @@ void Yuv420SpToJpegEncoder::compress(jpeg_compress_struct *cinfo, uint8_t *yuv) 
 
     int width = cinfo->image_width;
     int height = cinfo->image_height;
+    int stride = (mStride > 0) ? mStride : width;
     uint8_t *yPlanar = yuv;
-    uint8_t *vuPlanar = yuv + width * height;
+    uint8_t *vuPlanar = yuv + stride * height;
     uint8_t *uRows = new uint8_t[8 * (width >> 1)];
     uint8_t *vRows = new uint8_t[8 * (width >> 1)];
     int processLines = DEINTERLEAVE_LINES_ONE_TIME;
 
     int scanCount = 0;
     if (mDebug)
-        ALOGI("%s: before scan line", __func__);
+        ALOGI("%s: before scan line, width=%d height=%d stride=%d", __func__, width, height, stride);
 
     // process 16 lines of Y and 8 lines of U/V each time.
     while (cinfo->next_scanline < cinfo->image_height) {
         if (cinfo->next_scanline + DEINTERLEAVE_LINES_ONE_TIME > cinfo->image_height)
             processLines = cinfo->image_height - cinfo->next_scanline;
-        // deitnerleave u and v
-        deinterleave(vuPlanar, uRows, vRows, cinfo->next_scanline, width, height, processLines);
+        deinterleave(vuPlanar, uRows, vRows, cinfo->next_scanline, width, height, processLines,
+                     stride);
 
         for (int i = 0; i < processLines; i++) {
-            // y row
-            y[i] = yPlanar + (cinfo->next_scanline + i) * width;
+            y[i] = yPlanar + (cinfo->next_scanline + i) * stride;
 
             // construct u row and v row
             if ((i & 1) == 0) {
@@ -158,14 +168,17 @@ void Yuv420SpToJpegEncoder::compress(jpeg_compress_struct *cinfo, uint8_t *yuv) 
 }
 
 void Yuv420SpToJpegEncoder::deinterleave(uint8_t *vuPlanar, uint8_t *uRows, uint8_t *vRows,
-                                         int rowIndex, int width, int height, int processLines) {
+                                         int rowIndex, int width, int height, int processLines,
+                                         int stride) {
     for (int row = 0; row < processLines / 2; ++row) {
         int hoff = (rowIndex >> 1) + row;
         if (hoff >= (height >> 1)) {
             return;
         }
-        int offset = hoff * width;
+        // Chroma rows share the Y-plane line pitch (stride), not width.
+        int offset = hoff * stride;
         uint8_t *vu = vuPlanar + offset;
+
         for (int i = 0; i < (width >> 1); ++i) {
             int index = row * (width >> 1) + i;
             uRows[index] = vu[0];
@@ -209,6 +222,7 @@ void Yuv422IToJpegEncoder::compress(jpeg_compress_struct *cinfo, uint8_t *yuv) {
 
     int width = cinfo->image_width;
     int height = cinfo->image_height;
+    int stride = (mStride > 0) ? mStride : width;
     uint8_t *yRows = new uint8_t[16 * width];
     uint8_t *uRows = new uint8_t[16 * (width >> 1)];
     uint8_t *vRows = new uint8_t[16 * (width >> 1)];
@@ -218,14 +232,14 @@ void Yuv422IToJpegEncoder::compress(jpeg_compress_struct *cinfo, uint8_t *yuv) {
 
     int scanCount = 0;
     if (mDebug)
-        ALOGI("%s: before scan line", __func__);
+        ALOGI("%s: before scan line, width=%d height=%d stride=%d", __func__, width, height, stride);
 
     // process 16 lines of Y and 16 lines of U/V each time.
     while (cinfo->next_scanline < cinfo->image_height) {
         if (cinfo->next_scanline + DEINTERLEAVE_LINES_ONE_TIME > cinfo->image_height)
             processLines = cinfo->image_height - cinfo->next_scanline;
         deinterleave(yuvOffset, yRows, uRows, vRows, cinfo->next_scanline, width, height,
-                     processLines);
+                     processLines, stride);
 
         for (int i = 0; i < processLines; i++) {
             // y row
@@ -252,9 +266,11 @@ void Yuv422IToJpegEncoder::compress(jpeg_compress_struct *cinfo, uint8_t *yuv) {
 
 void Yuv422IToJpegEncoder::deinterleave(uint8_t *yuv, uint8_t *yRows, uint8_t *uRows,
                                         uint8_t *vRows, int rowIndex, int width, int /*height*/,
-                                        int processLines) {
+                                        int processLines, int stride) {
     for (int row = 0; row < processLines; ++row) {
-        uint8_t *yuvSeg = yuv + (rowIndex + row) * width * 2;
+        // YUYV: 2 bytes per pixel, so each source line spans stride*2 bytes.
+        uint8_t *yuvSeg = yuv + (rowIndex + row) * stride * 2;
+
         for (int i = 0; i < (width >> 1); ++i) {
             int indexY = row * width + (i << 1);
             int indexU = row * (width >> 1) + i;
@@ -296,8 +312,9 @@ void Yuv422SpToJpegEncoder::compress(jpeg_compress_struct *cinfo, uint8_t *yuv) 
 
     int width = cinfo->image_width;
     int height = cinfo->image_height;
+    int stride = (mStride > 0) ? mStride : width;
     uint8_t *yPlanar = yuv;
-    uint8_t *vuPlanar = yuv + width * height;
+    uint8_t *vuPlanar = yuv + stride * height;
     uint8_t *yRows = new uint8_t[16 * width];
     uint8_t *uRows = new uint8_t[16 * (width >> 1)];
     uint8_t *vRows = new uint8_t[16 * (width >> 1)];
@@ -306,17 +323,18 @@ void Yuv422SpToJpegEncoder::compress(jpeg_compress_struct *cinfo, uint8_t *yuv) 
 
     int scanCount = 0;
     if (mDebug)
-        ALOGI("%s: before scan line", __func__);
+        ALOGI("%s: before scan line, width=%d height=%d stride=%d", __func__, width, height, stride);
 
     // process 16 lines of Y and 16 lines of U/V each time.
     while (cinfo->next_scanline < cinfo->image_height) {
         if (cinfo->next_scanline + DEINTERLEAVE_LINES_ONE_TIME > cinfo->image_height)
             processLines = cinfo->image_height - cinfo->next_scanline;
-        deinterleave(vuPlanar, uRows, vRows, cinfo->next_scanline, width, height, processLines);
+        deinterleave(vuPlanar, uRows, vRows, cinfo->next_scanline, width, height, processLines,
+                     stride);
 
         for (int i = 0; i < processLines; i++) {
             // y row
-            y[i] = yPlanar + (cinfo->next_scanline + i) * width;
+            y[i] = yPlanar + (cinfo->next_scanline + i) * stride;
 
             // construct u row and v row
             // width is halved because of downsampling
@@ -337,9 +355,13 @@ void Yuv422SpToJpegEncoder::compress(jpeg_compress_struct *cinfo, uint8_t *yuv) 
 }
 
 void Yuv422SpToJpegEncoder::deinterleave(uint8_t *vuPlanar, uint8_t *uRows, uint8_t *vRows,
-                                         int rowIndex, int width, int height, int processLines) {
+                                         int rowIndex, int width, int height, int processLines,
+                                         int stride) {
+    // 4:2:2 sampling requires an even width, so (width >> 1) is exact.
     for (int row = 0; row < processLines; ++row) {
-        uint8_t *uvSrc = vuPlanar + (rowIndex + row) * width;
+        // Chroma rows share the Y-plane line pitch (stride), not width.
+        uint8_t *uvSrc = vuPlanar + (rowIndex + row) * stride;
+
         for (int i = 0; i < (width >> 1); ++i) {
             int indexU = row * (width >> 1) + i;
             uRows[indexU] = uvSrc[i * 2];

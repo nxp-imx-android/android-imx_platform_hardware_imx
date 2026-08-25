@@ -36,7 +36,7 @@ HwJpegEncoder::HwJpegEncoder(int format) : YuvToJpegEncoder(format) {
 
 int HwJpegEncoder::encode(void *inYuv, int quality __unused, void *outBuf, int outSize __unused,
                           int outWidth, int outHeight, const void *app1Buffer __unused,
-                          size_t app1Size __unused, bool debug) {
+                          size_t app1Size __unused, bool debug, int inStride) {
     struct encoder_args encoder_parameter;
 
     struct v4l2_buffer bufferin;
@@ -46,7 +46,20 @@ int HwJpegEncoder::encode(void *inYuv, int quality __unused, void *outBuf, int o
 
     encoder_parameter.width = outWidth;
     encoder_parameter.height = outHeight;
+    // Source line pitch. Equals width for packed buffers; may be larger for
+    // padded/aligned buffers (e.g. 64-aligned G2D/DPU resize targets). The
+    // padding is stripped when copying into the packed V4L2 input buffer.
+    encoder_parameter.stride = (inStride > 0) ? inStride : outWidth;
+    if (debug)
+        ALOGI("%s: outWidth=%d outHeight=%d inStride=%d stride=%d", __func__, outWidth, outHeight,
+              inStride, encoder_parameter.stride);
     get_out_buffer_size(&encoder_parameter, mFormat);
+    if (encoder_parameter.size == 0) {
+        // Unsupported format: get_out_buffer_size() could not compute a size, so
+        // bail out instead of proceeding with a zero/invalid input buffer.
+        ALOGE("%s: unsupported format 0x%x, abort encode", __func__, mFormat);
+        goto failed;
+    }
 
     err = onEncoderConfig(&encoder_parameter, (char *)inYuv, &bufferin, &bufferout);
     if (err < 0) {
@@ -106,6 +119,10 @@ void HwJpegEncoder::get_out_buffer_size(struct encoder_args *ec_args, int fmt) {
             ec_args->size = ec_args->width * ec_args->height * 3 / 2;
             break;
         default:
+            // Unsupported format: leave a well-defined size of 0 so the caller
+            // can detect the failure and bail out instead of proceeding with a
+            // stale/uninitialized size (which would risk an out-of-bounds copy).
+            ec_args->size = 0;
             ALOGE("%s unsupport format %d", __func__, fmt);
     }
 }
@@ -251,9 +268,61 @@ int HwJpegEncoder::onEncoderConfig(struct encoder_args *ea, char *srcbuf,
     /*
      * fill output buffer with the contents of the input raw file
      * the output buffer is given to the device for processing,
-     * typically for display, hence the name "output", encoding in this case
+     * typically for display, hence the name "output", encoding in this case.
+     *
+     * The V4L2 input buffer expects a packed layout (line pitch == width).
+     * When the source buffer is padded/aligned (ea->stride > ea->width, e.g. a
+     * 64-aligned G2D/DPU resize target: 160 -> 192), the per-line padding must
+     * be dropped, otherwise each line is shifted and the encoded image shows
+     * diagonal stripes.
      */
-    memcpy((char *)mBufferInStart[0], (char *)srcbuf, ea->size);
+    if (ea->stride > ea->width) {
+        char *dst = (char *)mBufferInStart[0];
+        char *src = (char *)srcbuf;
+        int width = ea->width;
+        int height = ea->height;
+        int srcStride = ea->stride;
+
+        switch (mFormat) {
+            case V4L2_PIX_FMT_YUYV: {
+                // Single plane, 2 bytes per pixel.
+                int dstLine = width * 2;
+                int srcLine = srcStride * 2;
+                for (int row = 0; row < height; row++)
+                    memcpy(dst + row * dstLine, src + row * srcLine, dstLine);
+                break;
+            }
+            case V4L2_PIX_FMT_YUV24: {
+                // Single plane, 3 bytes per pixel.
+                int dstLine = width * 3;
+                int srcLine = srcStride * 3;
+                for (int row = 0; row < height; row++)
+                    memcpy(dst + row * dstLine, src + row * srcLine, dstLine);
+                break;
+            }
+            case V4L2_PIX_FMT_NV12: {
+                // Y plane: height rows at 1 byte per pixel.
+                // Interleaved UV plane: height/2 rows at 1 byte per pixel.
+                // Both planes share the same line pitch (srcStride).
+                char *srcY = src;
+                char *dstY = dst;
+                for (int row = 0; row < height; row++)
+                    memcpy(dstY + row * width, srcY + row * srcStride, width);
+
+                char *srcUV = src + srcStride * height;
+                char *dstUV = dst + width * height;
+                for (int row = 0; row < height / 2; row++)
+                    memcpy(dstUV + row * width, srcUV + row * srcStride, width);
+                break;
+            }
+            default:
+                ALOGE("%s: unsupported format %d for strided copy, fallback to packed", __func__,
+                      mFormat);
+                memcpy(dst, src, ea->size);
+        }
+    } else {
+        memcpy((char *)mBufferInStart[0], (char *)srcbuf, ea->size);
+    }
 
     return 0;
 failed:

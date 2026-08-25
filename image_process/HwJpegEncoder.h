@@ -26,6 +26,7 @@ struct encoder_args {
     int height;
     int fourcc;
     int size;
+    int stride;
 };
 
 class HwJpegEncoder : public YuvToJpegEncoder {
@@ -33,7 +34,7 @@ public:
     HwJpegEncoder(int format);
 
     int encode(void *inYuv, int quality, void *outBuf, int outSize, int outWidth, int outHeight,
-               const void *app1Buffer, size_t app1Size, bool debug = false);
+               const void *app1Buffer, size_t app1Size, bool debug = false, int inStride = 0);
 
     int mFormat;
 

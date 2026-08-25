@@ -56,9 +56,16 @@ public:
     YuvToJpegEncoder(int format);
 
     /** Encode YUV data to jpeg,  which is output to a stream.
+     *
+     * inStride is the source buffer line stride in pixels. Pass 0 (default) when
+     * the source is tightly packed (line stride == outWidth). When the source
+     * buffer is padded/aligned (e.g. a G2D/DPU resize target whose stride is
+     * 64-aligned), the real stride must be provided so the encoder reads each
+     * line at the correct pitch instead of assuming stride == width.
      */
     virtual int encode(void *inYuv, int quality, void *outBuf, int outSize, int outWidth,
-                       int outHeight, const void *app1Buffer, size_t app1Size, bool debug = false);
+                       int outHeight, const void *app1Buffer, size_t app1Size, bool debug = false,
+                       int inStride = 0);
 
     virtual ~YuvToJpegEncoder() {}
 
@@ -66,6 +73,9 @@ protected:
     int fNumPlanes;
     int color;
     int mPixelFormat;
+    // Source line stride in pixels used by compress(). Set by encode() before
+    // compress() runs. Equals outWidth when the source buffer is packed.
+    int mStride;
 
     void setJpegCompressStruct(jpeg_compress_struct *cinfo, int width, int height, int quality);
     virtual void configSamplingFactors(__attribute__((unused)) jpeg_compress_struct *cinfo) {
@@ -94,7 +104,7 @@ private:
     void deinterleaveYuv(uint8_t *yuv, int width, int height, uint8_t *&yPlanar, uint8_t *&uPlanar,
                          uint8_t *&vPlanar);
     void deinterleave(uint8_t *vuPlanar, uint8_t *uRows, uint8_t *vRows, int rowIndex, int width,
-                      int height, int processLines);
+                      int height, int processLines, int stride);
     void compress(jpeg_compress_struct *cinfo, uint8_t *yuv);
     int yuvResize(uint8_t *srcBuf, int srcWidth, int srcHeight, uint8_t *dstBuf, int dstWidth,
                   int dstHeight);
@@ -109,7 +119,7 @@ private:
     void configSamplingFactors(jpeg_compress_struct *cinfo);
     void compress(jpeg_compress_struct *cinfo, uint8_t *yuv);
     void deinterleave(uint8_t *yuv, uint8_t *yRows, uint8_t *uRows, uint8_t *vRows, int rowIndex,
-                      int width, int height, int processLines);
+                      int width, int height, int processLines, int stride);
 };
 
 class Yuv422SpToJpegEncoder : public YuvToJpegEncoder {
@@ -121,7 +131,7 @@ private:
     void configSamplingFactors(jpeg_compress_struct *cinfo);
     void compress(jpeg_compress_struct *cinfo, uint8_t *yuv);
     void deinterleave(uint8_t *vuPlanar, uint8_t *uRows, uint8_t *vRows, int rowIndex, int width,
-                      int height, int processLines);
+                      int height, int processLines, int stride);
     int yuvResize(uint8_t *srcBuf, int srcWidth, int srcHeight, uint8_t *dstBuf, int dstWidth,
                   int dstHeight);
 };
