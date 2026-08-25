@@ -333,7 +333,7 @@ status_t JpegBuilder::encodeJpeg(JpegParams *input, char *hw_jpeg_enc, const voi
                 StreamBufferToImageBuffer(srcBuf, srcImg);
                 StreamBufferToImageBuffer(*resizeBuf, dstImg);
                 device->setSrcBufferFormat(&srcImg);
-                device->setSrcBufferFormat(&dstImg);
+                device->setDstBufferFormat(&dstImg);
                 device->setDebug(mDebug);
                 device->convert(dstImg, srcImg);
             } else {
@@ -358,8 +358,19 @@ status_t JpegBuilder::encodeJpeg(JpegParams *input, char *hw_jpeg_enc, const voi
         goto failed;
     }
 
+    // When a resize was performed, the resize target buffer is allocated via
+    // gralloc and its line pitch (pixel_stride) may be aligned larger than the
+    // width (e.g. 160 -> 192 for a 160x120 thumbnail on a 64-aligned target).
+    // The G2D/DPU writes at that padded pitch, so the encoder must read at the
+    // same pitch. Pass the real stride to avoid per-line misalignment (stripes).
+    // For the non-resize path the source layout is unknown here, so pass 0 to
+    // keep the previous packed (stride == width) behavior. Inline the ternary
+    // so no local variable initialization is crossed by the "goto failed" above.
     ret = encoder->encode(input->src, input->quality, input->dst, input->dst_size, input->out_width,
-                          input->out_height, app1Buffer, app1Size, mDebug);
+                          input->out_height, app1Buffer, app1Size, mDebug,
+                          bResize ? (int)resizeBuf->mStride : 0);
+
+
 failed:
     if (bResize) {
         delete (resizeBuf->mStream);
