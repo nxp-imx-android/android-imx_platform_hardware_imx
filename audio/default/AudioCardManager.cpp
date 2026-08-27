@@ -309,9 +309,120 @@ void AudioCardManager::scanAvailableCard()
     for (size_t i = 0; i < mCards.size(); i++)
         set_route_by_array(mMixers[i], mCards[i]->builtin_mic_ctl, 1);
 
+    for (size_t i = 0; i < mCards.size(); i++) {
+        if (mCards[i]->clock_gated_ctl && !mCards[i]->clock_gated_ctl_applied) {
+            if (applyClockGatedControls(mMixers[i], mCards[i]))
+                mCards[i]->clock_gated_ctl_applied = true;
+        }
+    }
+
     if (mCards.empty()) {
         ALOGE("no supported sound card found.");
     }
+}
+
+bool AudioCardManager::verify_route_by_array(struct mixer *mixer, struct route_setting *route) {
+    struct mixer_ctl *ctl = NULL;
+    unsigned int i = 0;
+    bool ok = true;
+
+    if (!mixer || !route)
+        return false;
+
+    while (route[i].ctl_name) {
+        ctl = mixer_get_ctl_by_name(mixer, route[i].ctl_name);
+        if (!ctl) {
+            ALOGE("%s: no such ctrl %s", __func__, route[i].ctl_name);
+            ok = false;
+            i++;
+            continue;
+        }
+
+        if (route[i].strval) {
+            int cur = mixer_ctl_get_value(ctl, 0);
+            const char *name = cur >= 0 ? mixer_ctl_get_enum_string(ctl, cur) : NULL;
+            if (!name || strcmp(name, route[i].strval)) {
+                ALOGE("%s: %s is '%s', expected '%s'", __func__, route[i].ctl_name,
+                      name ? name : "<unknown>", route[i].strval);
+                ok = false;
+            } else {
+                ALOGI("%s: %s = '%s' verified", __func__, route[i].ctl_name, name);
+            }
+        } else {
+            int cur = mixer_ctl_get_value(ctl, 0);
+            if (cur != route[i].intval) {
+                ALOGE("%s: %s is %d, expected %d", __func__, route[i].ctl_name, cur,
+                      route[i].intval);
+                ok = false;
+            } else {
+                ALOGI("%s: %s = %d verified", __func__, route[i].ctl_name, cur);
+            }
+        }
+        i++;
+    }
+
+    return ok;
+}
+
+// AUDMIX rejects "Output Source" unless the mixer clock is already running, which
+// the driver only guarantees while a TDM playback stream is triggered (see
+// fsl_audmix_put_out_src(): it needs priv->tdms, set only in the playback trigger).
+// So open a silent playback, fill the whole ring so ALSA auto-starts and we get a full
+// buffer of underrun headroom, apply the controls, verify, then close.
+#define CLOCK_GATED_PROBE_DEVICE 0
+#define CLOCK_GATED_PROBE_CHANNELS 2
+#define CLOCK_GATED_PROBE_RATE 48000
+
+bool AudioCardManager::applyClockGatedControls(struct mixer *mixer, struct audio_card *card) {
+    if (!mixer || !card || !card->clock_gated_ctl)
+        return false;
+
+    struct pcm_config config;
+    memset(&config, 0, sizeof(config));
+    config.channels = CLOCK_GATED_PROBE_CHANNELS;
+    config.rate = CLOCK_GATED_PROBE_RATE;
+    config.period_size = 1024;
+    config.period_count = 4;
+    config.format = PCM_FORMAT_S16_LE;
+    config.start_threshold = config.period_size * config.period_count;
+    config.stop_threshold = config.period_size * config.period_count;
+
+    ALOGI("%s: card%d(%s) device%d, %uch %uHz", __func__, card->card, card->driver_name,
+          CLOCK_GATED_PROBE_DEVICE, config.channels, config.rate);
+
+    struct pcm *pcm = pcm_open(card->card, CLOCK_GATED_PROBE_DEVICE, PCM_OUT, &config);
+    if (!pcm || !pcm_is_ready(pcm)) {
+        ALOGE("%s: pcm_open card%d device%d failed: %s", __func__, card->card,
+              CLOCK_GATED_PROBE_DEVICE, pcm ? pcm_get_error(pcm) : "no pcm");
+        if (pcm)
+            pcm_close(pcm);
+        return false;
+    }
+
+    const unsigned int frames = config.period_size * config.period_count;
+    const unsigned int bytes = pcm_frames_to_bytes(pcm, frames);
+    void *silence = calloc(1, bytes);
+    if (!silence) {
+        ALOGE("%s: calloc %u bytes failed", __func__, bytes);
+        pcm_close(pcm);
+        return false;
+    }
+
+    bool ok = false;
+    int written = pcm_writei(pcm, silence, frames);
+    if (written < 0) {
+        ALOGE("%s: pcm_writei failed: %s", __func__, pcm_get_error(pcm));
+    } else {
+        if (set_route_by_array(mixer, card->clock_gated_ctl, 1))
+            ALOGE("%s: set_route_by_array failed", __func__);
+        ok = verify_route_by_array(mixer, card->clock_gated_ctl);
+    }
+
+    free(silence);
+    pcm_close(pcm);
+
+    ALOGI("%s: card%d(%s) %s", __func__, card->card, card->driver_name, ok ? "OK" : "FAILED");
+    return ok;
 }
 
 int AudioCardManager::set_route_by_array(struct mixer *mixer, struct route_setting *route, int enable) {
@@ -359,6 +470,7 @@ static const char* const g_key_bus_name = "bus_name";
 static const char* const g_key_supported_out_devices = "supported_out_devices";
 static const char* const g_key_supported_in_devices = "supported_in_devices";
 static const char* const g_key_init_ctl = "init_ctl";
+static const char* const g_key_clock_gated_ctl = "clock_gated_ctl";
 static const char* const g_key_speaker_ctl = "speaker_ctl";
 static const char* const g_key_headphone_ctl = "headphone_ctl";
 static const char* const g_key_builtin_mic_ctl = "builtin_mic_ctl";
@@ -548,6 +660,9 @@ static bool parse_one_card(char* config_file, struct audio_card** pp_audio_card)
     if (root.isMember(g_key_init_ctl))
         parse_control(&p_audio_card->init_ctl, root[g_key_init_ctl]);
 
+    if (root.isMember(g_key_clock_gated_ctl))
+        parse_control(&p_audio_card->clock_gated_ctl, root[g_key_clock_gated_ctl]);
+
     if (root.isMember(g_key_speaker_ctl))
         parse_control(&p_audio_card->speaker_ctl, root[g_key_speaker_ctl]);
 
@@ -699,6 +814,9 @@ void AudioCardManager::releaseCard(struct audio_card* audio_card) {
 
     if (audio_card->init_ctl)
         release_route(audio_card->init_ctl);
+
+    if (audio_card->clock_gated_ctl)
+        release_route(audio_card->clock_gated_ctl);
 
     if (audio_card->speaker_ctl)
         release_route(audio_card->speaker_ctl);

@@ -54,6 +54,10 @@ private:
     static std::vector<struct audio_card *>mCards;
     static std::vector<struct mixer *>mMixers;
     static int set_route_by_array(struct mixer *mixer, struct route_setting *route, int enable);
+    // AUDMIX "Output Source" is rejected by the driver unless a TDM playback is
+    // already running, so it cannot live in the idle-time init_ctl list.
+    static bool applyClockGatedControls(struct mixer *mixer, struct audio_card *card);
+    static bool verify_route_by_array(struct mixer *mixer, struct route_setting *route);
     static void scanAvailableCard();
     static void parseCardFromJson(void);
     static void releaseCard(struct audio_card* audio_card);
@@ -81,6 +85,7 @@ struct audio_card {
     unsigned int supported_out_devices;
     unsigned int supported_in_devices;
     struct route_setting *init_ctl;
+    struct route_setting *clock_gated_ctl;
     struct route_setting *speaker_ctl;
     struct route_setting *headphone_ctl;
     struct route_setting *builtin_mic_ctl;
@@ -98,6 +103,7 @@ struct audio_card {
     bool support_multi_chn;
     bool support_lpa;
     bool support_s16;
+    bool clock_gated_ctl_applied;
     unsigned int out_period_size;
     unsigned int out_period_count;
     unsigned int in_period_size;
