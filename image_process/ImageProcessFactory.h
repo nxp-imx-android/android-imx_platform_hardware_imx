@@ -92,11 +92,6 @@ private:
     int selectBestDevice(uint32_t srcFormat, uint32_t dstFormat, uint32_t srcWidth,
                          uint32_t srcHeight, uint32_t dstWidth, uint32_t dstHeight);
 
-    // LRU device cache keyed by (srcFmt, dstFmt, srcW, srcH, dstW, dstH, engine).
-    // Capacity is limited to kMaxCacheSize entries; the most recently used entry
-    // is kept at the front of the list.
-    static constexpr size_t kMaxCacheSize = 16;
-
     using CacheKey = std::tuple<uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, ImxEngine>;
 
     struct CacheEntry {

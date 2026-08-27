@@ -125,29 +125,13 @@ std::shared_ptr<ImageProcessDevice> ImageProcessFactory::lookupCache(const Cache
 void ImageProcessFactory::insertCache(const CacheKey& key,
                                       std::shared_ptr<ImageProcessDevice> device) {
     std::lock_guard<std::mutex> lock(mCacheMutex);
-    // Evict an entry when the cache is full.
-    // Prefer to evict the entry whose shared_ptr use_count is 1 (only the
-    // cache holds a reference, so no caller is actively using it).  Among
-    // idle entries (use_count == 1), pick the one closest to the back of the
-    // list (least recently used).  If no idle entry exists, skip eviction and
-    // allow the cache to grow beyond kMaxCacheSize temporarily rather than
-    // destroy a device still held by a caller.
-    if (mDeviceCache.size() >= kMaxCacheSize) {
-        auto victim = mDeviceCache.end();
-        for (auto it = mDeviceCache.begin(); it != mDeviceCache.end(); ++it) {
-            if (it->device.use_count() == 1) {
-                // Always update victim so the last match (closest to back/LRU)
-                // is selected.
-                victim = it;
-            }
-        }
-        if (victim != mDeviceCache.end()) {
-            mDeviceCache.erase(victim);
-        } else {
-            dumpCache();
-        }
-    }
+
+    // CpuDevice or G2dDevice just takes 1 slot.
+    // OclcvtDevice will take multi-slots, but since the combination of source/dest formats/resolutions has
+    // a max value, so the cache size is limited.
+
     mDeviceCache.push_front({key, std::move(device)});
+    dumpCache();
 }
 
 std::shared_ptr<ImageProcessDevice> ImageProcessFactory::createDevice(
@@ -229,8 +213,7 @@ std::shared_ptr<ImageProcessDevice> ImageProcessFactory::createDevice(
 }
 
 void ImageProcessFactory::dumpCache() const {
-    ALOGI("ImageProcessFactory: dumpCache -- %zu entries (max %zu)", mDeviceCache.size(),
-          kMaxCacheSize);
+    ALOGI("ImageProcessFactory: dumpCache -- %zu entries", mDeviceCache.size());
     int idx = 0;
     for (const auto& entry : mDeviceCache) {
         uint32_t srcFmt = std::get<0>(entry.key);
