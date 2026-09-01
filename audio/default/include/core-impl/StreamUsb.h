@@ -43,6 +43,10 @@ class StreamUsb : public StreamAlsa {
     mutable std::mutex mLock;
     std::vector<alsa::DeviceProfile> mConnectedDeviceProfiles GUARDED_BY(mLock);
     std::atomic<bool> mConnectedDevicesUpdated = false;
+
+  private:
+    static constexpr int32_t kMaxConsecutiveTransferFailures = 3;
+    int32_t mConsecutiveTransferFailures = 0;
 };
 
 class StreamInUsb final : public StreamIn, public StreamUsb {

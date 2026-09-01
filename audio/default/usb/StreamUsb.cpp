@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <cstring>
 #include <limits>
 
 #define LOG_TAG "AHAL_StreamUsb"
@@ -67,7 +68,42 @@ ndk::ScopedAStatus StreamUsb::setConnectedDevices(
         *latencyMs = StreamDescriptor::LATENCY_UNKNOWN;
         return ::android::OK;
     }
-    return StreamAlsa::transfer(buffer, frameCount, actualFrameCount, latencyMs);
+    ::android::status_t status =
+            StreamAlsa::transfer(buffer, frameCount, actualFrameCount, latencyMs);
+    if (!mIsInput) {
+        return status;
+    }
+    // Reporting a read failure would move the stream into the terminal AIDL 'ERROR' state, which
+    // AudioFlinger never recovers from for capture. Absorb short-lived failures, then substitute
+    // silence so the client keeps progressing instead of blocking until its own timeout.
+    if (status != ::android::OK) {
+        const bool alreadySilence =
+                mConsecutiveTransferFailures >= kMaxConsecutiveTransferFailures;
+        if (!alreadySilence) {
+            ++mConsecutiveTransferFailures;
+            if (mConsecutiveTransferFailures < kMaxConsecutiveTransferFailures) {
+                LOG(WARNING) << __func__ << ": read failed (" << mConsecutiveTransferFailures
+                             << " consecutive), reporting no data";
+                *actualFrameCount = 0;
+                *latencyMs = StreamDescriptor::LATENCY_UNKNOWN;
+                return ::android::OK;
+            }
+            LOG(ERROR) << __func__ << ": USB capture device unreadable after "
+                       << mConsecutiveTransferFailures
+                       << " consecutive read failures, substituting silence until it recovers"
+                       << " - captured audio is now invalid";
+        }
+        memset(buffer, 0, frameCount * mFrameSizeBytes);
+        *actualFrameCount = frameCount;
+        *latencyMs = StreamDescriptor::LATENCY_UNKNOWN;
+        return ::android::OK;
+    }
+    if (mConsecutiveTransferFailures > 0) {
+        LOG(INFO) << __func__ << ": USB capture recovered after " << mConsecutiveTransferFailures
+                  << " consecutive read failures";
+        mConsecutiveTransferFailures = 0;
+    }
+    return status;
 }
 
 std::vector<alsa::DeviceProfile> StreamUsb::getDeviceProfiles() {
