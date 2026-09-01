@@ -352,7 +352,15 @@ HWC3::Error VirtualFrameComposer::presentDisplay(
                       outputFence.get());
             }
         }
-        mG2dComposer->convertBuffer(cvtSrc, cvtSrcInfo, cvtDst, cvtDstInfo, useOcl);
+        auto [cvtError, cvtFence] =
+                mG2dComposer->convertBuffer(cvtSrc, cvtSrcInfo, cvtDst, cvtDstInfo, useOcl);
+        if (cvtError) {
+            ALOGE("%s display %d convert to output buffer failed", __FUNCTION__, displayId);
+        } else if (cvtFence.ok()) {
+            // The output buffer consumer must wait for this conversion instead of the
+            // earlier composition, the OpenCL path is synchronous and returns no fence.
+            outputFence = std::move(cvtFence);
+        }
     }
 
     *outDisplayFence = std::move(outputFence);

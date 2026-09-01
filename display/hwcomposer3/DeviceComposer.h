@@ -118,8 +118,10 @@ public:
     int onDisplayDestroy(uint32_t displayId);
     int onDisplayLayerDestroy(uint32_t displayId, Layer* layer);
 
-    int convertBuffer(buffer_handle_t inBuf, HandleInfo* inInfoPtr, buffer_handle_t outBuf,
-                      HandleInfo* outInfoPtr, bool useOcl);
+    std::tuple<int, ::android::base::unique_fd> convertBuffer(buffer_handle_t inBuf,
+                                                              HandleInfo* inInfoPtr,
+                                                              buffer_handle_t outBuf,
+                                                              HandleInfo* outInfoPtr, bool useOcl);
     std::tuple<bool, ::android::base::unique_fd> composeLayers(
             uint32_t displayId, std::vector<Layer*>& layers, buffer_handle_t target,
             const std::vector<common::Rect>& overlayRects = {});

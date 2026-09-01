@@ -1007,11 +1007,22 @@ HWC3::Error DrmClient::getDisplayClientTargetProperty(uint32_t displayId,
     }
 
     uint32_t width, height, format;
-    mDisplays[displayId]->getFramebufferInfo(&width, &height, &format);
+    mDisplays[displayId]->getClientTargetInfo(&width, &height, &format);
 
     outProperty->pixelFormat = (common::PixelFormat)format;
     outProperty->dataspace = common::Dataspace::SRGB_LINEAR;
 
+    return HWC3::Error::None;
+}
+
+HWC3::Error DrmClient::getDisplayFramebufferInfo(uint32_t displayId, uint32_t* width,
+                                                 uint32_t* height, uint32_t* format) {
+    if (mDisplays.find(displayId) == mDisplays.end()) {
+        DEBUG_LOG("%s: invalid display:%" PRIu32, __FUNCTION__, displayId);
+        return HWC3::Error::BadDisplay;
+    }
+
+    mDisplays[displayId]->getFramebufferInfo(width, height, format);
     return HWC3::Error::None;
 }
 

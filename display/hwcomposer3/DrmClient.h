@@ -114,6 +114,8 @@ public:
                                          DisplayConnectionType* outType) override;
     HWC3::Error getDisplayClientTargetProperty(uint32_t displayId,
                                                ClientTargetProperty* outProperty) override;
+    HWC3::Error getDisplayFramebufferInfo(uint32_t displayId, uint32_t* width, uint32_t* height,
+                                          uint32_t* format) override;
     HWC3::Error waitVBlank(uint32_t displayId, int64_t* timestamp) override;
 
     void partialCleanCacheBuffer(uint32_t overlayNum) override;

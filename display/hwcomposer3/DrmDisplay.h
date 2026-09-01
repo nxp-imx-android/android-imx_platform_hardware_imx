@@ -49,6 +49,9 @@ enum class DrmHotplugChange {
 
 struct DisplayBuffer {
     std::shared_ptr<DrmBuffer> clientTargetDrmBuffer;
+    // Set when SF's client target must be blitted to a different scanout format
+    // (i.MX8ULP RGBA client target -> BGRA scanout) before the scanout FB can be built.
+    bool clientTargetNeedsConvert = false;
     std::unordered_map<uint32_t, std::shared_ptr<DrmBuffer>> planeDrmBuffer;
     std::unordered_map<buffer_handle_t, std::shared_ptr<DrmBuffer>> dummyDrmBuffer;
 };
@@ -100,6 +103,13 @@ public:
     bool resetDisplayConfig();
 
     int getFramebufferInfo(uint32_t* width, uint32_t* height, uint32_t* format);
+
+    // format SF's GPU RenderEngine renders the client target into. Usually
+    // equals mFbFormat, but on i.MX8ULP the ARGB-only dcnano forces scanout BGRA_8888 which
+    // the Vivante GL RenderEngine cannot use as a render target (only as a sampled
+    // texture) -> SIGABRT in GaneshBackendTexture. We report a renderable format here and
+    // the composer blits the client target into the ARGB scanout buffer.
+    int getClientTargetInfo(uint32_t* width, uint32_t* height, uint32_t* format);
 
     void setDisplayAsPrimary(bool enable) {
         if (enable) {
@@ -168,6 +178,7 @@ private:
     std::shared_ptr<HalConfig> mConfigs = std::make_shared<HalConfig>();
     uint32_t mUiScaleType = UI_SCALE_NONE;
     uint32_t mFbFormat = static_cast<uint32_t>(common::PixelFormat::RGBA_8888);
+    uint32_t mClientTargetFormat = static_cast<uint32_t>(common::PixelFormat::RGBA_8888);
     std::vector<uint32_t> mPlaneIdPool;
     uint32_t mOverlayPlaneNum = 0;
     bool mModeSet = true;

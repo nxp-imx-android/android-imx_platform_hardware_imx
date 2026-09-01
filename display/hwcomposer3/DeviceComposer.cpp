@@ -424,20 +424,26 @@ int DeviceComposer::onDisplayLayerDestroy(uint32_t displayId, Layer* layer) {
     return 0;
 }
 
-int DeviceComposer::convertBuffer(buffer_handle_t inBuf, HandleInfo* inInfoPtr,
-                                  buffer_handle_t outBuf, HandleInfo* outInfoPtr, bool useOcl) {
+std::tuple<int, ::android::base::unique_fd> DeviceComposer::convertBuffer(buffer_handle_t inBuf,
+                                                                         HandleInfo* inInfoPtr,
+                                                                         buffer_handle_t outBuf,
+                                                                         HandleInfo* outInfoPtr,
+                                                                         bool useOcl) {
 #ifdef DEBUG_DUMP_VIRT_G2D_CONSUMPTION
     nsecs_t g2dStart = systemTime(CLOCK_MONOTONIC);
 #endif
+    ::android::base::unique_fd convertFence;
     G2dBuffer srcBuff{inBuf, inInfoPtr};
     G2dBuffer dstBuff{outBuf, outInfoPtr};
     common::Rect rect{0, 0, static_cast<int32_t>(inInfoPtr->width),
                       static_cast<int32_t>(inInfoPtr->height)};
     if (useOcl && mOclCvt && mOclCvt->isValid()) {
+        // OpenCL convert is synchronous, it returns after the conversion is done,
+        // so no fence is needed for the caller to wait on.
         auto ret = mOclCvt->openclConvert(srcBuff, dstBuff);
         if (ret) {
             ALOGE("%s: OpenCL CSC convert fail", __FUNCTION__);
-            return ret;
+            return {ret, std::move(convertFence)};
         }
     } else {
         struct g2d_surfaceEx sSurfaceX, dSurfaceX;
@@ -446,6 +452,13 @@ int DeviceComposer::convertBuffer(buffer_handle_t inBuf, HandleInfo* inInfoPtr,
         setG2dSurface(sSurfaceX, srcBuff, rect);
         setG2dSurface(dSurfaceX, dstBuff, rect);
         blitSurface(&sSurfaceX, &dSurfaceX);
+        // The blit is only queued to the 2D engine, export a fence so that the
+        // consumer(display controller/other engine) can wait for the result.
+        convertFence.reset(createFenceFd(getHandle()));
+        if (!convertFence.ok()) {
+            // g2d_create_fence_fd is not available, fall back to blocking flush.
+            finishComposite();
+        }
     }
 
 #if defined(DEBUG_DUMP_VIRT_G2D_CONSUMPTION) || defined(DEBUG_NXP_HWC_G2D)
@@ -465,7 +478,7 @@ int DeviceComposer::convertBuffer(buffer_handle_t inBuf, HandleInfo* inInfoPtr,
     free(modifier_name1);
     free(modifier_name2);
 #endif
-    return 0;
+    return {0, std::move(convertFence)};
 }
 
 G2dInterBuffer* DeviceComposer::preComposition(Layer* layer, buffer_handle_t handle) {
@@ -599,7 +612,12 @@ G2dInterBuffer* DeviceComposer::preComposition(Layer* layer, buffer_handle_t han
                       cropH, dstW, dstH);
         }
     } else if (interBufferType == G2D_CONVERSION_TYPE_CSC) {
-        convertBuffer(handle, &inBufInfo, outHandle, &outBufInfo, opencl_prefered);
+        // The intermediate buffer is consumed by the following composition on the same
+        // engine, which is ordered by the command queue, so the fence is dropped here.
+        auto ret = std::get<0>(
+                convertBuffer(handle, &inBufInfo, outHandle, &outBufInfo, opencl_prefered));
+        if (ret)
+            ALOGE("%s: CSC convert for layer %ld fail", __FUNCTION__, id);
     }
 
     if (!reuseBuff) {

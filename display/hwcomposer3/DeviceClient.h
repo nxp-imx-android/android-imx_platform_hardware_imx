@@ -116,6 +116,10 @@ public:
     }
     virtual HWC3::Error getDisplayClientTargetProperty(uint32_t displayId,
                                                        ClientTargetProperty* outProperty) = 0;
+    virtual HWC3::Error getDisplayFramebufferInfo(uint32_t displayId, uint32_t* width,
+                                                  uint32_t* height, uint32_t* format) {
+        return HWC3::Error::Unsupported;
+    }
     virtual HWC3::Error waitVBlank(uint32_t displayId, int64_t* timestamp) {
         return HWC3::Error::Unsupported;
     }

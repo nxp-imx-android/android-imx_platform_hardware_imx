@@ -373,6 +373,22 @@ HWC3::Error ClientFrameComposer::onDisplayClientTargetSet(Display* display) {
     }
     common::Rect displayFrame = {0, 0, width, height};
     common::Rect sourceCrop = {0, 0, width, height};
+
+    // When the client-target format differs from the scanout format (i.MX8ULP
+    // RGBA client target vs BGRA scanout), the RGBA buffer cannot be scanned out directly
+    // on the ARGB-only dcnano plane. presentDisplay() blits it into a BGRA scanout buffer and
+    // builds the real FB there, so only record the pending client target here.
+    ClientTargetProperty ctProp;
+    uint32_t scanoutFormat, tmpW, tmpH;
+    if (client->getDisplayClientTargetProperty(displayId, &ctProp) == HWC3::Error::None &&
+        client->getDisplayFramebufferInfo(displayId, &tmpW, &tmpH, &scanoutFormat) ==
+                HWC3::Error::None &&
+        static_cast<uint32_t>(ctProp.pixelFormat) != scanoutFormat) {
+        displayBuffer.clientTargetNeedsConvert = true;
+        return HWC3::Error::None;
+    }
+    displayBuffer.clientTargetNeedsConvert = false;
+
     auto [createError, drmBuffer] = client->create(display->getClientTarget().getBuffer(),
                                                    displayFrame, sourceCrop, DRM_BUFFER_FB);
     if (createError != HWC3::Error::None) {
@@ -737,9 +753,59 @@ HWC3::Error ClientFrameComposer::presentDisplay(
         }
         displayBuffer.clientTargetDrmBuffer = std::move(drmBuffer);
         framebuffer = renderTarget;
-    } else if (displayBuffer.clientTargetDrmBuffer) {
+    } else if (displayBuffer.clientTargetDrmBuffer || displayBuffer.clientTargetNeedsConvert) {
         fbInFence = std::move(display->getClientTarget().getFence());
         framebuffer = display->getClientTarget().getBuffer();
+
+        // on i.MX8ULP the client target SF rendered into is RGBA_8888 (the only
+        // format the Vivante GL RenderEngine can render into), but the dcnao/display controller plane scans
+        // out BGRA_8888. Blit the RGBA client target into a BGRA composer target and scan
+        // that out instead. Scanout-renderable platforms report matching formats and skip.
+        if (framebuffer != nullptr && displayBuffer.clientTargetNeedsConvert) {
+            HandleInfo srcInfo;
+            if (getInfoFromHandle(framebuffer, &srcInfo) == 0) {
+                auto [ctError, scanoutTarget] =
+                        client->getComposerTarget(mG2dComposer, displayId, /*secure=*/false);
+                if (ctError == HWC3::Error::None && scanoutTarget != nullptr) {
+                    if (fbInFence.ok()) {
+                        // g2d has no interface to take an in-fence, so the client target
+                        // must be waited on the CPU side before the blit is queued.
+                        sync_wait(fbInFence.get(), 3000);
+                        fbInFence = ::android::base::unique_fd();
+                    }
+                    HandleInfo dstInfo;
+                    if (getInfoFromHandle(scanoutTarget, &dstInfo) == 0) {
+                        auto [cvtError, cvtFence] =
+                                mG2dComposer->convertBuffer(framebuffer, &srcInfo, scanoutTarget,
+                                                            &dstInfo, false);
+                        if (cvtError != 0) {
+                            ALOGE("%s: display:%d failed to convert client target to BGRA",
+                                  __FUNCTION__, displayId);
+                            return HWC3::Error::NoResources;
+                        }
+                        // The display controller reads the blit result, so it has to wait
+                        // for the g2d fence instead of the client target fence.
+                        fbInFence = std::move(cvtFence);
+                        common::Rect frameRect = {0, 0, static_cast<int32_t>(dstInfo.width),
+                                                  static_cast<int32_t>(dstInfo.height)};
+                        auto [createError, drmBuffer] =
+                                client->create(scanoutTarget, frameRect, frameRect, DRM_BUFFER_FB);
+                        if (createError == HWC3::Error::None) {
+                            displayBuffer.clientTargetDrmBuffer = std::move(drmBuffer);
+                            framebuffer = scanoutTarget;
+                        } else {
+                            ALOGE("%s: display:%d failed to create BGRA scanout drm buffer",
+                                  __FUNCTION__, displayId);
+                            return HWC3::Error::NoResources;
+                        }
+                    }
+                } else {
+                    ALOGE("%s: display:%d failed to get BGRA composer target for client blit",
+                          __FUNCTION__, displayId);
+                    return HWC3::Error::NoResources;
+                }
+            }
+        }
     } else if (luckyLayer != nullptr) {
         common::Rect rectFrame = luckyLayer->getDisplayFrame();
         common::Rect rectSource = luckyLayer->getSourceCropInt();
@@ -841,9 +907,15 @@ HWC3::Error ClientFrameComposer::presentDisplay(
             (getInfoFromHandle(cvtDst, &cvtDstInfo) != 0))
             return HWC3::Error::BadParameter;
 
-        mG2dComposer->convertBuffer(cvtSrc, &cvtSrcInfo, cvtDst, &cvtDstInfo, false);
+        auto [cvtError, cvtFence] =
+                mG2dComposer->convertBuffer(cvtSrc, &cvtSrcInfo, cvtDst, &cvtDstInfo, false);
+        if (cvtError != 0) {
+            ALOGE("%s: display:%d failed to convert readback buffer", __FUNCTION__, displayId);
+        }
 
-        display->setReadbackFence(dup(fbInFence.get()));
+        // SurfaceFlinger reads the readback buffer, so it has to wait for the g2d fence
+        // of this conversion, not for the framebuffer composition fence.
+        display->setReadbackFence(cvtFence.release());
         DEBUG_LOG("%s: display:%d process readback buffer", __FUNCTION__, displayId);
     }
 

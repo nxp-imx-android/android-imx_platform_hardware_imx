@@ -746,6 +746,15 @@ void DrmDisplay::updateFramebufferFormat() {
     } else if (plane->checkFormatSupported(DRM_FORMAT_RGB565)) {
         mFbFormat = static_cast<uint32_t>(common::PixelFormat::RGB_565);
     }
+
+    // BGRA_8888 is not usable as a GL render target on the Vivante GPU,
+    // so ask SF to render the client target into RGBA_8888; the composer blits it to the
+    // BGRA scanout buffer. Other scanout formats are GL-renderable, keep them as-is.
+    if (mFbFormat == static_cast<uint32_t>(common::PixelFormat::BGRA_8888)) {
+        mClientTargetFormat = static_cast<uint32_t>(common::PixelFormat::RGBA_8888);
+    } else {
+        mClientTargetFormat = mFbFormat;
+    }
 }
 int DrmDisplay::getFramebufferInfo(uint32_t* width, uint32_t* height, uint32_t* format) {
     DEBUG_LOG("%s: display:%" PRIu32, __FUNCTION__, mId);
@@ -759,6 +768,12 @@ int DrmDisplay::getFramebufferInfo(uint32_t* width, uint32_t* height, uint32_t* 
     }
 
     *format = mFbFormat;
+    return 0;
+}
+
+int DrmDisplay::getClientTargetInfo(uint32_t* width, uint32_t* height, uint32_t* format) {
+    getFramebufferInfo(width, height, format);
+    *format = mClientTargetFormat;
     return 0;
 }
 
