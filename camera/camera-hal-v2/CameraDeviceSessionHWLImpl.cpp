@@ -1017,9 +1017,11 @@ status_t CameraDeviceSessionHwlImpl::AllocLibcameraBuffer() {
         memset(&srcBuf, 0, sizeof(srcBuf));
 
         uint32_t allocWidth = mCamWrap->mStreamWidth ;
+        bool bDoubleWidth = false;
         if (strstr(mSocType, "imx8qm") ||
             strstr(mSocType, "imx8qxp") || strstr(mSocType, "imx8mp")) {
             allocWidth = mCamWrap->mStreamWidth * 2;
+            bDoubleWidth = true;
             ALOGI("%s: double mCamWrap->mStreamWidth from %u to %u", __func__, mCamWrap->mStreamWidth, allocWidth);
         }
 
@@ -1032,8 +1034,13 @@ status_t CameraDeviceSessionHwlImpl::AllocLibcameraBuffer() {
             goto err_out;
         }
 
-        // Recover to the actual mCamWrap->mStreamWidth.
-        srcBuf.mWidth = mCamWrap->mStreamWidth;
+        // Double-width alloc leaves mWidth/mStride at 2x; recover both to the real stream width,
+        // else the G2D preview blit reads at the doubled stride -> half-green frame.
+        if (bDoubleWidth) {
+            srcBuf.mWidth = mCamWrap->mStreamWidth;
+            srcBuf.mStride = mCamWrap->mStreamWidth;
+        }
+
         srcBuf.mFormatSize = getSizeByForamtRes(mCamWrap->mHalFormat, mCamWrap->mStreamWidth, mCamWrap->mStreamHeight, false);
         if (srcBuf.mFormatSize == 0)
             srcBuf.mFormatSize = srcBuf.mSize;
