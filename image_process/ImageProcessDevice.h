@@ -47,13 +47,6 @@ static constexpr float CONFIDENCE_G2D = 0.9f;
 static constexpr float CONFIDENCE_G2D_RGBA = 1.2f;
 static constexpr float CONFIDENCE_OCLCVT_PREFERRED = 1.4f;
 
-// Holds the format and resolution portion of an ImxImageBuffer.
-struct BufferFormat {
-    uint32_t mFormat = 0;
-    uint32_t mWidth = 0;
-    uint32_t mHeight = 0;
-};
-
 // Abstract base class for image processing devices.
 // Each concrete device wraps a specific HW/SW engine.
 // Modeled after codec2 FilterDevice pattern.
@@ -81,30 +74,10 @@ public:
         return -ENOTSUP;
     }
 
-    // Save the format and resolution from the source buffer.
-    // @return 0 on success, negative error code on failure.
-    virtual int setSrcBufferFormat(ImxImageBuffer* buf) {
-        if (buf) {
-            mSrcBufferFormat = {buf->mFormat, buf->mWidth, buf->mHeight};
-        }
-        return 0;
-    }
-
-    // Save the format and resolution from the destination buffer.
-    // @return 0 on success, negative error code on failure.
-    virtual int setDstBufferFormat(ImxImageBuffer* buf) {
-        if (buf) {
-            mDstBufferFormat = {buf->mFormat, buf->mWidth, buf->mHeight};
-        }
-        return 0;
-    }
-
     void setDebug(bool debug) { mDebug = debug; }
 
 protected:
     bool mDebug = false;
-    BufferFormat mSrcBufferFormat;
-    BufferFormat mDstBufferFormat;
 
     // Utility: find library path in system or vendor lib dirs.
     static void getModulePath(char* path, const char* name) {

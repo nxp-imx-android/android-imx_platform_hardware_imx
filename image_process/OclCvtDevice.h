@@ -47,9 +47,6 @@ public:
 
     int convert(ImxImageBuffer& dst, ImxImageBuffer& src) override;
 
-    int setSrcBufferFormat(ImxImageBuffer* buf) override;
-    int setDstBufferFormat(ImxImageBuffer* buf) override;
-
 private:
     bool init();
     void ImxImageBufferToOclBuffer(ImxImageBuffer& imxImgBuf, OCL_BUFFER& oclBuf,
