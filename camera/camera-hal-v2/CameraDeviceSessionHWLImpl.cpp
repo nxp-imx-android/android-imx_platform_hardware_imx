@@ -892,20 +892,6 @@ status_t CameraDeviceSessionHwlImpl::ConfigurePipeline(
 
             auto device = factory.createDevice(srcFmt, dstFmt, srcW, srcH, dstW, dstH,
                                             mCamBlitCscType);
-            if (device) {
-                ImxImageBuffer srcImg = {};
-                srcImg.mFormat = srcFmt;
-                srcImg.mWidth = srcW;
-                srcImg.mHeight = srcH;
-                device->setSrcBufferFormat(&srcImg);
-
-                ImxImageBuffer dstImg = {};
-                dstImg.mFormat = dstFmt;
-                dstImg.mWidth = dstW;
-                dstImg.mHeight = dstH;
-                device->setDstBufferFormat(&dstImg);
-            }
-
             mStreamDevices[stream.id] = device;
             ALOGI("%s: stream id %d (%dx%d fmt 0x%x -> %dx%d fmt 0x%x), device '%s'", __func__,
                 stream.id, srcW, srcH, srcFmt, dstW, dstH, dstFmt,

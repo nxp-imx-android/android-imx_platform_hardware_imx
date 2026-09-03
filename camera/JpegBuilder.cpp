@@ -332,8 +332,6 @@ status_t JpegBuilder::encodeJpeg(JpegParams *input, char *hw_jpeg_enc, const voi
                 memset(&dstImg, 0, sizeof(dstImg));
                 StreamBufferToImageBuffer(srcBuf, srcImg);
                 StreamBufferToImageBuffer(*resizeBuf, dstImg);
-                device->setSrcBufferFormat(&srcImg);
-                device->setDstBufferFormat(&dstImg);
                 device->setDebug(mDebug);
                 device->convert(dstImg, srcImg);
             } else {
