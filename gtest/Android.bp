@@ -13,7 +13,7 @@
 // limitations under the License.
 
 cc_test{
-       name: "imx_stress_test",
+       name: "usb_gadget_stress_test",
        srcs: ["UsbGtest.cpp"],
        cflags: [
              "-Wall",
@@ -21,8 +21,10 @@ cc_test{
             ],
        shared_libs: [
            "android.hardware.usb.gadget@1.0",
+           "android.hardware.usb.gadget-V2-ndk",
            "libhardware",
            "libbase",
+           "libbinder_ndk",
            "libhidlbase",
            "liblog",
            "libutils",
