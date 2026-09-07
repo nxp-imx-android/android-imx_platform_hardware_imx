@@ -393,8 +393,16 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
         return BAD_VALUE;
     }
 
-    if (srcBuf->mVirtAddr == NULL)
+    if (srcBuf->mVirtAddr == NULL) {
+        // GetBufferInfoFromHandle overwrites mWidth/mStride back to the raw 2x
+        // gralloc values, and srcBuf is shared with this request's YUV blit,
+        // causing the doubled stride -> half-green frame.
+        uint32_t savedStride = srcBuf->mStride;
+        uint32_t savedWidth = srcBuf->mWidth;
         GetBufferInfoFromHandle(srcBuf->buffer, *srcBuf, false, true);
+        srcBuf->mStride = savedStride;
+        srcBuf->mWidth = savedWidth;
+    }
 
     if (dstBuf->mVirtAddr == NULL)
         GetBufferInfoFromHandle(dstBuf->buffer, *dstBuf, false, true);
