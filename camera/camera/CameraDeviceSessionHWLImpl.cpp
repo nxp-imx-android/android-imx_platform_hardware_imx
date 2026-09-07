@@ -2095,6 +2095,14 @@ status_t CameraDeviceSessionHwlImpl::SubmitRequest(HwlPipelineRequest request) {
 }
 
 status_t CameraDeviceSessionHwlImpl::SubmitBatchRequest(std::vector<HwlPipelineRequest> requests) {
+    for (auto &request : requests) {
+        status_t res = SubmitRequest(std::move(request));
+        if (res != OK) {
+            ALOGE("%s: SubmitRequest failed in batch, ret %d", __func__, res);
+            return res;
+        }
+    }
+
     return OK;
 }
 
