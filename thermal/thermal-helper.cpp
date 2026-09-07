@@ -186,10 +186,44 @@ ThermalHelper::ThermalHelper(const NotificationCallback &cb)
         };
     }
 
-    auto tz_map = parseThermalPathMap(kSensorPrefix.data());
-    auto cdev_map = parseThermalPathMap(kCoolingDevicePrefix.data());
+    // Some cooling devices (e.g. the GPU devfreq cooling device with the
+    // Mali r56p0 DDK, which lazy-loads firmware on first kbase_open to meet
+    // the GKI vendor guideline) are registered in sysfs later than this HAL
+    // starts. Retry the one-shot scan with a bounded backoff so we wait for
+    // all configured sensors/cooling devices to appear instead of aborting.
+    // Clamp to >= 0 so a misconfigured (negative) property cannot skip the
+    // loop body entirely and leave is_initialized_ at its default value.
+    const int max_init_retries = std::max(
+            0, ::android::base::GetIntProperty(kInitRetryCountProperty, kDefaultInitRetryCount));
 
-    is_initialized_ = initializeSensorMap(tz_map) && initializeCoolingDevices(cdev_map);
+    const auto retry_interval = std::chrono::milliseconds(
+            ::android::base::GetIntProperty(kInitRetryIntervalMsProperty,
+                                            kDefaultInitRetryIntervalMs));
+
+    std::map<std::string, std::string> tz_map;
+    for (int attempt = 0; attempt <= max_init_retries; ++attempt) {
+        tz_map = parseThermalPathMap(kSensorPrefix.data());
+        auto cdev_map = parseThermalPathMap(kCoolingDevicePrefix.data());
+
+        // emplace() in addThermalFile() is idempotent, so a retry only fills in
+        // the entries that were still missing on previous attempts.
+        is_initialized_ = initializeSensorMap(tz_map) && initializeCoolingDevices(cdev_map);
+
+        if (is_initialized_) {
+            if (attempt > 0) {
+                LOG(INFO) << "ThermalHAL initialized after " << attempt << " retries.";
+            }
+            break;
+        }
+
+        if (attempt < max_init_retries) {
+            LOG(WARNING) << "ThermalHAL init incomplete (sensors/cooling devices not all "
+                            "present yet), retry " << (attempt + 1) << "/" << max_init_retries
+                         << " in " << retry_interval.count() << "ms.";
+            std::this_thread::sleep_for(retry_interval);
+        }
+    }
+
     if (!is_initialized_) {
         LOG(ERROR) << "ThermalHAL could not be initialized properly.";
         return;

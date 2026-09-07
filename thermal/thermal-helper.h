@@ -67,6 +67,10 @@ using std::string;
 
 constexpr char kConfigProperty[] = "vendor.thermal.config";
 constexpr char kSocType[] = "ro.boot.soc_type";
+constexpr char kInitRetryCountProperty[] = "vendor.thermal.init_retry_count";
+constexpr char kInitRetryIntervalMsProperty[] = "vendor.thermal.init_retry_interval_ms";
+constexpr int kDefaultInitRetryCount = 5;
+constexpr int kDefaultInitRetryIntervalMs = 1000;
 
 struct SensorStatus {
     ThrottlingSeverity severity;
