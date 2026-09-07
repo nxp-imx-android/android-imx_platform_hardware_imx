@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020 NXP.
+ *  Copyright 2020, 2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -123,6 +123,12 @@ struct viv_caps_supports {
 #define CPROC_CONTRAST_PARAMS "contrast"
 #define CPROC_SATURATION_PARAMS "saturation"
 #define CPROC_HUE_PARAMS "hue"
+#define CPROC_LUMA_IN_PARAMS    "luma.in"
+#define CPROC_LUMA_OUT_PARAMS   "luma.out"
+#define CPROC_CHROMA_OUT_PARAMS "chroma.out"
+
+#define COLORSPACE_MIN 1
+#define COLORSPACE_MAX 4
 
 #define BRIGHTNESS_MIN (int)(-127)
 #define BRIGHTNESS_MAX (int)(127)
@@ -158,6 +164,7 @@ public:
     int processExposureGain(int32_t comp, bool force = false);
     int processExposureTime(int64_t exposureNs, bool force = false);
     int64_t getExposureTime() { return m_exposure_time > 0 ? m_exposure_time : EXP_TIME_DFT_NS; }
+    int processColorSpace(int color_space, bool force = false);
     int viv_private_ioctl(const char *cmd, Json::Value &jsonRequest, Json::Value &jsonResponse);
     void parseDewarpParams(Json::Value &node);
     void getExpGainBoundary();
@@ -208,6 +215,7 @@ private:
     float m_saturation;
     int m_hue;
 
+    int m_color_space;
     uint8_t m_sharp_level;
     double m_last_exposure_gain;
     double m_last_exposure_time;

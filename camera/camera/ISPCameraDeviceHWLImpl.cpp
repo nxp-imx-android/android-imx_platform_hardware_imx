@@ -399,6 +399,10 @@ int32_t ISPCameraMMAPStream::onDeviceStartLocked() {
         return ret;
     }
 
+    // Color space will be recovered to default value after stream on.
+    // So force set the value from json here.
+    m_IspWrapper->processColorSpace(mSession->getSensorData()->mColorSpace, true);
+
     return ret;
 }
 

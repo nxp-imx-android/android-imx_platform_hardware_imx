@@ -137,6 +137,9 @@ struct CameraSensorMetadata {
     ImxEngine mDewarpEng;
 
     bool mIsLogical;
+
+    // ISP CPROC color space setting: 1=BT.601 limit, 2=BT.601 full, 3=REC.709 limit, 4=REC.709 full
+    int mColorSpace;
 };
 
 typedef std::unordered_map<uint32_t,

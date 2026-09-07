@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020 NXP.
+ *  Copyright 2020, 2026 NXP.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -66,6 +66,7 @@ ISPWrapper::ISPWrapper(CameraSensorMetadata *pSensorData, void *stream) {
     m_saturation = SATURATION_MAX + 1;
     m_hue = HUE_MAX + 1;
 
+    m_color_space = 0;
     m_sharp_level = SHARP_LEVEL_MAX + 1;
 
     m_last_exposure_gain = -1.0;
@@ -877,6 +878,38 @@ int ISPWrapper::processHue(int hue, bool force) {
     m_hue = hue;
 
     return 0;
+}
+
+int ISPWrapper::processColorSpace(int color_space, bool force) {
+    ALOGI("%s: color_space %d, force %d, m_color_space %d", __func__, color_space, force, m_color_space);
+
+    if ((color_space < COLORSPACE_MIN) || (color_space > COLORSPACE_MAX)) {
+        ALOGW("%s: unsupported color_space %d", __func__, color_space);
+        return BAD_VALUE;
+    }
+
+    if ((force == false) && (color_space == m_color_space))
+        return 0;
+
+    Json::Value jRequest, jResponse;
+    int ret = viv_private_ioctl(IF_CPROC_G_CFG, jRequest, jResponse);
+    if (ret) {
+        ALOGI("%s: viv_private_ioctl IF_CPROC_G_CFG failed, ret %d", __func__, ret);
+        return ret;
+    }
+
+    jRequest = jResponse;
+    jRequest[CPROC_LUMA_IN_PARAMS]    = color_space;
+    jRequest[CPROC_LUMA_OUT_PARAMS]   = color_space;
+    jRequest[CPROC_CHROMA_OUT_PARAMS] = color_space;
+
+    ret = viv_private_ioctl(IF_CPROC_S_CFG, jRequest, jResponse);
+    if (ret)
+        ALOGI("%s: viv_private_ioctl IF_CPROC_S_CFG failed, ret %d", __func__, ret);
+    else
+        m_color_space = color_space;
+
+    return ret;
 }
 
 int ISPWrapper::processSharpLevel(uint8_t level, bool force) {

@@ -122,6 +122,7 @@ const char* const kOmitFrameWidthKey = "width";
 const char* const kOmitFrameHeightKey = "height";
 const char* const kOmitFrameNumKey = "omit_num";
 
+const char* const kColorSpaceKey = "ColorSpace";
 const char* const kAeCompMinKey = "ae_comp_min";
 const char* const kAeCompMaxKey = "ae_comp_max";
 const char* const kAeCompStepNumerator = "ae_comp_step_nummerator";
@@ -144,6 +145,7 @@ const char* const kLibcameraBuffersKey = "LibcameraBuffers";
 
 #define MAX_SENSOR_WIDTH INT_MAX
 #define MAX_SENSOR_HEIGHT INT_MAX
+#define COLORSPACE_DEFAULT 2
 
 HalVersion ValueToCameraHalVersion(const std::string& value) {
     int temp;
@@ -498,6 +500,12 @@ bool ParseCharacteristics(CameraDefinition* camera, const Json::Value& root,
         static_meta[cam_index].mMinHeight = strtol(root[kMinHeight].asString().c_str(), NULL, 10);
     else
         static_meta[cam_index].mMinHeight = 0;
+
+    if (root.isMember(kColorSpaceKey))
+        static_meta[cam_index].mColorSpace =
+                strtol(root[kColorSpaceKey].asString().c_str(), NULL, 10);
+    else
+        static_meta[cam_index].mColorSpace = COLORSPACE_DEFAULT;
 
     if (root.isMember(kNeedDewarp)) {
         int needDewarp = strtol(root[kNeedDewarp].asString().c_str(), NULL, 10);
