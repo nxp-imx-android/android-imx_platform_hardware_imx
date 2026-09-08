@@ -1057,6 +1057,11 @@ int GetBufferInfoFromHandle(buffer_handle_t bufferHandle, ImxImageBuffer &outBuf
     outBufInfo.mStride = stride;
     outBufInfo.mUsage = usage;
 
+    if (outBufInfo.mPinnedStride != 0)
+        outBufInfo.mStride = outBufInfo.mPinnedStride;
+    if (outBufInfo.mPinnedWidth != 0)
+        outBufInfo.mWidth = outBufInfo.mPinnedWidth;
+
     ALOGV("%s: nativeHandle %p, sharedFd %d, res %ux%u, stride %u, format 0x%x, usage 0x%lx, vaddr %p, "
           "phyAddr 0x%lx, formatSize %lu, allocatedSize %lu",
           __func__, nativeHandle, sharedFd, width, height, stride, format, usage, vaddr, phyAddr,

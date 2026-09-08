@@ -61,6 +61,12 @@ typedef struct tag_imx_image_buffer {
     uint32_t mHeight;
     uint32_t mStride;
     uint32_t mHeightSpan; // handle C920 1080p MJPG hardware decoded to 1088p yuyv/nv16
+    // Real luma pitch/width pinned by the caller for double-width capture buffers
+    // (imx8qm/imx8qxp). 0 = use the raw gralloc pixel_stride. When non-zero,
+    // GetBufferInfoFromHandle keeps these instead of the raw 2x gralloc values, so a
+    // vaddr/phyAddr refetch on the shared source never re-doubles the pitch.
+    uint32_t mPinnedStride;
+    uint32_t mPinnedWidth;
     void *mVirtAddr;
     uint64_t mPhyAddr;
     int32_t mFd;
