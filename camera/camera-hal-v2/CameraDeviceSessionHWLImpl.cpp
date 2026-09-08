@@ -393,16 +393,8 @@ int32_t CameraDeviceSessionHwlImpl::processJpegBuffer(ImxStreamBuffer *srcBuf,
         return BAD_VALUE;
     }
 
-    if (srcBuf->mVirtAddr == NULL) {
-        // GetBufferInfoFromHandle overwrites mWidth/mStride back to the raw 2x
-        // gralloc values, and srcBuf is shared with this request's YUV blit,
-        // causing the doubled stride -> half-green frame.
-        uint32_t savedStride = srcBuf->mStride;
-        uint32_t savedWidth = srcBuf->mWidth;
+    if (srcBuf->mVirtAddr == NULL)
         GetBufferInfoFromHandle(srcBuf->buffer, *srcBuf, false, true);
-        srcBuf->mStride = savedStride;
-        srcBuf->mWidth = savedWidth;
-    }
 
     if (dstBuf->mVirtAddr == NULL)
         GetBufferInfoFromHandle(dstBuf->buffer, *dstBuf, false, true);
@@ -1030,9 +1022,13 @@ status_t CameraDeviceSessionHwlImpl::AllocLibcameraBuffer() {
 
         // Double-width alloc leaves mWidth/mStride at 2x; recover both to the real stream width,
         // else the G2D preview blit reads at the doubled stride -> half-green frame.
+        // Pin the recovered pitch so any later GetBufferInfoFromHandle refetch on this
+        // shared source (JPEG/YUV/CPU/OCL convert paths) keeps it, not the raw 2x stride.
         if (bDoubleWidth) {
             srcBuf.mWidth = mCamWrap->mStreamWidth;
             srcBuf.mStride = mCamWrap->mStreamWidth;
+            srcBuf.mPinnedWidth = mCamWrap->mStreamWidth;
+            srcBuf.mPinnedStride = mCamWrap->mStreamWidth;
         }
 
         srcBuf.mFormatSize = getSizeByForamtRes(mCamWrap->mHalFormat, mCamWrap->mStreamWidth, mCamWrap->mStreamHeight, false);
