@@ -40,6 +40,35 @@ using aidl::nxp::hardware::imx_dek_extractor::IDek_Extractor;
 #define SIG_BLK_TAG 	0x90
 #define IMX_BL_PAYLOAD_SIZE   (96)
 
+/*
+ * i.MX9 (i.MX93/937/95/952) AHAB layout.
+ *
+ * Unlike i.MX8QM/QXP/ULP, the first AHAB container starts at offset 0 of the
+ * image (no SECO padding), and the container carrying the DEK blob is not
+ * necessarily the first one. The container that holds the DEK is the one whose
+ * signature block advertises a non-zero blob_offset. We walk the containers
+ * and pick that one, mirroring how CST computes the DEK offset:
+ *     dek_offset = container_start + signature_block_offset + blob_offset
+ *
+ * Containers are laid out back-to-back: the next container starts at the
+ * current container_start plus ALIGN(header.length, align). The alignment is
+ * fixed by the FIRST container's header version: legacy (v1) uses 0x400, PQC
+ * (v2, e.g. i.MX95 B0) uses 0x4000. This mirrors imx-mkimage
+ * parse_container_hdrs_qx_qm_b0(): file_off += ALIGN(header.length, align),
+ * with align derived from container_headers[0].version.
+ *
+ * Container tags: 0x87 (ELE/AP, IVT_HEADER_TAG_B0) and 0x82 (V2X,
+ * IVT_HEADER_TAG_V2X); both are valid container headers to walk over.
+ */
+#define IMX9_CONTAINER_ALIGNMENT_V1	(0x400)
+#define IMX9_CONTAINER_ALIGNMENT_V2	(0x4000)
+#define IMX9_CONTAINER_VERSION_PQC	(2)
+#define IMX9_MAX_CONTAINERS		(3)
+#define IMX9_CONTAINER_TAG_V2X		(0x82)
+
+/* ALIGN(x, a): round x up to a multiple of a (a must be a power of two). */
+#define IMX9_ALIGN(x, a)	(((x) + ((a) - 1)) & ~((off_t)(a) - 1))
+
 static std::shared_ptr<IDek_Extractor> dek_extractor_(nullptr);
 
 static error_t insert_dek_blob_to_fit(image_type_t image_t, char *target_device,
@@ -145,6 +174,75 @@ open_fail:
 	return ret;
 }
 
+static error_t insert_dek_blob_to_container_imx9(image_type_t image_t, char *target_device,
+		std::vector<uint8_t> dek_blob, int bootloader0_offset_byte) {
+	int file_fd = -1;
+	error_t ret = IMAGE_ERROR;
+	off_t image_base = 0;
+
+	if (SPL == image_t) {
+		image_base = bootloader0_offset_byte;
+	} else if (BOOTLOADER == image_t) {
+		image_base = bootloader0_offset_byte;
+	} else {
+		return IMAGE_ERROR;
+	}
+
+	file_fd = open(target_device, O_RDWR);
+	if (file_fd < 0) {
+		printf("file_fd: can not open %s!\r\n", target_device);
+		return FILE_ERROR;
+	}
+
+	ahab_container_header_t first_hdr = {0};
+	off_t container_alignment = IMX9_CONTAINER_ALIGNMENT_V2;
+
+	if (pread(file_fd, &first_hdr, sizeof(first_hdr), image_base) == (ssize_t)sizeof(first_hdr)
+			&& (CONTAINER_TAG == first_hdr.tag || IMX9_CONTAINER_TAG_V2X == first_hdr.tag)) {
+		container_alignment = (IMX9_CONTAINER_VERSION_PQC == first_hdr.version) ?
+				IMX9_CONTAINER_ALIGNMENT_V2 : IMX9_CONTAINER_ALIGNMENT_V1;
+	}
+
+	off_t container_base = image_base;
+	for (int slot = 0; slot < IMX9_MAX_CONTAINERS; slot++) {
+		ahab_container_header_t container_hdr = {0};
+		ahab_container_signature_block_t sig_blk = {0};
+		off_t sig_blk_base = 0, blob_offset = 0;
+
+		if (pread(file_fd, &container_hdr, sizeof(container_hdr), container_base)
+				!= (ssize_t)sizeof(container_hdr))
+			break;
+
+		if (CONTAINER_TAG != container_hdr.tag && IMX9_CONTAINER_TAG_V2X != container_hdr.tag)
+			break;
+
+		if (0 != container_hdr.signature_block_offset) {
+			sig_blk_base = container_base + container_hdr.signature_block_offset;
+			if (pread(file_fd, &sig_blk, sizeof(sig_blk), sig_blk_base)
+					== (ssize_t)sizeof(sig_blk)
+					&& SIG_BLK_TAG == sig_blk.tag && 0 != sig_blk.blob_offset) {
+				blob_offset = sig_blk_base + sig_blk.blob_offset;
+				if (pwrite(file_fd, &dek_blob[0], dek_blob.size(), blob_offset)
+						== (ssize_t)dek_blob.size()) {
+					LOG(INFO) << "dek blob inserted at offset " << blob_offset;
+					ret = NO_ERROR;
+				} else {
+					ret = FILE_ERROR;
+				}
+				break;
+			}
+		}
+
+		container_base += IMX9_ALIGN(container_hdr.length, container_alignment);
+	}
+
+	if (ret == IMAGE_ERROR)
+		printf("No AHAB container with a DEK slot found!\r\n");
+
+	close(file_fd);
+	return ret;
+}
+
 static int connectAIDL() {
 	int ret = 0;
 
@@ -208,10 +306,16 @@ static error_t insert_dek_blob(soc_type_t soc, std::vector<uint8_t> dek_blob, im
 		case QM:
 		case QX:
 		case ULP:
-		case IMX9:
 			ret = insert_dek_blob_to_container(image_t, target_device, dek_blob, bootloader0_offset_byte);
 			if (ret) {
 				printf("Failed to insert dek_blob to container, exit! %d\r\n", ret);
+				return OTHER_ERROR;
+			}
+			break;
+		case IMX9:
+			ret = insert_dek_blob_to_container_imx9(image_t, target_device, dek_blob, bootloader0_offset_byte);
+			if (ret) {
+				printf("Failed to insert dek_blob to imx9 container, exit! %d\r\n", ret);
 				return OTHER_ERROR;
 			}
 			break;
