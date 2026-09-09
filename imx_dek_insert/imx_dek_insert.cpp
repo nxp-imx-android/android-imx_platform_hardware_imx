@@ -266,7 +266,11 @@ int main(int argc, char** argv) {
 					soc = QX;
 				else if(!strncmp(optarg, "imx8ulp", 7))
 					soc = ULP;
-				else if(!strncmp(optarg, "imx93", 5))
+				else if(!strncmp(optarg, "imx937", 6))
+					soc = IMX9;
+				else if(!strncmp(optarg, "imx95", 5))
+					soc = IMX9;
+				else if(!strncmp(optarg, "imx952", 6))
 					soc = IMX9;
 				else {
 					printf("unrecognized SOC: %s \n",optarg);
