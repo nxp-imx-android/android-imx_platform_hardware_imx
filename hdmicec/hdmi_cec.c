@@ -202,8 +202,33 @@ static int hdmicec_send_message(const struct hdmi_cec_device *dev, const cec_mes
 
     ret = ioctl(ctx->cec_fd, CEC_TRANSMIT, &cec_msg);
     if (ret) {
-        ALOGD("%s: %m\n", __func__);
-        return HDMI_RESULT_FAIL;
+        int saved_errno = errno;
+        /* Kernel returns EPERM when adapter has no logical address (num_log_addrs==0),
+         * e.g. after cec_init() cleared it and before framework allocated one.
+         * Allocate one from the message initiator and retry the transmit once. */
+        if (saved_errno == EPERM) {
+            struct cec_log_addrs laddrs = {};
+            /* Only self-allocate if the adapter still has no logical address.
+             * Re-check guards against racing a framework that is concurrently
+             * assigning one (HdmiControlService present), avoiding a double
+             * CEC_ADAP_S_LOG_ADDRS. */
+            if (ioctl(ctx->cec_fd, CEC_ADAP_G_LOG_ADDRS, &laddrs) == 0 &&
+                laddrs.num_log_addrs == 0) {
+                ALOGD("%s: CEC_TRANSMIT EPERM (no logical address), allocating from initiator=0x%x and retrying\n",
+                      __func__, msg->initiator);
+                int add_ret = hdmicec_add_logical_address(dev, (cec_logical_address_t)msg->initiator);
+                if (add_ret == 0) {
+                    ret = ioctl(ctx->cec_fd, CEC_TRANSMIT, &cec_msg);
+                    saved_errno = errno;
+                } else {
+                    ALOGD("%s: add_logical_address failed: %s\n", __func__, strerror(errno));
+                }
+            }
+        }
+        if (ret) {
+            ALOGD("%s: %s\n", __func__, strerror(saved_errno));
+            return HDMI_RESULT_FAIL;
+        }
     }
 
     if (cec_msg.tx_status != CEC_TX_STATUS_OK)
