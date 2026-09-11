@@ -25,6 +25,7 @@
 #include <hardware/camera_common.h>
 #include <linux/videodev2.h>
 #include <log/log.h>
+#include <unistd.h>
 
 #include "CameraDeviceHWLImpl.h"
 #include "CameraDeviceSessionHWLImpl.h"
@@ -61,15 +62,66 @@ status_t CameraProviderHwlImpl::Initialize() {
     mCameraDef = mCameraCfgParser.mcamera();
     memset(&mCallback, 0, sizeof(mCallback));
 
-    cameraManager_ = std::make_unique<libcamera::CameraManager>();
-    cameraManager_->cameraAdded.connect(this, &CameraProviderHwlImpl::cameraAdded);
-    cameraManager_->cameraRemoved.connect(this, &CameraProviderHwlImpl::cameraRemoved);
+    // frdm_937's two AP1302 sensor entities register asynchronously and can
+    // appear after libcamera's one-shot enumeration, leaving one camera missing
+    // until a provider restart. Retry enumeration to cover that race; gated on
+    // imx937 so other platforms keep the original single-shot behavior.
+    char socType[PROPERTY_VALUE_MAX] = {0};
+    property_get("ro.boot.soc_type", socType, "");
+    const bool enableEnumRetry = (strcmp(socType, "imx937") == 0);
 
-    int ret = cameraManager_->start();
-    if (ret) {
-        ALOGE("%s: Failed to start camera manager, ret %d", __func__, ret);
+    size_t expectedCameraNum = 0;
+    for (const auto& iter : mCameraDef.camera_id_map_) {
+        if (iter.second.size() < 2)
+            expectedCameraNum++;
+    }
+
+    const int kMaxEnumRetry = enableEnumRetry ? 5 : 1;
+    const useconds_t kEnumRetryDelayUs = 500 * 1000;
+
+    int ret = 0;
+    for (int attempt = 0; attempt < kMaxEnumRetry; attempt++) {
+        cameraManager_ = std::make_unique<libcamera::CameraManager>();
+        cameraManager_->cameraAdded.connect(this, &CameraProviderHwlImpl::cameraAdded);
+        cameraManager_->cameraRemoved.connect(this, &CameraProviderHwlImpl::cameraRemoved);
+
+        ret = cameraManager_->start();
+        if (ret) {
+            ALOGE("%s: Failed to start camera manager, ret %d, attempt %d", __func__, ret,
+                  attempt);
+            cameraManager_.reset();
+            return ret;
+        }
+
+        if (!enableEnumRetry || expectedCameraNum == 0 ||
+            cameraIdMap_.size() >= expectedCameraNum) {
+            ALOGI("%s: enumerated %zu camera(s), expected %zu, attempt %d", __func__,
+                  cameraIdMap_.size(), expectedCameraNum, attempt);
+            break;
+        }
+
+        // Out of retries: keep whatever was enumerated (never fewer than the
+        // original single-shot behavior) instead of tearing down to an empty map.
+        if (attempt + 1 >= kMaxEnumRetry) {
+            ALOGW("%s: enumerated only %zu camera(s), expected %zu after %d attempts",
+                  __func__, cameraIdMap_.size(), expectedCameraNum, kMaxEnumRetry);
+            break;
+        }
+
+        ALOGW("%s: enumerated only %zu camera(s), expected %zu, retrying (attempt %d/%d)",
+              __func__, cameraIdMap_.size(), expectedCameraNum, attempt + 1, kMaxEnumRetry);
+
+        // Tear down this enumeration and retry a fresh one. cameraRemoved is not
+        // invoked on stop(), so drop the stale wrappers/map ourselves before the
+        // next start() re-populates them.
+        cameraManager_->stop();
+        for (auto& t : cameraIdMap_)
+            delete t.second;
+        cameraIdMap_.clear();
+        camera_id_maps.clear();
         cameraManager_.reset();
-        return ret;
+
+        usleep(kEnumRetryDelayUs);
     }
 
     return OK;
