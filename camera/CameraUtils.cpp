@@ -115,22 +115,15 @@ int32_t ImageBufferToStreamBuffer(ImxImageBuffer &imageBuffer, ImxStreamBuffer &
         return -EINVAL;
     }
 
-    stream->mFormat = imageBuffer.mFormat;
-    stream->mWidth = imageBuffer.mWidth;
-    stream->mHeight = imageBuffer.mHeight;
-    stream->mUsage = imageBuffer.mUsage;
-    streamBuffer.mStride = imageBuffer.mStride;
-    streamBuffer.mHeightSpan = imageBuffer.mHeightSpan;
-    streamBuffer.mPinnedStride = imageBuffer.mPinnedStride;
-    streamBuffer.mPinnedWidth = imageBuffer.mPinnedWidth;
-    streamBuffer.mVirtAddr = imageBuffer.mVirtAddr;
-    streamBuffer.mPhyAddr = imageBuffer.mPhyAddr;
-    streamBuffer.mFd = imageBuffer.mFd;
-    streamBuffer.mSize = imageBuffer.mSize;
-    streamBuffer.mFormatSize = imageBuffer.mFormatSize;
-    streamBuffer.buffer = imageBuffer.buffer;
+    // Copy all ImxImageBuffer fields at once via base-class assignment.
+    static_cast<ImxImageBuffer &>(streamBuffer) = imageBuffer;
+
+    // Sync stream-level metadata from the image buffer.
+    stream->mFormat    = imageBuffer.mFormat;
+    stream->mWidth     = imageBuffer.mWidth;
+    stream->mHeight    = imageBuffer.mHeight;
+    stream->mUsage     = imageBuffer.mUsage;
     stream->mZoomRatio = imageBuffer.mZoomRatio;
-    streamBuffer.mDewarp = imageBuffer.mDewarp;
 
     return 0;
 }
@@ -142,23 +135,21 @@ int32_t StreamBufferToImageBuffer(ImxStreamBuffer &streamBuffer, ImxImageBuffer 
         return -EINVAL;
     }
 
-    imageBuffer.mFormat = stream->format();
-    imageBuffer.mWidth = stream->width();
-    imageBuffer.mHeight = stream->height();
-    imageBuffer.mStride = (streamBuffer.mStride != 0) ? streamBuffer.mStride : stream->width();
-    imageBuffer.mHeightSpan =
-            (streamBuffer.mHeightSpan != 0) ? streamBuffer.mHeightSpan : stream->height();
-    imageBuffer.mPinnedStride = streamBuffer.mPinnedStride;
-    imageBuffer.mPinnedWidth = streamBuffer.mPinnedWidth;
-    imageBuffer.mVirtAddr = streamBuffer.mVirtAddr;
-    imageBuffer.mPhyAddr = streamBuffer.mPhyAddr;
-    imageBuffer.mFd = streamBuffer.mFd;
-    imageBuffer.mSize = streamBuffer.mSize;
-    imageBuffer.mFormatSize = streamBuffer.mFormatSize;
-    imageBuffer.buffer = streamBuffer.buffer;
+    // Copy all ImxImageBuffer fields at once via base-class assignment, then
+    // apply stream-owned values and zero-fallback overrides below.
+    imageBuffer = static_cast<const ImxImageBuffer &>(streamBuffer);
+
+    // Stream owns format, dimensions, usage and zoom ratio; override the copied values.
+    imageBuffer.mFormat    = stream->format();
+    imageBuffer.mWidth     = stream->width();
+    imageBuffer.mHeight    = stream->height();
+    imageBuffer.mUsage     = stream->usage();
     imageBuffer.mZoomRatio = stream->mZoomRatio;
-    imageBuffer.mDewarp = streamBuffer.mDewarp;
-    imageBuffer.mUsage = stream->usage();
+
+    // Fall back to stream dimensions when the buffer fields are zero.
+    if (imageBuffer.mStride == 0)     imageBuffer.mStride     = stream->width();
+    if (imageBuffer.mHeightSpan == 0) imageBuffer.mHeightSpan = stream->height();
+
     imageBuffer.mPrivate = NULL;
 
     return 0;
