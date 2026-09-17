@@ -902,6 +902,20 @@ HWC3::Error ClientFrameComposer::presentDisplay(
     if (readback) {
         buffer_handle_t cvtSrc = framebuffer;
         buffer_handle_t cvtDst = display->waitAndGetReadbackBuffer();
+        // G2D has no in-fence, so wait for composition on the CPU side before the
+        // readback blit; otherwise G2D may read a half-drawn framebuffer (MA-25378).
+        if (cvtSrc == nullptr) {
+            ALOGE("%s: display:%d readback source framebuffer is null", __FUNCTION__, displayId);
+            return HWC3::Error::BadParameter;
+        }
+        if (fbInFence.ok()) {
+            int err = sync_wait(fbInFence.get(), 3000);
+            if (err < 0 && errno == ETIME) {
+                ALOGE("%s: display:%d readback wait fb fence %" PRId32 " timeout", __FUNCTION__,
+                      displayId, fbInFence.get());
+            }
+            fbInFence = ::android::base::unique_fd();
+        }
         HandleInfo cvtSrcInfo, cvtDstInfo;
         if ((getInfoFromHandle(cvtSrc, &cvtSrcInfo) != 0) ||
             (getInfoFromHandle(cvtDst, &cvtDstInfo) != 0))
